@@ -12,6 +12,74 @@
     };
   }
 
+  function getIconClass(columnType, network) {
+    if (columnType === 'notifications') return 'ic-n';
+    if (columnType === 'search' || columnType === 'settings') return 'ic-s';
+    return network === 'b' ? 'ic-b' : 'ic-x';
+  }
+
+  function getStoredValue(storedColumn, key, fallback) {
+    return storedColumn?.[key] || fallback;
+  }
+
+  function createXColumnPlan({ definition, id, account, storedColumn }) {
+    if (definition.columnType === 'list' && !storedColumn?.url) {
+      return { kind: 'input-required', input: 'x-list' };
+    }
+
+    const accountIndex = account?.index ?? 0;
+    const accountLabel = account?.username ? ` · ${account.username}` : '';
+    const url = definition.columnType === 'list'
+      ? storedColumn.url
+      : definition.defaultParams.url || storedColumn?.url;
+    return {
+      kind: 'wv',
+      partition: getStoredValue(storedColumn, 'partition', account?.partition || `persist:x-${accountIndex}`),
+      config: {
+        id,
+        title: getStoredValue(storedColumn, 'title', definition.label),
+        sub: getStoredValue(storedColumn, 'sub', `X${accountLabel}`),
+        url,
+        icCls: getIconClass(definition.columnType, definition.network),
+        icon: definition.icon,
+        network: definition.network,
+        definitionId: definition.id,
+      },
+    };
+  }
+
+  function createBlueskyColumnPlan({ definition, id, storedColumn }) {
+    const commonConfig = {
+      id,
+      title: getStoredValue(storedColumn, 'title', definition.label),
+      sub: getStoredValue(storedColumn, 'sub', 'Bluesky'),
+      icCls: getIconClass(definition.columnType, definition.network),
+      icon: definition.icon,
+      network: definition.network,
+      definitionId: definition.id,
+    };
+
+    if (definition.columnType === 'settings') {
+      return {
+        kind: 'wv',
+        partition: getStoredValue(storedColumn, 'partition', 'persist:bsky'),
+        config: {
+          ...commonConfig,
+          url: definition.defaultParams.url || storedColumn?.url,
+        },
+      };
+    }
+
+    return {
+      kind: 'bsky',
+      config: {
+        ...commonConfig,
+        type: definition.defaultParams.runtimeType || storedColumn?.type,
+        feedUri: storedColumn?.feedUri || definition.defaultParams.feedUri || null,
+      },
+    };
+  }
+
   function createXAdapter({ icons }) {
     return {
       id: 'x',
@@ -19,6 +87,7 @@
       kind: 'webview-backed',
       capabilities: {
         columns: {
+          createPlan: createXColumnPlan,
           definitions: [
             createDefinition({
               id: 'x-home-new',
@@ -83,6 +152,7 @@
       kind: 'api-backed',
       capabilities: {
         columns: {
+          createPlan: createBlueskyColumnPlan,
           definitions: [
             createDefinition({
               id: 'b-timeline-new',
@@ -198,6 +268,7 @@
       }
 
       if (storedColumn.kind === 'wv') {
+        if (!storedColumn.url?.includes('/settings')) return null;
         return definitions.find(definition => definition.columnType === 'settings') || null;
       }
 
@@ -207,12 +278,28 @@
       )) || null;
     }
 
+    function createColumnPlan({ networkId, definitionId, id, account, storedColumn } = {}) {
+      const definition = storedColumn
+        ? resolveColumnDefinition(storedColumn)
+        : getColumnDefinition(networkId, definitionId);
+      if (!definition) return null;
+
+      const adapter = getAdapter(definition.network);
+      return adapter?.capabilities?.columns?.createPlan({
+        definition,
+        id: id || storedColumn?.id,
+        account,
+        storedColumn,
+      }) || null;
+    }
+
     return {
       adapters,
       getAdapter,
       getColumnDefinitions,
       getColumnDefinition,
       resolveColumnDefinition,
+      createColumnPlan,
     };
   }
 

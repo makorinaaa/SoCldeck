@@ -193,55 +193,61 @@ function loadColLayout() {
   return columnRuntime.getLayoutForCurrentMode();
 }
 
+function insertColumnPlan(plan) {
+  if (plan?.kind === 'wv') {
+    insertWebViewCol(plan.config, null, plan.partition);
+    return true;
+  }
+  if (plan?.kind === 'bsky') {
+    insertBskyCol(plan.config);
+    return true;
+  }
+  return false;
+}
+
+function insertLegacyStoredColumn(col) {
+  if (col.kind === 'wv') {
+    let icon = SVG.x;
+    let icCls = col.icCls || 'ic-x';
+    if (col.partition === 'persist:bsky') { icon = SVG.gear; }
+    else if (col.url?.includes('notifications')) { icon = SVG.bell; icCls = 'ic-n'; }
+    else if (col.url?.includes('search')) { icCls = 'ic-s'; }
+    else if (col.url?.includes('settings')) { icon = SVG.gear; icCls = 'ic-s'; }
+    insertWebViewCol({
+      id: col.id, title: col.title, sub: col.sub,
+      url: col.url, icCls, icon,
+    }, null, col.partition || 'persist:x-0');
+    return;
+  }
+
+  if (col.kind === 'bsky') {
+    let icon = SVG.bsky;
+    let icCls = col.icCls || 'ic-b';
+    if (col.type === 'notif') { icon = SVG.bell; icCls = 'ic-n'; }
+    else if (col.type === 'search') { icCls = 'ic-s'; }
+    insertBskyCol({
+      id: col.id, title: col.title, sub: col.sub,
+      type: col.type, feedUri: col.feedUri || null, icCls, icon,
+    });
+  }
+}
+
 function restoreColLayout() {
   const layout = loadColLayout();
   if (!layout.length) return false;
 
   layout.forEach(col => {
-    const definition = networkAdapters.resolveColumnDefinition(col);
-    if (col.kind === 'wv') {
-      let icon = definition?.icon || SVG.x;
-      let icCls = definition
-        ? getColumnIconClass(definition.columnType, definition.network)
-        : col.icCls || 'ic-x';
-      if (!definition && col.partition === 'persist:bsky') { icon = SVG.gear; }
-      else if (!definition && col.url?.includes('notifications')) { icon = SVG.bell; icCls = 'ic-n'; }
-      else if (!definition && col.url?.includes('search')) { icCls = 'ic-s'; }
-      else if (!definition && col.url?.includes('settings')) { icon = SVG.gear; icCls = 'ic-s'; }
+    const plan = networkAdapters.createColumnPlan({ storedColumn: col });
+    if (!insertColumnPlan(plan)) insertLegacyStoredColumn(col);
 
-      const defaultUrl = definition?.defaultParams?.url;
-      const url = definition?.columnType === 'list' ? col.url : defaultUrl || col.url;
-
-      insertWebViewCol({
-        id: col.id, title: col.title, sub: col.sub,
-        url, icCls, icon,
-        network: definition?.network,
-        definitionId: definition?.id,
-      }, null, col.partition || 'persist:x-0');
-
-      if (col.interval !== undefined) {
-        clearAutoRefresh(col.id);
+    if (col.interval !== undefined) {
+      clearAutoRefresh(col.id);
+      if (plan?.kind === 'wv' || col.kind === 'wv') {
         setAutoRefreshWv(col.id, col.interval);
-      }
-    } else if (col.kind === 'bsky') {
-      const runtimeType = definition?.defaultParams?.runtimeType || col.type;
-      let icon = definition?.icon || SVG.bsky;
-      let icCls = definition
-        ? getColumnIconClass(definition.columnType, definition.network)
-        : col.icCls || 'ic-b';
-      if (!definition && col.type === 'notif') { icon = SVG.bell; icCls = 'ic-n'; }
-      else if (!definition && col.type === 'search') { icCls = 'ic-s'; }
-
-      insertBskyCol({
-        id: col.id, title: col.title, sub: col.sub,
-        type: runtimeType, feedUri: col.feedUri || definition?.defaultParams?.feedUri || null, icCls, icon,
-        network: definition?.network,
-        definitionId: definition?.id,
-      });
-
-      if (col.interval !== undefined) {
-        clearAutoRefresh(col.id);
-        setAutoRefresh(col.id, col.interval, runtimeType, col.feedUri || definition?.defaultParams?.feedUri || null);
+      } else {
+        const type = plan?.config?.type || col.type;
+        const feedUri = plan?.config?.feedUri || col.feedUri || null;
+        setAutoRefresh(col.id, col.interval, type, feedUri);
       }
     }
 
@@ -2685,76 +2691,28 @@ function mkOpt(id, icon, name, desc, disabled, plat) {
 }
 
 let extraColN = 0;
-function getColumnIconClass(columnType, network) {
-  if (columnType === 'notifications') return 'ic-n';
-  if (columnType === 'search' || columnType === 'settings') return 'ic-s';
-  return network === 'b' ? 'ic-b' : 'ic-x';
-}
-
 function addColFromModal(definitionId, network, accountIdx) {
   closeOv('addMod');
-  const definition = networkAdapters.getColumnDefinition(network, definitionId);
-  if (!definition) {
-    toast('Column type is unavailable');
-    return;
-  }
-
   extraColN++;
   // X: アカウントindexをIDに含めて一意にする
   const id = network === 'x'
-    ? `x${accountIdx}-${definition.id}-${extraColN}`
-    : `${definition.id}-${extraColN}`;
+    ? `x${accountIdx}-${definitionId}-${extraColN}`
+    : `${definitionId}-${extraColN}`;
+  const xAccount = network === 'x' ? state.xs?.[accountIdx ?? 0] : null;
+  const plan = networkAdapters.createColumnPlan({
+    networkId: network,
+    definitionId,
+    id,
+    account: xAccount ? { ...xAccount, index: accountIdx ?? 0 } : null,
+  });
 
-  if (network === 'x') {
-    if (definition.columnType === 'list') {
-      openXListDialog(accountIdx);
-      return;
-    }
-
-    const acc = state.xs?.[accountIdx ?? 0];
-    const xPart = acc?.partition || `persist:x-${accountIdx ?? 0}`;
-    const accLabel = acc ? ` · ${acc.username}` : '';
-    insertWebViewCol({
-      id,
-      title: definition.label,
-      sub: `X${accLabel}`,
-      url: definition.defaultParams.url || 'https://x.com',
-      icCls: getColumnIconClass(definition.columnType, network),
-      icon: definition.icon,
-      network: definition.network,
-      definitionId: definition.id,
-    }, null, xPart);
-  } else {
-    // Bluesky設定はWebViewで表示
-    if (definition.columnType === 'settings') {
-      insertWebViewCol({
-        id,
-        title: definition.label,
-        sub: 'Bluesky',
-        url: definition.defaultParams.url,
-        icCls: getColumnIconClass(definition.columnType, network),
-        icon: definition.icon,
-        network: definition.network,
-        definitionId: definition.id,
-      }, null, 'persist:bsky');
-    } else {
-      const runtimeType = definition.defaultParams.runtimeType;
-      if (!runtimeType) {
-        toast('Column type is unavailable');
-        return;
-      }
-      insertBskyCol({
-        id,
-        title: definition.label,
-        sub: 'Bluesky',
-        type: runtimeType,
-        feedUri: definition.defaultParams.feedUri,
-        icCls: getColumnIconClass(definition.columnType, network),
-        icon: definition.icon,
-        network: definition.network,
-        definitionId: definition.id,
-      });
-    }
+  if (plan?.kind === 'input-required' && plan.input === 'x-list') {
+    openXListDialog(accountIdx);
+    return;
+  }
+  if (!insertColumnPlan(plan)) {
+    toast('Column type is unavailable');
+    return;
   }
 
   const cols = document.getElementById('cols');
