@@ -25,7 +25,7 @@ async function apiGet(endpoint, params = {}, token = null) {
   return res.json();
 }
 
-// 繝医・繧ｯ繝ｳ繝ｪ繝輔Ξ繝・す繝･・郁・蜍募他縺ｳ蜃ｺ縺礼畑・・let _refreshPromise = null; // 荳ｦ蛻励Μ繝輔Ξ繝・す繝･髦ｲ豁｢
+let _refreshPromise = null;
 async function refreshBskyToken() {
   if (_refreshPromise) return _refreshPromise; // 譌｢縺ｫ螳溯｡御ｸｭ縺ｪ繧牙酔縺榔romise繧定ｿ斐☆
   _refreshPromise = (async () => {
@@ -124,7 +124,7 @@ const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
 
 function saveColLayout() {
-  // 繧ｦ繧｣繧ｸ繧ｧ繝・ヨ繝｢繝ｼ繝峨〒縺ｯ菫晏ｭ倥＠縺ｪ縺・ｼ医Γ繧､繝ｳ繧ｦ繧｣繝ｳ繝峨え縺ｮ繝ｬ繧､繧｢繧ｦ繝医ｒ螢翫＆縺ｪ縺・◆繧・ｼ・  if (new URLSearchParams(location.search).get('widget') === '1') return;
+  if (new URLSearchParams(location.search).get('widget') === '1') return;
   const cols = document.getElementById('cols');
   if (!cols) return;
   const layout = [];
@@ -134,7 +134,7 @@ function saveColLayout() {
     if (wv) {
       // WebView繧ｫ繝ｩ繝
       const wvId = col.id.replace('col-', '');
-      // X邉ｻ縺ｮURL縺ｯ迴ｾ蝨ｨ縺ｮ繝壹・繧ｸ・郁ｿ比ｿ｡繝ｻ繝・う繝ｼ繝郁ｩｳ邏ｰ遲会ｼ峨〒縺ｯ縺ｪ縺上・繝ｼ繝縺ｫ豁｣隕丞喧縺励※菫晏ｭ・      let savedUrl = normalizeXUrl(wv.src);
+      let savedUrl = normalizeXUrl(wv.src);
       layout.push({
         kind: 'wv',
         id: wvId,
@@ -734,7 +734,7 @@ function renderDefaultCols() {
   const cols = document.getElementById('cols');
   cols.querySelectorAll('.col').forEach(c => c.remove());
 
-  // 菫晏ｭ俶ｸ医∩繝ｬ繧､繧｢繧ｦ繝医′縺ゅｌ縺ｰ蠕ｩ蜈・  if (restoreColLayout()) return;
+  if (restoreColLayout()) return;
 
   // 蛻晏屓襍ｷ蜍・ Bluesky縺ｮ繝・ヵ繧ｩ繝ｫ繝医き繝ｩ繝縺ｮ縺ｿ霑ｽ蜉
   if (state.b) {
@@ -1169,7 +1169,7 @@ function bskyScrollTop(cid) {
   if (feedEl) feedEl.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// 繧ｹ繝繝ｼ繧ｺ繝ｪ繝ｭ繝ｼ繝・ 繧ｭ繝｣繝励メ繝｣ 竊・繧ｪ繝ｼ繝舌・繝ｬ繧､陦ｨ遉ｺ 竊・reload 竊・繝輔ぉ繝ｼ繝峨い繧ｦ繝・let xPostingNow = false;
+let xPostingNow = false;
 const wvReloadQueue = new Set();
 const wvSilentReloading = new Set();
 
@@ -1300,7 +1300,7 @@ async function softReloadX(id) {
         });
       })();
     `);
-    // 'clicked' 縺ｨ 'scrolled' 縺ｯ謌仙粥謇ｱ縺・・none' 縺ｯ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ隕∵ｱ・    return result === 'clicked';
+    return result === 'clicked';
   } catch {
     return false;
   }
@@ -1308,7 +1308,7 @@ async function softReloadX(id) {
 
 function setAutoRefreshWv(id, ms) {
   refreshScheduler.set(id, ms, async () => {
-    // 縺ｾ縺壹た繝輔ヨ繝ｪ繝ｭ繝ｼ繝峨ｒ隧ｦ縺ｿ縲∝柑縺九↑縺・ｴ蜷医・縺ｿ蠕捺擂縺ｮ繝輔Ν繝ｪ繝ｭ繝ｼ繝・    const ok = await softReloadX(id);
+    const ok = await softReloadX(id);
     if (!ok) wvReload(id, { silent: true });
   });
 }
@@ -1585,7 +1585,8 @@ async function hoverCardToggleFollow(btnEl) {
 
 function _hoverCardPosition(card, target) {
   const rect = target.getBoundingClientRect();
-  const cardW = 280, cardH = 200; // 讎らｮ・  const vw = window.innerWidth, vh = window.innerHeight;
+  const cardW = 280, cardH = 200;
+  const vw = window.innerWidth, vh = window.innerHeight;
 
   let left = rect.left;
   let top = rect.bottom + 8;
@@ -1850,14 +1851,14 @@ function openBskyProfileCol(handleOrDid) {
 
 // 笏笏笏 COMPOSE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 function renderCompUI() {
-  // 繧ｵ繧､繝峨ヰ繝ｼ謚慕ｨｿ繝懊ち繝ｳ縺ｮ陦ｨ遉ｺ蛻・ｊ譖ｿ縺・  const xBtn = document.getElementById('sb-post-x');
+  const xBtn = document.getElementById('sb-post-x');
   const bBtn = document.getElementById('sb-post-b');
   if (xBtn) xBtn.style.display = (state.xs && state.xs.length > 0) ? 'flex' : 'none';
   if (bBtn) bBtn.style.display = state.b ? 'flex' : 'none';
 
-  // 騾夂衍繧｢繧､繧ｳ繝ｳ繧呈緒逕ｻ・・b-notif-icons縺ｫ荳譛ｬ蛹厄ｼ・  renderNotifIcons();
+  renderNotifIcons();
 
-  // Bluesky謚慕ｨｿ繝｢繝ｼ繝繝ｫ縺ｮ繧｢繝舌ち繝ｼ險ｭ螳・  const avEl = document.getElementById('comp-av');
+  const avEl = document.getElementById('comp-av');
   if (avEl && state.b) {
     avEl.style.background = state.b.bg || '';
     if (state.b.avatar) {
@@ -1867,7 +1868,7 @@ function renderCompUI() {
     }
   }
 
-  // X謚慕ｨｿ繝｢繝ｼ繝繝ｫ縺ｮ繧｢繝舌ち繝ｼ險ｭ螳・  const xAvEl = document.getElementById('x-post-av');
+  const xAvEl = document.getElementById('x-post-av');
   const activeXAcc = state.xs?.[state.activeX || 0];
   if (xAvEl && activeXAcc) {
     xAvEl.style.background = activeXAcc.bg || '';
@@ -1883,7 +1884,7 @@ function openComp() {
 let selectedXIdx = 0; // 謚慕ｨｿ縺ｫ菴ｿ縺・繧｢繧ｫ繧ｦ繝ｳ繝医・index
 
 function openXPost() {
-  // 繧｢繧ｫ繧ｦ繝ｳ繝磯∈謚朸I繧呈ｧ狗ｯ・  const sel = document.getElementById('x-acc-select');
+  const sel = document.getElementById('x-acc-select');
   const xs = state.xs || [];
 
   if (xs.length <= 1) {
@@ -1933,7 +1934,11 @@ function updateXPostAv() {
 }
 
 // 笏笏笏 X謚慕ｨｿ 逕ｻ蜒上・蜍慕判邂｡逅・笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-let xImgFiles = [];    // File[] 譛螟ｧ4譫・let xVideoFile = null; // 蜍慕判File・・譛ｬ・・let xVideoPath = null; // 蜍慕判縺ｮ繝ｭ繝ｼ繧ｫ繝ｫ繝代せ・・lectron迺ｰ蠅・ｼ・let xTrimIn = 0;       // 繝医Μ繝髢句ｧ狗ｧ・let xTrimOut = 0;      // 繝医Μ繝邨ゆｺ・ｧ・
+let xImgFiles = [];
+let xVideoFile = null;
+let xVideoPath = null;
+let xTrimIn = 0;
+let xTrimOut = 0;
 function setFFmpegStatus(msg) {
   const el = document.getElementById('x-ffmpeg-status');
   if (el) el.textContent = msg;
@@ -2735,7 +2740,7 @@ function applyColFontSize(id, colType, fs) {
     if (feed) feed.style.fontSize = fs + 'px';
   }
   toast(`譁・ｭ励し繧､繧ｺ: ${fs}px`);
-  // 繝繧､繧｢繝ｭ繧ｰ繧呈峩譁ｰ・育樟蝨ｨ驕ｸ謚樔ｸｭ繧貞渚譏・・  document.getElementById('col-settings-ov')?.remove();
+  document.getElementById('col-settings-ov')?.remove();
 }
 
 function showPostMenu(e, handle) {
@@ -2931,7 +2936,7 @@ function goToNotifCol(plat, xIdx) {
   // 繧ｫ繝ｩ繝縺ｫ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ
   if (targetCol) {
     targetCol.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
-    // 荳迸ｬ繝上う繝ｩ繧､繝・    targetCol.style.outline = '2px solid var(--accent)';
+    targetCol.style.outline = '2px solid var(--accent)';
     setTimeout(() => { targetCol.style.outline = ''; }, 1200);
   }
 }
