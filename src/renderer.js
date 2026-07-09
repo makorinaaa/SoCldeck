@@ -129,64 +129,12 @@ function saveColLayout() {
   if (new URLSearchParams(location.search).get('widget') === '1') return;
   const cols = document.getElementById('cols');
   if (!cols) return;
-  const layout = [];
-  cols.querySelectorAll('.col').forEach(col => {
-    const d = col.dataset;
-    const wv = col.querySelector('webview');
-    if (wv) {
-      // WebViewカラム
-      const wvId = col.id.replace('col-', '');
-      const savedUrl = normalizeXUrl(wv.src);
-      const definition = networkAdapters.resolveColumnDefinition({
-        kind: 'wv',
-        network: d.network,
-        definitionId: d.definitionId,
-        url: wv.src,
-        partition: wv.partition,
-      });
-      layout.push({
-        kind: 'wv',
-        ...(definition && { network: definition.network, definitionId: definition.id }),
-        id: wvId,
-        url: savedUrl,
-        partition: wv.partition,
-        title: col.querySelector('.col-title')?.textContent || '',
-        sub: col.querySelector('.col-sub')?.textContent?.trim() || '',
-        icCls: col.querySelector('.col-ic')?.className?.replace('col-ic ', '') || 'ic-x',
-        width: col.style.width || '',
-        interval: autoRefreshIntervals[wvId] ?? DEFAULT_INTERVAL_MS,
-        collapsed: collapsedCols.has(wvId),
-      });
-    } else if (d.type) {
-      // Bskyカラム
-      const bskyId = col.id.replace('col-', '');
-      const definition = networkAdapters.resolveColumnDefinition({
-        kind: 'bsky',
-        network: d.network,
-        definitionId: d.definitionId,
-        type: d.type,
-        feedUri: d.feeduri || '',
-      });
-      layout.push({
-        kind: 'bsky',
-        ...(definition && { network: definition.network, definitionId: definition.id }),
-        id: bskyId,
-        type: d.type,
-        feedUri: d.feeduri || '',
-        title: col.querySelector('.col-title')?.textContent || '',
-        sub: col.querySelector('.col-sub')?.textContent?.trim() || '',
-        icCls: col.querySelector('.col-ic')?.className?.replace('col-ic ', '') || 'ic-b',
-        width: col.style.width || '',
-        interval: autoRefreshIntervals[bskyId] ?? DEFAULT_INTERVAL_MS,
-        collapsed: collapsedCols.has(bskyId),
-      });
-    }
+  const layout = columnRuntime.captureLayout(cols.querySelectorAll('.col'), {
+    resolveDefinition: storedColumn => networkAdapters.resolveColumnDefinition(storedColumn),
+    getInterval: id => autoRefreshIntervals[id] ?? DEFAULT_INTERVAL_MS,
+    isCollapsed: id => collapsedCols.has(id),
   });
   columnRuntime.writeStoredLayout(layout);
-}
-
-function normalizeXUrl(url) {
-  return columnRuntime.normalizeXUrl(url);
 }
 
 function loadColLayout() {

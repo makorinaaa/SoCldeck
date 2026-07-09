@@ -32,6 +32,66 @@
     storage = global.localStorage,
     locationLike = global.location,
   } = {}) {
+    function captureLayout(columns, {
+      resolveDefinition,
+      getInterval,
+      isCollapsed,
+    }) {
+      function captureCommonState(column, id, defaultIconClass) {
+        return {
+          title: column.querySelector('.col-title')?.textContent || '',
+          sub: column.querySelector('.col-sub')?.textContent?.trim() || '',
+          icCls: column.querySelector('.col-ic')?.className?.replace('col-ic ', '') || defaultIconClass,
+          width: column.style.width || '',
+          interval: getInterval(id),
+          collapsed: isCollapsed(id),
+        };
+      }
+
+      const layout = [];
+      Array.from(columns).forEach(column => {
+        const webview = column.querySelector('webview');
+        const id = column.id.replace('col-', '');
+        if (webview) {
+          const definition = resolveDefinition({
+            kind: 'wv',
+            network: column.dataset.network,
+            definitionId: column.dataset.definitionId,
+            url: webview.src,
+            partition: webview.partition,
+          });
+          layout.push({
+            kind: 'wv',
+            ...(definition && { network: definition.network, definitionId: definition.id }),
+            id,
+            url: normalizeXUrl(webview.src),
+            partition: webview.partition,
+            ...captureCommonState(column, id, 'ic-x'),
+          });
+          return;
+        }
+
+        if (column.dataset.type) {
+          const definition = resolveDefinition({
+            kind: 'bsky',
+            network: column.dataset.network,
+            definitionId: column.dataset.definitionId,
+            type: column.dataset.type,
+            feedUri: column.dataset.feeduri || '',
+          });
+          layout.push({
+            kind: 'bsky',
+            ...(definition && { network: definition.network, definitionId: definition.id }),
+            id,
+            type: column.dataset.type,
+            feedUri: column.dataset.feeduri || '',
+            ...captureCommonState(column, id, 'ic-b'),
+          });
+        }
+      });
+      return layout;
+    }
+
     function readStoredLayout() {
       try {
         return normalizeLayout(JSON.parse(storage.getItem(COLUMN_LAYOUT_KEY)) || []);
@@ -58,6 +118,7 @@
       widgetColumnKey: WIDGET_COLUMN_KEY,
       isWidgetMode: () => isWidgetLocation(locationLike),
       normalizeXUrl,
+      captureLayout,
       readStoredLayout,
       writeStoredLayout,
       getLayoutForCurrentMode,

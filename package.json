@@ -4,6 +4,7 @@
   "description": "TweetDeck風マルチカラムクライアント (X + Bluesky)",
   "main": "src/main.js",
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "start": "electron .",
     "dev": "electron . --dev",
     "build-win": "electron-builder --win",
