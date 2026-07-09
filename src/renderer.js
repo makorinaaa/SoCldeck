@@ -195,10 +195,12 @@ function loadColLayout() {
 
 function insertColumnPlan(plan) {
   if (plan?.kind === 'wv') {
+    registerColumnRefreshPlan(plan.config.id, plan.refresh);
     insertWebViewCol(plan.config, null, plan.partition);
     return true;
   }
   if (plan?.kind === 'bsky') {
+    registerColumnRefreshPlan(plan.config.id, plan.refresh);
     insertBskyCol(plan.config);
     return true;
   }
@@ -242,13 +244,7 @@ function restoreColLayout() {
 
     if (col.interval !== undefined) {
       clearAutoRefresh(col.id);
-      if (plan?.kind === 'wv' || col.kind === 'wv') {
-        setAutoRefreshWv(col.id, col.interval);
-      } else {
-        const type = plan?.config?.type || col.type;
-        const feedUri = plan?.config?.feedUri || col.feedUri || null;
-        setAutoRefresh(col.id, col.interval, type, feedUri);
-      }
+      setColumnAutoRefresh(col.id, col.interval);
     }
 
     if (col.width) {
@@ -593,6 +589,8 @@ async function logoutAll() {
   }
   // 全カラムの自動更新を停止
   refreshScheduler.clearAll();
+  Object.keys(autoRefreshIntervals).forEach(id => delete autoRefreshIntervals[id]);
+  columnRefreshPlans.clear();
   state = { xs: [], activeX: 0, b: null };
   saveState();
   columnRuntime.clearStoredLayout(); // カラムレイアウトもリセット
@@ -679,11 +677,23 @@ const refreshScheduler = window.SocialDeckRefreshScheduler.createRefreshSchedule
 const autoRefreshTimers = refreshScheduler.timers;
 const autoRefreshIntervals = refreshScheduler.intervals;
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
+const columnRefreshPlans = new Map();
 
-// カラムごとに初回発火をずらすためのカウンター
-function setAutoRefresh(cid, ms, type, feedUri) {
-  refreshScheduler.set(cid, ms, () => {
-    silentRefreshBsky(cid, type, feedUri);
+function registerColumnRefreshPlan(id, plan) {
+  if (plan) columnRefreshPlans.set(id, plan);
+}
+
+function setColumnAutoRefresh(id, ms) {
+  const plan = columnRefreshPlans.get(id);
+  refreshScheduler.set(id, ms, async () => {
+    if (plan?.kind === 'wv') {
+      const ok = await softReloadX(id);
+      if (!ok) wvReload(id, { silent: true });
+      return;
+    }
+    if (plan?.kind === 'bsky') {
+      silentRefreshBsky(id, plan.type, plan.feedUri);
+    }
   });
 }
 function clearAutoRefresh(id) {
@@ -788,6 +798,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cfg.id}`;
+  if (!columnRefreshPlans.has(cfg.id)) registerColumnRefreshPlan(cfg.id, { kind: 'wv' });
   if (cfg.network) div.dataset.network = cfg.network;
   if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
   div.innerHTML = `
@@ -1078,7 +1089,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       if (!_domReadyOnce) {
         _domReadyOnce = true;
         if (autoRefreshIntervals[cfg.id] === undefined) {
-          setAutoRefreshWv(cfg.id, DEFAULT_INTERVAL_MS);
+          setColumnAutoRefresh(cfg.id, DEFAULT_INTERVAL_MS);
         }
       }
     });
@@ -1367,19 +1378,15 @@ async function softReloadX(id) {
   }
 }
 
-function setAutoRefreshWv(id, ms) {
-  refreshScheduler.set(id, ms, async () => {
-    const ok = await softReloadX(id);
-    if (!ok) wvReload(id, { silent: true });
-  });
-}
-
 // ─── BLUESKY COLUMN ─────────────────────────────
 function insertBskyCol(cfg, before = null) {
   const cols = document.getElementById('cols');
   const addbtn = before || cols.querySelector('.add-col-btn');
   const cid = cfg.id || `b-${++colIdSeq}`;
   colCursors[cid] = null;
+  if (!columnRefreshPlans.has(cid)) {
+    registerColumnRefreshPlan(cid, { kind: 'bsky', type: cfg.type || 'timeline', feedUri: cfg.feedUri || null });
+  }
 
   const div = document.createElement('div');
   div.className = 'col';
@@ -1402,7 +1409,7 @@ function insertBskyCol(cfg, before = null) {
         <span class="cbadge" id="badge-${cid}" style="display:none"></span>
         <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshBskyCol('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
         <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','bsky','${cfg.type||`timeline`}','${cfg.feedUri||``}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','bsky')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
         <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
@@ -1414,7 +1421,7 @@ function insertBskyCol(cfg, before = null) {
   // 自動ロードとデフォルト自動更新開始
   if (!hasSearch) {
     loadBskyFeed(cid, cfg.type, cfg.feedUri);
-    setAutoRefresh(cid, DEFAULT_INTERVAL_MS, cfg.type, cfg.feedUri);
+    setColumnAutoRefresh(cid, DEFAULT_INTERVAL_MS);
   }
   // フォントサイズ設定を復元
   const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
@@ -1509,6 +1516,8 @@ function refreshBskyCol(cid, btn) {
 
 function removeCol(id) {
   clearAutoRefresh(id);
+  delete autoRefreshIntervals[id];
+  columnRefreshPlans.delete(id);
   const el = document.getElementById(`col-${id}`);
   if (el) el.remove();
   saveColLayout();
@@ -2722,7 +2731,7 @@ function addColFromModal(definitionId, network, accountIdx) {
   saveColLayout();
 }
 
-function openColSettings(id, colType, feedType, feedUri) {
+function openColSettings(id, colType) {
   const ms = refreshScheduler.getInterval(id, DEFAULT_INTERVAL_MS);
   const cur = Math.round(ms / 1000);
   const curFs = parseInt(localStorage.getItem(`col_fs_${id}`)) || 13;
@@ -2734,7 +2743,7 @@ function openColSettings(id, colType, feedType, feedUri) {
     <h2 style="margin-bottom:14px">Column settings</h2>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Auto refresh interval</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[15,30,60,120,300,0].map(s=>`<button onclick="applyInterval('${id}','${colType}','${feedType||'timeline'}','${feedUri||''}',${s*1000})"
+      ${[15,30,60,120,300,0].map(s=>`<button onclick="applyInterval('${id}',${s*1000})"
         style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===s?'var(--accent)':'var(--border2)'};background:${cur===s?'var(--accent-dim)':'transparent'};color:${cur===s?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
         ${s===0?'OFF':s<60?s+' sec':s/60+' min'}</button>`).join('')}
     </div>
@@ -2748,9 +2757,8 @@ function openColSettings(id, colType, feedType, feedUri) {
   </div>`;
   document.body.appendChild(ov);
 }
-function applyInterval(id, colType, feedType, feedUri, ms) {
-  if (colType === 'wv') setAutoRefreshWv(id, ms);
-  else setAutoRefresh(id, ms, feedType, feedUri||null);
+function applyInterval(id, ms) {
+  setColumnAutoRefresh(id, ms);
   const label = ms===0?'OFF':ms<60000?(ms/1000)+' sec':(ms/60000)+' min';
   toast('Auto refresh: '+label);
   document.getElementById('col-settings-ov')?.remove();
@@ -3457,15 +3465,7 @@ document.addEventListener('visibilitychange', () => {
     Object.keys(autoRefreshIntervals).forEach(id => {
       const ms = autoRefreshIntervals[id];
       if (!ms || ms <= 0) return;
-      const col = document.getElementById(`col-${id}`);
-      const isWv = !!col?.querySelector('webview');
-      if (isWv) {
-        setAutoRefreshWv(id, ms);
-      } else {
-        const type = col?.dataset?.type || 'timeline';
-        const feedUri = col?.dataset?.feeduri || null;
-        setAutoRefresh(id, ms, type, feedUri);
-      }
+      setColumnAutoRefresh(id, ms);
     });
     if (state.b) startNotifPoll();
     startMemoryCleaner();

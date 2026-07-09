@@ -34,6 +34,7 @@
       : definition.defaultParams.url || storedColumn?.url;
     return {
       kind: 'wv',
+      refresh: { kind: 'wv' },
       partition: getStoredValue(storedColumn, 'partition', account?.partition || `persist:x-${accountIndex}`),
       config: {
         id,
@@ -62,6 +63,7 @@
     if (definition.columnType === 'settings') {
       return {
         kind: 'wv',
+        refresh: { kind: 'wv' },
         partition: getStoredValue(storedColumn, 'partition', 'persist:bsky'),
         config: {
           ...commonConfig,
@@ -70,12 +72,15 @@
       };
     }
 
+    const type = definition.defaultParams.runtimeType || storedColumn?.type;
+    const feedUri = storedColumn?.feedUri || definition.defaultParams.feedUri || null;
     return {
       kind: 'bsky',
+      refresh: { kind: 'bsky', type, feedUri },
       config: {
         ...commonConfig,
-        type: definition.defaultParams.runtimeType || storedColumn?.type,
-        feedUri: storedColumn?.feedUri || definition.defaultParams.feedUri || null,
+        type,
+        feedUri,
       },
     };
   }
