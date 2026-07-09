@@ -123,6 +123,7 @@ const SVG = {
 // ─── COLUMN PERSISTENCE ──────────────────────────
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
+const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({ icons: SVG });
 
 function saveColLayout() {
   if (new URLSearchParams(location.search).get('widget') === '1') return;
@@ -2609,6 +2610,7 @@ function buildOptGrid() {
 
   // X: アカウントごとにセクションを分けて表示
   if (state.xs && state.xs.length > 0) {
+    const xDefinitions = networkAdapters.getColumnDefinitions('x');
     state.xs.forEach((acc, idx) => {
       og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:${idx > 0 ? 10 : 0}px;padding:4px 0;border-bottom:1px solid var(--border)">
         <span style="display:inline-flex;align-items:center;gap:5px">
@@ -2616,11 +2618,9 @@ function buildOptGrid() {
           X · ${esc(acc.username)}
         </span>
       </div>`;
-      og.innerHTML += mkOptX('x-home-new', SVG.x, 'Home', 'x.com/home', idx);
-      og.innerHTML += mkOptX('x-notif-new', SVG.bell, 'Notifications', 'x.com/notifications', idx);
-      og.innerHTML += mkOptX('x-search-new', SVG.x, 'Search', 'x.com/search', idx);
-      og.innerHTML += mkOptX('x-list-new', SVG.x, 'List', 'x.com/i/lists', idx);
-      og.innerHTML += mkOptX('x-settings', SVG.gear, 'Settings', 'x.com/settings', idx);
+      xDefinitions.forEach(def => {
+        og.innerHTML += mkOptX(def.id, def.icon, def.label, def.description, idx);
+      });
     });
   }
 
@@ -2629,11 +2629,9 @@ function buildOptGrid() {
     if (state.xs && state.xs.length > 0) {
       og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">Bluesky · @${state.b.handle}</div>`;
     }
-    og.innerHTML += mkOpt('b-timeline-new', SVG.bsky, 'Timeline', 'Real-time feed', false, 'b');
-    og.innerHTML += mkOpt('b-notif-new', SVG.bell, 'Notifications', 'Real-time notifications', false, 'b');
-    og.innerHTML += mkOpt('b-search-new', SVG.bsky, 'Search', 'Keyword search', false, 'b');
-    og.innerHTML += mkOpt('b-discover', SVG.bsky, 'Discover', 'Recommended feed', false, 'b');
-    og.innerHTML += mkOpt('b-settings', SVG.gear, 'Bsky Settings', 'bsky.app/settings', false, 'b');
+    networkAdapters.getColumnDefinitions('b').forEach(def => {
+      og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'b');
+    });
   }
 }
 
