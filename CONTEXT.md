@@ -1,0 +1,53 @@
+# SocialDeck
+
+SocialDeck is a desktop app for operating multiple social media accounts and columns across networks from one workspace. Its language centers on social operations: accounts, columns, posting, notifications, and cross-network workflows.
+
+## Language
+
+**SocialDeck**:
+A multi-account, multi-column desktop app for operating social media across supported networks.
+_Avoid_: TweetDeck clone, posting tool, viewer
+
+**Column**:
+A workspace unit that presents one stream, tool, or network view inside SocialDeck. Columns are common user-facing units even when their underlying network integration differs.
+_Avoid_: Panel, webview, feed container
+
+**Network Account**:
+An operating identity on a supported social network. A Network Account owns posting, notifications, and account-scoped columns inside SocialDeck, regardless of how that network authenticates.
+_Avoid_: Session, profile, login
+
+**Compose Experience**:
+The shared user-facing flow for preparing a post: choosing a Network Account, writing text, attaching media, and sending. The Compose Experience is common across networks, while delivery rules and payloads remain network-specific.
+_Avoid_: Universal post model, X post modal, Bluesky post modal
+
+**Network Adapter**:
+A boundary that exposes one social network's capabilities to SocialDeck. A Network Adapter hides authentication and integration mechanics while presenting network capabilities such as columns, posting, notifications, search, and profile display.
+_Avoid_: API client, webview helper, platform module
+
+**Capability**:
+A named ability exposed by a Network Adapter, such as Columns, Compose, Notifications, Profile, or Search. SocialDeck calls only capabilities that an adapter declares.
+_Avoid_: Required method, feature flag, optional helper
+
+**WebView-backed Network Adapter**:
+A Network Adapter whose capabilities depend on an embedded network website rather than a public API. It may rely on DOM automation, Electron partitions, and page lifecycle handling, so those constraints are part of its design.
+_Avoid_: Normal adapter, browser hack, X exception
+
+**Column Type**:
+A named kind of Column, such as Timeline, Notifications, Search, List, Settings, or Feed. Network Adapters declare which Column Types they support.
+_Avoid_: Type string, view mode, tab kind
+
+**Column Definition**:
+A Network Adapter's declaration of a Column Type it can provide, including user-facing labels and the minimum metadata needed to create that Column. The initial minimum fields are id, columnType, label, description, icon, requiresAccount, and defaultParams; rendering and refresh behavior can remain in existing implementation until later refactors.
+_Avoid_: Render config, saved column, modal option
+
+**Column Instance**:
+A concrete Column in a user's workspace, created from a Column Definition and bound to any required Network Account or parameters.
+_Avoid_: Column definition, modal option, DOM column
+
+**Workspace State**:
+The durable state needed to restore a user's SocialDeck workspace, such as Network Accounts, Column layout, and user preferences.
+_Avoid_: Runtime state, localStorage blob, session
+
+**Runtime State**:
+The temporary state that only exists while SocialDeck is running, such as timers, queues, hover cards, in-progress posting, and DOM coordination.
+_Avoid_: Workspace state, saved state, preferences
