@@ -92,6 +92,7 @@
               description: 'Real-time feed',
               icon: icons.bsky,
               requiresAccount: true,
+              defaultParams: { runtimeType: 'timeline' },
             }),
             createDefinition({
               id: 'b-notif-new',
@@ -101,6 +102,7 @@
               description: 'Real-time notifications',
               icon: icons.bell,
               requiresAccount: true,
+              defaultParams: { runtimeType: 'notif' },
             }),
             createDefinition({
               id: 'b-search-new',
@@ -110,6 +112,7 @@
               description: 'Keyword search',
               icon: icons.bsky,
               requiresAccount: true,
+              defaultParams: { runtimeType: 'search' },
             }),
             createDefinition({
               id: 'b-discover',
@@ -120,6 +123,7 @@
               icon: icons.bsky,
               requiresAccount: true,
               defaultParams: {
+                runtimeType: 'feed',
                 feedUri: 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot',
               },
             }),
@@ -154,10 +158,16 @@
       return adapter?.capabilities?.columns?.definitions || [];
     }
 
+    function getColumnDefinition(networkId, definitionId) {
+      return getColumnDefinitions(networkId)
+        .find(definition => definition.id === definitionId) || null;
+    }
+
     return {
       adapters,
       getAdapter,
       getColumnDefinitions,
+      getColumnDefinition,
     };
   }
 

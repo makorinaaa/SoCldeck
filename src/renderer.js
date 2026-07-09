@@ -2652,62 +2652,69 @@ function mkOpt(id, icon, name, desc, disabled, plat) {
 }
 
 let extraColN = 0;
-function addColFromModal(type, plat, accountIdx) {
+function getColumnIconClass(columnType, network) {
+  if (columnType === 'notifications') return 'ic-n';
+  if (columnType === 'search' || columnType === 'settings') return 'ic-s';
+  return network === 'b' ? 'ic-b' : 'ic-x';
+}
+
+function addColFromModal(definitionId, network, accountIdx) {
   closeOv('addMod');
+  const definition = networkAdapters.getColumnDefinition(network, definitionId);
+  if (!definition) {
+    toast('Column type is unavailable');
+    return;
+  }
+
   extraColN++;
   // X: アカウントindexをIDに含めて一意にする
-  const id = plat === 'x' ? `x${accountIdx}-${type}-${extraColN}` : `${type}-${extraColN}`;
+  const id = network === 'x'
+    ? `x${accountIdx}-${definition.id}-${extraColN}`
+    : `${definition.id}-${extraColN}`;
 
-  if (plat === 'x') {
-    if (type === 'x-list-new') {
+  if (network === 'x') {
+    if (definition.columnType === 'list') {
       openXListDialog(accountIdx);
       return;
     }
-
-    const urlMap = {
-      'x-home-new': 'https://x.com/home',
-      'x-notif-new': 'https://x.com/notifications',
-      'x-search-new': 'https://x.com/search',
-      'x-settings': 'https://x.com/settings',
-    };
-    const titleMap = {
-      'x-home-new': 'Home',
-      'x-notif-new': 'Notifications',
-      'x-search-new': 'Search',
-      'x-settings': 'Settings',
-    };
-    const icMap = { 'x-settings': 'ic-s' };
-    const iconMap = { 'x-settings': SVG.gear };
 
     const acc = state.xs?.[accountIdx ?? 0];
     const xPart = acc?.partition || `persist:x-${accountIdx ?? 0}`;
     const accLabel = acc ? ` · ${acc.username}` : '';
     insertWebViewCol({
       id,
-      title: titleMap[type] || type,
+      title: definition.label,
       sub: `X${accLabel}`,
-      url: urlMap[type] || 'https://x.com',
-      icCls: icMap[type] || 'ic-x',
-      icon: iconMap[type] || SVG.x
+      url: definition.defaultParams.url || 'https://x.com',
+      icCls: getColumnIconClass(definition.columnType, network),
+      icon: definition.icon,
     }, null, xPart);
   } else {
     // Bluesky設定はWebViewで表示
-    if (type === 'b-settings') {
-      insertWebViewCol({ id, title: 'Settings', sub: 'Bluesky', url: 'https://bsky.app/settings', icCls: 'ic-s', icon: SVG.gear }, null, 'persist:bsky');
-      return;
-    }
-    const bskyMap = {
-      'b-timeline-new': { title: 'Timeline', type: 'timeline', icCls: 'ic-b', icon: SVG.bsky },
-      'b-notif-new': { title: 'Notifications', type: 'notif', icCls: 'ic-n', icon: SVG.bell },
-      'b-search-new': { title: 'Search', type: 'search', icCls: 'ic-s', icon: SVG.bsky },
-      'b-discover': { title: 'Discover', type: 'feed', feedUri: 'at://did:plc:z72i7hdynmk6r22z27h6tvur/app.bsky.feed.generator/whats-hot', icCls: 'ic-b', icon: SVG.bsky },
-    };
-    const cfg = bskyMap[type];
-    if (cfg) {
-      const col = document.createElement('div');
-      col.dataset.type = cfg.type;
-      if (cfg.feedUri) col.dataset.feeduri = cfg.feedUri;
-      insertBskyCol({ id, title: cfg.title, sub: 'Bluesky', type: cfg.type, feedUri: cfg.feedUri, icCls: cfg.icCls, icon: cfg.icon });
+    if (definition.columnType === 'settings') {
+      insertWebViewCol({
+        id,
+        title: definition.label,
+        sub: 'Bluesky',
+        url: definition.defaultParams.url,
+        icCls: getColumnIconClass(definition.columnType, network),
+        icon: definition.icon,
+      }, null, 'persist:bsky');
+    } else {
+      const runtimeType = definition.defaultParams.runtimeType;
+      if (!runtimeType) {
+        toast('Column type is unavailable');
+        return;
+      }
+      insertBskyCol({
+        id,
+        title: definition.label,
+        sub: 'Bluesky',
+        type: runtimeType,
+        feedUri: definition.defaultParams.feedUri,
+        icCls: getColumnIconClass(definition.columnType, network),
+        icon: definition.icon,
+      });
     }
   }
 
