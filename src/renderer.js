@@ -1,10 +1,11 @@
-﻿// 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・//  SOCIALDECK 窶・renderer.js
+﻿// ═══════════════════════════════════════════════
+//  SOCIALDECK — renderer.js
 //  Bluesky AT Protocol + X WebView
-// 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・
+// ═══════════════════════════════════════════════
 const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
 
-// 笏笏笏 Bluesky API 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
 
 async function apiPost(endpoint, body, token = null) {
@@ -12,7 +13,7 @@ async function apiPost(endpoint, body, token = null) {
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BSKY}/${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) });
   if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || e.error || `${endpoint} failed`); }
-  // 遨ｺ繝ｬ繧ｹ繝昴Φ繧ｹ・・pdateSeen遲会ｼ峨・蝣ｴ蜷医・ {} 繧定ｿ斐☆
+  // 空レスポンス（updateSeen等）の場合は {} を返す
   const text = await res.text();
   return text ? JSON.parse(text) : {};
 }
@@ -27,14 +28,14 @@ async function apiGet(endpoint, params = {}, token = null) {
 
 let _refreshPromise = null;
 async function refreshBskyToken() {
-  if (_refreshPromise) return _refreshPromise; // 譌｢縺ｫ螳溯｡御ｸｭ縺ｪ繧牙酔縺榔romise繧定ｿ斐☆
+  if (_refreshPromise) return _refreshPromise; // 既に実行中なら同じPromiseを返す
   _refreshPromise = (async () => {
-    if (!state.b?.refreshJwt) throw new Error('繝ｪ繝輔Ξ繝・す繝･繝医・繧ｯ繝ｳ縺後≠繧翫∪縺帙ｓ');
+    if (!state.b?.refreshJwt) throw new Error('リフレッシュトークンがありません');
     const res = await fetch(`${BSKY}/com.atproto.server.refreshSession`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${state.b.refreshJwt}` }
     });
-    if (!res.ok) throw new Error('繝医・繧ｯ繝ｳ譖ｴ譁ｰ螟ｱ謨励ょ・繝ｭ繧ｰ繧､繝ｳ縺励※縺上□縺輔＞');
+    if (!res.ok) throw new Error('トークン更新失敗。再ログインしてください');
     const data = await res.json();
     state.b.accessJwt = data.accessJwt;
     state.b.refreshJwt = data.refreshJwt;
@@ -48,7 +49,7 @@ async function refreshBskyToken() {
   }
 }
 
-// 繝医・繧ｯ繝ｳ蛻・ｌ繧呈､懃衍縺励※閾ｪ蜍輔Μ繝輔Ξ繝・す繝･蠕後↓蜀崎ｩｦ陦後☆繧九Λ繝・ヱ繝ｼ
+// トークン切れを検知して自動リフレッシュ後に再試行するラッパー
 async function bskyCallWithRefresh(fn) {
   try {
     return await fn(state.b.accessJwt);
@@ -119,7 +120,7 @@ const SVG = {
   gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>`,
 };
 
-// 笏笏笏 COLUMN PERSISTENCE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── COLUMN PERSISTENCE ──────────────────────────
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
 
@@ -132,7 +133,7 @@ function saveColLayout() {
     const d = col.dataset;
     const wv = col.querySelector('webview');
     if (wv) {
-      // WebView繧ｫ繝ｩ繝
+      // WebViewカラム
       const wvId = col.id.replace('col-', '');
       let savedUrl = normalizeXUrl(wv.src);
       layout.push({
@@ -148,7 +149,7 @@ function saveColLayout() {
         collapsed: collapsedCols.has(wvId),
       });
     } else if (d.type) {
-      // Bsky繧ｫ繝ｩ繝
+      // Bskyカラム
       const bskyId = col.id.replace('col-', '');
       layout.push({
         kind: 'bsky',
@@ -223,7 +224,7 @@ function restoreColLayout() {
   return true;
 }
 
-// 笏笏笏 NG WORD / MUTE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── NG WORD / MUTE ──────────────────────────────
 const NG_KEY = 'socialdeck_ng';
 function loadNg() {
   try { return JSON.parse(localStorage.getItem(NG_KEY)) || { words: [], users: [] }; } catch { return { words: [], users: [] }; }
@@ -281,34 +282,34 @@ function openNgSettings() {
   const wordsList = ngData.words.map((w, i) =>
     `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
       <span style="flex:1;font-size:12px;color:var(--text1)">${esc(w)}</span>
-      <button onclick="removeNg('word',${i})" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">蜑企勁</button>
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">縺ｪ縺・/div>';
+      <button onclick="removeNg('word',${i})" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
 
   const usersList = ngData.users.map((u, i) =>
     `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
       <span style="flex:1;font-size:12px;color:var(--text1)">@${esc(u)}</span>
-      <button onclick="removeNg('user',${i})" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">蜑企勁</button>
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">縺ｪ縺・/div>';
+      <button onclick="removeNg('user',${i})" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
+    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
 
   ov.innerHTML = `<div class="modal" style="width:380px;max-height:80vh;overflow-y:auto">
-    <h2 style="margin-bottom:16px">NG繝ｯ繝ｼ繝・/ 繝溘Η繝ｼ繝郁ｨｭ螳・/h2>
+    <h2 style="margin-bottom:16px">NGワード / ミュート設定</h2>
     <div style="margin-bottom:18px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">NG繝ｯ繝ｼ繝会ｼ域兜遞ｿ譛ｬ譁・ｼ・/div>
+      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">NGワード（投稿本文）</div>
       ${wordsList}
       <div style="display:flex;gap:6px;margin-top:8px">
-        <input id="ng-word-input" type="text" placeholder="繧ｭ繝ｼ繝ｯ繝ｼ繝峨ｒ霑ｽ蜉窶ｦ" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button onclick="addNg('word')" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">霑ｽ蜉</button>
+        <input id="ng-word-input" type="text" placeholder="キーワードを追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
+        <button onclick="addNg('word')" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
       </div>
     </div>
     <div style="margin-bottom:18px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">繝溘Η繝ｼ繝医Θ繝ｼ繧ｶ繝ｼ</div>
+      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">ミュートユーザー</div>
       ${usersList}
       <div style="display:flex;gap:6px;margin-top:8px">
-        <input id="ng-user-input" type="text" placeholder="@handle 繧定ｿｽ蜉窶ｦ" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button onclick="addNg('user')" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">霑ｽ蜉</button>
+        <input id="ng-user-input" type="text" placeholder="@handle を追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
+        <button onclick="addNg('user')" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
       </div>
     </div>
-    <button onclick="document.getElementById('ng-modal-ov').remove()" class="btn-cancel">髢峨§繧・/button>
+    <button onclick="document.getElementById('ng-modal-ov').remove()" class="btn-cancel">閉じる</button>
   </div>`;
   document.body.appendChild(ov);
   setTimeout(() => document.getElementById('ng-word-input')?.focus(), 50);
@@ -338,7 +339,7 @@ function removeNg(type, idx) {
   refilterBskyCols();
 }
 
-// NG繝ｫ繝ｼ繝ｫ螟画峩譎ゅ↓蜈ｨBsky繧ｫ繝ｩ繝繧貞・隱ｭ縺ｿ霎ｼ縺ｿ縺励※蜊ｳ譎ょ渚譏
+// NGルール変更時に全Bskyカラムを再読み込みして即時反映
 function refilterBskyCols() {
   document.querySelectorAll('.col').forEach(col => {
     const cid = col.id?.replace('col-', '');
@@ -349,11 +350,12 @@ function refilterBskyCols() {
   });
 }
 
-// 笏笏笏 STATE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── STATE ────────────────────────────────────
 const LS_KEY = window.SocialDeckStateStore.STATE_KEY;
-const MEM_KEY = 'socialdeck_mem_interval'; // 繝｡繝｢繝ｪ繧ｯ繝ｪ繧｢髢馴囈險ｭ螳壹く繝ｼ  // v4: X繝槭Ν繝√い繧ｫ繧ｦ繝ｳ繝亥ｯｾ蠢・// state.xs: X繧｢繧ｫ繧ｦ繝ｳ繝医・驟榊・ [{username, initials, bg, partition}]
-// state.activeX: 繧｢繧ｯ繝・ぅ繝悶↑X繧｢繧ｫ繧ｦ繝ｳ繝医・index
-// state.b: Bluesky繧｢繧ｫ繧ｦ繝ｳ繝茨ｼ亥腰荳・・let state = { xs: [], activeX: 0, b: null };
+const MEM_KEY = 'socialdeck_mem_interval'; // メモリクリア間隔設定キー  // v4: Xマルチアカウント対応
+// state.xs: Xアカウントの配列 [{username, initials, bg, partition}]
+// state.activeX: アクティブなXアカウントのindex
+// state.b: Blueskyアカウント（単一）
 const stateStore = window.SocialDeckStateStore.createStateStore();
 let state = { xs: [], activeX: 0, b: null };
 const AVBG = ['linear-gradient(135deg,#4e9af0,#6a5cf0)', 'linear-gradient(135deg,#e05c7a,#9a5cf0)', 'linear-gradient(135deg,#3dc98a,#4e9af0)', 'linear-gradient(135deg,#f5c842,#e05c7a)', 'linear-gradient(135deg,#9a5cf0,#e05c7a)', 'linear-gradient(135deg,#4e9af0,#3dc98a)', 'linear-gradient(135deg,#e05c7a,#f5c842)', 'linear-gradient(135deg,#3dc98a,#6a5cf0)'];
@@ -387,7 +389,7 @@ function nextXPartition() {
   return `persist:x-${Date.now()}`;
 }
 
-// 笏笏笏 AUTH 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── AUTH ──────────────────────────────────────
 function switchTab(t) {
   document.querySelectorAll('.ltab').forEach(el => el.classList.remove('active'));
   document.querySelector(`.ltab.${t === 'x' ? 'xt' : 'bt'}`).classList.add('active');
@@ -549,15 +551,15 @@ function openLoginScreen() {
 
 async function logoutAll() {
   if (!confirm('Log out all accounts?')) return;
-  // X縺ｮ蜈ｨWebView繧ｻ繝・す繝ｧ繝ｳ繧偵け繝ｪ繧｢
+  // Xの全WebViewセッションをクリア
   if (IS_ELECTRON && window.electronAPI?.clearAllXSessions) {
     await window.electronAPI.clearAllXSessions();
   }
-  // 蜈ｨ繧ｫ繝ｩ繝縺ｮ閾ｪ蜍墓峩譁ｰ繧貞●豁｢
+  // 全カラムの自動更新を停止
   refreshScheduler.clearAll();
   state = { xs: [], activeX: 0, b: null };
   saveState();
-  columnRuntime.clearStoredLayout(); // 繧ｫ繝ｩ繝繝ｬ繧､繧｢繧ｦ繝医ｂ繝ｪ繧ｻ繝・ヨ
+  columnRuntime.clearStoredLayout(); // カラムレイアウトもリセット
   closeAmenu();
   notificationRuntime.stopPoll();
   notificationRuntime.clearUnread();
@@ -568,7 +570,7 @@ async function logoutAll() {
   toast('All accounts logged out');
 }
 
-// 笏笏笏 APP RENDER 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── APP RENDER ────────────────────────────────
 function renderApp() {
   renderNavChips();
   renderSbAvatars();
@@ -625,12 +627,12 @@ function toggleAmenu() { document.getElementById('amenu').classList.toggle('open
 function closeAmenu() { document.getElementById('amenu').classList.remove('open'); }
 document.addEventListener('click', e => { if (!e.target.closest('.sb')) closeAmenu(); });
 
-// 笏笏笏 DEFAULT COLUMNS 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── DEFAULT COLUMNS ────────────────────────────
 let colIdSeq = 0;
-const colCursors = {}; // colId 竊・cursor for pagination
+const colCursors = {}; // colId → cursor for pagination
 
-// X逕ｻ蜒上Λ繧､繝医・繝・け繧ｹ逕ｨWebView繝励Μ繝ｭ繝ｼ繝峨ヱ繧ｹ
-// enterApp蜑阪↓遒ｺ螳壹＆縺帙※繧ｫ繝ｩ繝逕滓・譎ゅ↓遒ｺ螳溘↓菴ｿ縺医ｋ繧医≧縺ｫ縺吶ｋ
+// X画像ライトボックス用WebViewプリロードパス
+// enterApp前に確定させてカラム生成時に確実に使えるようにする
 let wvPreloadPath = '';
 async function initWvPreloadPath() {
   if (IS_ELECTRON && window.electronAPI?.getWebviewPreloadPath) {
@@ -642,7 +644,7 @@ const autoRefreshTimers = refreshScheduler.timers;
 const autoRefreshIntervals = refreshScheduler.intervals;
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
 
-// 繧ｫ繝ｩ繝縺斐→縺ｫ蛻晏屓逋ｺ轣ｫ繧偵★繧峨☆縺溘ａ縺ｮ繧ｫ繧ｦ繝ｳ繧ｿ繝ｼ
+// カラムごとに初回発火をずらすためのカウンター
 function setAutoRefresh(cid, ms, type, feedUri) {
   refreshScheduler.set(cid, ms, () => {
     silentRefreshBsky(cid, type, feedUri);
@@ -727,7 +729,7 @@ async function silentRefreshBsky(cid, type, feedUri) {
 }
 
 function addColBtnHTML() {
-  return `<button class="add-col-btn" onclick="openAddMod()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>霑ｽ蜉</button>`;
+  return `<button class="add-col-btn" onclick="openAddMod()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>追加</button>`;
 }
 
 function renderDefaultCols() {
@@ -736,14 +738,14 @@ function renderDefaultCols() {
 
   if (restoreColLayout()) return;
 
-  // 蛻晏屓襍ｷ蜍・ Bluesky縺ｮ繝・ヵ繧ｩ繝ｫ繝医き繝ｩ繝縺ｮ縺ｿ霑ｽ蜉
+  // 初回起動: Blueskyのデフォルトカラムのみ追加
   if (state.b) {
-    insertBskyCol({ id: 'b-home', title: '繝帙・繝', sub: 'Bluesky', type: 'timeline', icCls: 'ic-b', icon: SVG.bsky });
-    insertBskyCol({ id: 'b-notif', title: '騾夂衍', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
+    insertBskyCol({ id: 'b-home', title: 'ホーム', sub: 'Bluesky', type: 'timeline', icCls: 'ic-b', icon: SVG.bsky });
+    insertBskyCol({ id: 'b-notif', title: '通知', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
   }
 }
 
-// 笏笏笏 WEBVIEW COLUMN (X) 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── WEBVIEW COLUMN (X) ─────────────────────────
 function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   const cols = document.getElementById('cols');
   const addbtn = before || cols.querySelector('.add-col-btn');
@@ -753,20 +755,20 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   div.innerHTML = `
     <div class="col-head">
       <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="蜈磯ｭ縺ｸ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ / 繝繝悶Ν繧ｯ繝ｪ繝・け縺ｧ螻暮幕" draggable="false" onclick="wvScrollTop('${cfg.id}')" ondblclick="if(collapsedCols.has('${cfg.id}'))toggleColCollapse('${cfg.id}')">
+      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" onclick="wvScrollTop('${cfg.id}')" ondblclick="if(collapsedCols.has('${cfg.id}'))toggleColCollapse('${cfg.id}')">
         <div class="col-title">${cfg.title}</div>
         <div class="col-sub"><div class="ldot" style="background:#e7e9ea"></div>${cfg.sub}</div>
       </div>
       <div class="col-actions">
-        <button class="cbtn col-collapse-btn" title="謚倥ｊ縺溘◆繧" onclick="toggleColCollapse('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="謌ｻ繧・ onclick="wvBack('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <button class="cbtn" id="rfr-${cfg.id}" title="譖ｴ譁ｰ" onclick="wvReload('${cfg.id}', { silent: true })"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn" title="閾ｪ蜍墓峩譁ｰ險ｭ螳・ onclick="openColSettings('${cfg.id}','wv')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="蜑企勁" onclick="removeCol('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
+        <button class="cbtn" title="戻る" onclick="wvBack('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <button class="cbtn" id="rfr-${cfg.id}" title="更新" onclick="wvReload('${cfg.id}', { silent: true })"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cfg.id}','wv')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="削除" onclick="removeCol('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
     <div class="col-webview" style="position:relative">
-      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ</div>
+      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>読み込み中…</div>
       <webview
         id="wv-${cfg.id}"
         src="${cfg.url}"
@@ -775,16 +777,16 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
         webpreferences="backgroundThrottling=false"
         ${wvPreloadPath ? `preload="${wvPreloadPath}"` : ''}
       ></webview>
-      <!-- 繧ｹ繝繝ｼ繧ｺ繝ｪ繝ｭ繝ｼ繝臥畑繧ｪ繝ｼ繝舌・繝ｬ繧､・医Μ繝ｭ繝ｼ繝我ｸｭ縺ｫ迴ｾ蝨ｨ縺ｮ逕ｻ髱｢繧定｡ｨ遉ｺ縺礼ｶ壹￠繧具ｼ・-->
+      <!-- スムーズリロード用オーバーレイ（リロード中に現在の画面を表示し続ける） -->
       <div id="wvov-${cfg.id}" style="display:none;position:absolute;inset:0;z-index:10;pointer-events:none;opacity:1;transition:opacity .4s ease"></div>
     </div>
   `;
   cols.insertBefore(div, addbtn);
 
-  // webview 繧､繝吶Φ繝・  const wv = div.querySelector('webview');
+  // webview イベント
   const wv = div.querySelector('webview');
   if (wv) {
-    // 蜈ｨ繝壹・繧ｸ蜈ｱ騾壹せ繧ｿ繧､繝ｫ・医し繧､繝峨ヰ繝ｼ繝ｻ繝倥ャ繝繝ｼ髱櫁｡ｨ遉ｺ繝ｻ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ繝舌・遲会ｼ・    const XSTYLES_BASE = `
+    // 全ページ共通スタイル（サイドバー・ヘッダー非表示・スクロールバー等）
     const XSTYLES_BASE = `
       [data-testid="sidebarColumn"]{display:none!important}
       [data-testid="DMDrawer"]{display:none!important}
@@ -799,7 +801,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       *::-webkit-scrollbar-track{background:transparent}
     `;
 
-    // 繝帙・繝縺ｮ謚慕ｨｿ谺・ｒ髱櫁｡ｨ遉ｺ・・ocialDeck繝｢繝ｼ繝繝ｫ繧剃ｽｿ縺・◆繧・ｼ・    const XSTYLES_HOME_COMPOSE = `
+    // ホームの投稿欄を非表示（SocialDeckモーダルを使うため）
     const XSTYLES_HOME_COMPOSE = `
       [data-testid="tweetButtonInline"]{display:none!important}
       [data-testid="tweetTextarea_0"]{display:none!important}
@@ -809,18 +811,21 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       div:has(>[data-testid="tweetTextarea_0"]){display:none!important}
     `;
 
-    // WebView蜀・〒style繧ｿ繧ｰ繧奪OM繝吶・繧ｹ縺ｧ蛻ｶ蠕｡縺吶ｋ繧ｹ繧ｯ繝ｪ繝励ヨ
-    // 霑比ｿ｡繝繧､繧｢繝ｭ繧ｰ縺ｯURL縺悟､峨ｏ繧峨★DOM縺ｮ縺ｿ螟牙喧縺吶ｋ縺溘ａ縲・    // data-testid="tweetButton" 縺ｮ蜃ｺ迴ｾ/豸域ｻ・〒霑比ｿ｡繝｢繝ｼ繝峨ｒ蛻､螳壹☆繧・    // ・医・繝ｼ繝謚慕ｨｿ谺・↓縺ｯ tweetButtonInline 縺ｮ縺ｿ蟄伜惠縺・tweetButton 縺ｯ蟄伜惠縺励↑縺・ｼ・    const X_STYLE_SCRIPT = `
+    // WebView内でstyleタグをDOMベースで制御するスクリプト
+    // 返信ダイアログはURLが変わらずDOMのみ変化するため、
+    // data-testid="tweetButton" の出現/消滅で返信モードを判定する
+    // （ホーム投稿欄には tweetButtonInline のみ存在し tweetButton は存在しない）
     const X_STYLE_SCRIPT = `
       (function() {
-        // 繝吶・繧ｹ繧ｹ繧ｿ繧､繝ｫ繧呈諺蜈･・・蝗槭□縺托ｼ・        if (!document.getElementById('__sd_base_style')) {
+        // ベーススタイルを挿入（1回だけ）
+        if (!document.getElementById('__sd_base_style')) {
           const s = document.createElement('style');
           s.id = '__sd_base_style';
           s.textContent = ${JSON.stringify(XSTYLES_BASE)};
           document.head.appendChild(s);
         }
 
-        // 謚慕ｨｿ谺・撼陦ｨ遉ｺ繧ｹ繧ｿ繧､繝ｫ縺ｮON/OFF蛻ｶ蠕｡
+        // 投稿欄非表示スタイルのON/OFF制御
         function setComposeHide(hide) {
           let cs = document.getElementById('__sd_compose_style');
           if (!cs) {
@@ -832,15 +837,17 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
         }
 
         function checkCompose() {
-          // tweetButton・郁ｿ比ｿ｡繝ｻ譁ｰ隕乗兜遞ｿ遒ｺ螳壹・繧ｿ繝ｳ・峨′蟄伜惠縺吶ｋ = 霑比ｿ｡繝繧､繧｢繝ｭ繧ｰ縺碁幕縺・※縺・ｋ
-          // 繝帙・繝縺ｮ謚慕ｨｿ谺・↓縺ｯ tweetButtonInline 縺ｮ縺ｿ蟄伜惠縺・tweetButton 縺ｯ蟄伜惠縺励↑縺・          const isReplyOpen = !!document.querySelector('[data-testid="tweetButton"]');
+          // tweetButton（返信・新規投稿確定ボタン）が存在する = 返信ダイアログが開いている
+          // ホームの投稿欄には tweetButtonInline のみ存在し tweetButton は存在しない
+          const isReplyOpen = !!document.querySelector('[data-testid="tweetButton"]');
           setComposeHide(!isReplyOpen);
         }
 
-        // 蛻晏屓繝√ぉ繝・け
+        // 初回チェック
         checkCompose();
 
-        // DOM螟牙喧繧堤屮隕悶＠縺ｦ閾ｪ蜍募・繧頑崛縺茨ｼ・0ms繝・ヰ繧ｦ繝ｳ繧ｹ縺ｧ雋闕ｷ霆ｽ貂幢ｼ・        if (window._sdStyleObserver) {
+        // DOM変化を監視して自動切り替え（50msデバウンスで負荷軽減）
+        if (window._sdStyleObserver) {
           window._sdStyleObserver.disconnect();
         }
         let _sdComposeDebounce = null;
@@ -856,36 +863,40 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       wv.executeJavaScript(X_STYLE_SCRIPT).catch(() => {});
     };
 
-    // 笏笏 譁ｰ逹閾ｪ蜍戊ｪｭ縺ｿ霎ｼ縺ｿ繧ｹ繧ｯ繝ｪ繝励ヨ 笏笏
-    // 1. 蜿ｯ隕匁ｧ蛛ｽ陬・ X縺悟ｸｸ縺ｫ縲瑚ｦ九ｉ繧後※縺・ｋ縲阪→隱崎ｭ倥＠譁ｰ逹繝昴・繝ｪ繝ｳ繧ｰ繧堤ｶ咏ｶ壹☆繧・    //    (繝舌ャ繧ｯ繧ｰ繝ｩ繧ｦ繝ｳ繝画凾縺ｫX縺後・繝ｼ繝ｪ繝ｳ繧ｰ繧呈ｭ｢繧√※繝舌リ繝ｼ縺悟・縺ｪ縺上↑繧句撫鬘後∈縺ｮ蟇ｾ遲・
-    // 2. 繝舌リ繝ｼ荳榊庄隕門喧・・・蜍輔け繝ｪ繝・け: 縲梧眠縺励＞繝昴せ繝医ｒ陦ｨ遉ｺ縲阪ヰ繝翫・繧辰SS縺ｧ髫縺励・    //    蜃ｺ迴ｾ繧樽utationObserver縺ｧ讀懃衍縺励※蜊ｳ繧ｯ繝ｪ繝・け 竊・譁ｰ逹縺碁撕縺九↓TL縺ｫ遨阪∪繧後ｋ
+    // ── 新着自動読み込みスクリプト ──
+    // 1. 可視性偽装: Xが常に「見られている」と認識し新着ポーリングを継続する
+    //    (バックグラウンド時にXがポーリングを止めてバナーが出なくなる問題への対策)
+    // 2. バナー不可視化＆自動クリック: 「新しいポストを表示」バナーをCSSで隠し、
+    //    出現をMutationObserverで検知して即クリック → 新着が静かにTLに積まれる
     const X_AUTOLOAD_SCRIPT = `
       (function() {
-        // 笏笏 蜿ｯ隕匁ｧ蛛ｽ陬・ｼ・蝗槭□縺托ｼ・笏笏
+        // ── 可視性偽装（1回だけ） ──
         if (!window._sdVisSpoofed) {
           window._sdVisSpoofed = true;
           try {
             Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
             Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-            // visibilitychange繧､繝吶Φ繝医・逋ｺ轣ｫ繧堤┌蜉ｹ蛹厄ｼ・idden縺ｸ縺ｮ驕ｷ遘ｻ繧湛縺ｫ遏･繧峨○縺ｪ縺・ｼ・            document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-            // requestAnimationFrame繧ゅヰ繝・け繧ｰ繝ｩ繧ｦ繝ｳ繝峨〒豁｢縺ｾ繧九◆繧√√ヵ繧ｩ繝ｼ繝ｫ繝舌ャ繧ｯ繧呈署萓・            window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
+            // visibilitychangeイベントの発火を無効化（hiddenへの遷移をXに知らせない）
+            document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
+            // requestAnimationFrameもバックグラウンドで止まるため、フォールバックを提供
+            window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
           } catch(err) {}
         }
 
-        // 笏笏 繝舌リ繝ｼ荳榊庄隕門喧CSS・・蝗槭□縺托ｼ・笏笏
+        // ── バナー不可視化CSS（1回だけ） ──
         if (!document.getElementById('__sd_banner_hide')) {
           var s = document.createElement('style');
           s.id = '__sd_banner_hide';
-          // 繝舌リ繝ｼ繧定ｦ冶ｦ夂噪縺ｫ髫縺吶′繧ｯ繝ｪ繝・け縺ｯ蜿ｯ閭ｽ縺ｪ迥ｶ諷九↓縺吶ｋ
+          // バナーを視覚的に隠すがクリックは可能な状態にする
           s.textContent = '[data-testid$="-newTweetsButton"]{opacity:0!important;pointer-events:none!important;height:0!important;min-height:0!important;overflow:hidden!important}';
           document.head.appendChild(s);
         }
 
-        // 笏笏 繝舌リ繝ｼ閾ｪ蜍輔け繝ｪ繝・け逶｣隕厄ｼ・蝗槭□縺托ｼ・笏笏
+        // ── バナー自動クリック監視（1回だけ） ──
         function findBanner() {
           return document.querySelector('[data-testid$="-newTweetsButton"]')
             || Array.from(document.querySelectorAll('[role="button"]')).find(function(b) {
-                return /譁ｰ縺励＞繝昴せ繝・譁ｰ縺励＞繝・う繝ｼ繝・Show \\d+ posts?/i.test(b.textContent || '');
+                return /新しいポスト|新しいツイート|Show \\d+ posts?/i.test(b.textContent || '');
             });
         }
         function clickBanner() {
@@ -894,14 +905,15 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
             var scroller = document.scrollingElement || document.documentElement;
             var atTop = scroller.scrollTop < 60;
             b.click();
-            // 譛荳企Κ縺ｫ縺・◆縺ｨ縺阪□縺代ヨ繝・・繧堤ｶｭ謖・ｼ域眠逹縺ｮ蜈磯ｭ縺瑚ｦ九∴繧具ｼ・            if (atTop) setTimeout(function(){ window.scrollTo({top:0,behavior:'auto'}); }, 120);
+            // 最上部にいたときだけトップを維持（新着の先頭が見える）
+            if (atTop) setTimeout(function(){ window.scrollTo({top:0,behavior:'auto'}); }, 120);
             return true;
           }
           return false;
         }
 
         if (!window._sdBannerObserver) {
-          // 蛻晏屓繝√ぉ繝・け
+          // 初回チェック
           clickBanner();
           window._sdBannerObserver = new MutationObserver(function() {
             clearTimeout(window._sdBannerDebounce);
@@ -916,10 +928,11 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       wv.executeJavaScript(X_AUTOLOAD_SCRIPT).catch(() => {});
     };
 
-    // 蠎・相髱櫁｡ｨ遉ｺ繧樽utationObserver縺ｧ螳牙・縺ｫ螳滓命
+    // 広告非表示をMutationObserverで安全に実施
     const X_AD_SCRIPT = `
       (function() {
-        // 譌｢蟄倥・Observer繧貞・譁ｭ縺励※蜀肴磁邯夲ｼ医・繝ｼ繧ｸ驕ｷ遘ｻ蠕後ｂ遒ｺ螳溘↓蜍穂ｽ懊＆縺帙ｋ・・        if (window._sdAdObserver) {
+        // 既存のObserverを切断して再接続（ページ遷移後も確実に動作させる）
+        if (window._sdAdObserver) {
           window._sdAdObserver.disconnect();
           window._sdAdObserver = null;
         }
@@ -943,10 +956,10 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       })();
     `;
 
-    // X逕ｻ蜒上け繝ｪ繝・け繧担ocialDeck縺ｮ繝ｩ繧､繝医・繝・け繧ｹ縺ｫ郢九＄繧ｹ繧ｯ繝ｪ繝励ヨ
+    // X画像クリックをSocialDeckのライトボックスに繋ぐスクリプト
     const X_IMG_SCRIPT = `
       (function() {
-        // 譌｢蟄倥Μ繧ｹ繝翫・繧貞炎髯､縺励※豈主屓譛譁ｰ迚医ｒ逋ｻ骭ｲ
+        // 既存リスナーを削除して毎回最新版を登録
         if (window._sdImgHandlerFn) {
           document.removeEventListener('click', window._sdImgHandlerFn, true);
         }
@@ -957,23 +970,25 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
           if (photo.closest('[data-testid="videoPlayer"]')) return true;
           if (photo.closest('[data-testid="gifPlayer"]')) return true;
           if (photo.closest('[data-testid="videoComponent"]')) return true;
-          // 蜀咲函繝懊ち繝ｳ縺悟・蠑溯ｦ∫ｴ縺ｫ縺ゅｌ縺ｰ蜍慕判
+          // 再生ボタンが兄弟要素にあれば動画
           if (photo.parentElement?.querySelector('[data-testid="playButton"]')) return true;
-          // img縺ｮalt螻樊ｧ縺後悟虚逕ｻ縲阪ｒ蜷ｫ繧・井ｾ・ 蝓九ａ霎ｼ縺ｿ蜍慕判・・          const imgAlt = photo.querySelector('img')?.getAttribute('alt') || '';
-          if (imgAlt.includes('蜍慕判') || imgAlt.toLowerCase().includes('video') || imgAlt.includes('gif') || imgAlt.includes('GIF')) return true;
-          // 蜍慕判繧ｵ繝繝阪う繝ｫ縺ｯamplify_video_thumb縺ｮURL繧呈戟縺､
+          // imgのalt属性が「動画」を含む（例: 埋め込み動画）
+          const imgAlt = photo.querySelector('img')?.getAttribute('alt') || '';
+          if (imgAlt.includes('動画') || imgAlt.toLowerCase().includes('video') || imgAlt.includes('gif') || imgAlt.includes('GIF')) return true;
+          // 動画サムネイルはamplify_video_thumbのURLを持つ
           const img = photo.querySelector('img');
           if (img?.src?.includes('amplify_video_thumb')) return true;
           if (img?.src?.includes('ext_tw_video_thumb')) return true;
           if (img?.src?.includes('tweet_video_thumb')) return true;
-          // 3髫主ｱ､荳翫・繧ｳ繝ｳ繝・リ縺ｫ蜍慕判隕∫ｴ縺後≠繧後・蜍慕判
+          // 3階層上のコンテナに動画要素があれば動画
           const container = photo.parentElement?.parentElement?.parentElement;
           if (container?.querySelector('video, [data-testid="videoPlayer"], [data-testid="gifPlayer"], [data-testid="playButton"]')) return true;
           return false;
         }
 
         window._sdImgHandlerFn = e => {
-          // videoPlayer繝ｻgifPlayer繝ｻ蜀咲函繝懊ち繝ｳ閾ｪ菴薙・繧ｯ繝ｪ繝・け縺ｯ髯､螟・          if (e.target.closest('[data-testid="videoPlayer"]')) return;
+          // videoPlayer・gifPlayer・再生ボタン自体のクリックは除外
+          if (e.target.closest('[data-testid="videoPlayer"]')) return;
           if (e.target.closest('[data-testid="gifPlayer"]')) return;
           if (e.target.closest('[data-testid="playButton"]')) return;
           if (e.target.closest('[data-testid="videoComponent"]')) return;
@@ -981,9 +996,11 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
           const imgEl = e.target.closest('[data-testid="tweetPhoto"]');
           if (!imgEl) return;
 
-          // 蜍慕判繝ｻGIF蛻､螳・          if (isVideoPhoto(imgEl)) return;
+          // 動画・GIF判定
+          if (isVideoPhoto(imgEl)) return;
 
-          // pbs.twimg.com 縺ｮ逕ｻ蜒上・縺ｿ蜿朱寔・亥虚逕ｻ縺ｨ蛻､螳壹＆繧後↑縺аhoto縺ｮ縺ｿ・・          const tweet = imgEl.closest('[data-testid="tweet"]') || document.body;
+          // pbs.twimg.com の画像のみ収集（動画と判定されないphotoのみ）
+          const tweet = imgEl.closest('[data-testid="tweet"]') || document.body;
           const allImgs = [...tweet.querySelectorAll('[data-testid="tweetPhoto"]')]
             .filter(photo => !isVideoPhoto(photo))
             .map(photo => {
@@ -1008,8 +1025,8 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       })();
     `;
 
-    // X霑比ｿ｡繝懊ち繝ｳ繧担ocialDeck縺ｮ謚慕ｨｿ繝｢繝ｼ繝繝ｫ縺ｫ郢九＄繧ｹ繧ｯ繝ｪ繝励ヨ
-    // dom-ready: 繧ｹ繝斐リ繝ｼ繧呈ｶ医＠縺ｦwebview繧定｡ｨ遉ｺ
+    // X返信ボタンをSocialDeckの投稿モーダルに繋ぐスクリプト
+    // dom-ready: スピナーを消してwebviewを表示
     let _domReadyOnce = false;
     wv.addEventListener('dom-ready', () => {
       document.getElementById(`wvload-${cfg.id}`).style.display = 'none';
@@ -1019,7 +1036,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       applyXAutoload();
       wv.executeJavaScript(X_AD_SCRIPT).catch(() => {});
       wv.executeJavaScript(X_IMG_SCRIPT).catch(() => {});
-      // 閾ｪ蜍墓峩譁ｰ繧ｿ繧､繝槭・縺ｯ蛻晏屓縺ｮ縺ｿ險ｭ螳夲ｼ・hareX遲峨↓繧医ｋ dom-ready 蜀咲匱轣ｫ縺ｧ繝ｪ繧ｻ繝・ヨ縺輔ｌ縺ｪ縺・ｈ縺・↓・・      if (!_domReadyOnce) {
+      // 自動更新タイマーは初回のみ設定（ShareX等による dom-ready 再発火でリセットされないように）
       if (!_domReadyOnce) {
         _domReadyOnce = true;
         if (autoRefreshIntervals[cfg.id] === undefined) {
@@ -1028,7 +1045,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       }
     });
 
-    // did-finish-load: 繧ｹ繧ｿ繧､繝ｫ蜀肴ｳｨ蜈･繝ｻ蠎・相髯､蜴ｻ繝ｻ繧ｪ繝ｼ繝舌・繝ｬ繧､繝輔ぉ繝ｼ繝峨い繧ｦ繝・    wv.addEventListener('did-finish-load', () => {
+    // did-finish-load: スタイル再注入・広告除去・オーバーレイフェードアウト
     wv.addEventListener('did-finish-load', () => {
       wvSilentReloading.delete(cfg.id);
       setWvRefreshBusy(cfg.id, false);
@@ -1042,7 +1059,8 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       }
       wv.executeJavaScript(X_AD_SCRIPT).catch(() => {});
       wv.executeJavaScript(X_IMG_SCRIPT).catch(() => {});
-      // 繝翫ン繧ｲ繝ｼ繧ｷ繝ｧ繝ｳ螳御ｺ・ｾ後↓繝ｬ繧､繧｢繧ｦ繝医ｒ菫晏ｭ假ｼ域ｭ｣隕丞喧貂医∩URL縺御ｽｿ繧上ｌ繧具ｼ・      saveColLayout();
+      // ナビゲーション完了後にレイアウトを保存（正規化済みURLが使われる）
+      saveColLayout();
 
       const ov = document.getElementById(`wvov-${cfg.id}`);
       if (ov && ov.style.display !== 'none') {
@@ -1055,7 +1073,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       }
     });
 
-    // WebView縺九ｉ縺ｮipc-message繧貞女菫｡
+    // WebViewからのipc-messageを受信
     wv.addEventListener('ipc-message', e => {
       if (e.channel === 'x-img-open') {
         try {
@@ -1070,14 +1088,14 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       setWvRefreshBusy(cfg.id, false);
       wv.style.opacity = wv.dataset.sdPrevOpacity || '';
       delete wv.dataset.sdPrevOpacity;
-      document.getElementById(`wvload-${cfg.id}`).innerHTML = `<div style="color:var(--red);font-size:12px;text-align:center;padding:20px">隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆<br><button onclick="wvReload('${cfg.id}')" style="margin-top:8px;padding:4px 10px;border-radius:5px;background:transparent;border:1px solid var(--red);color:var(--red);cursor:pointer;font-size:11px">蜀崎ｩｦ陦・/button></div>`;
+      document.getElementById(`wvload-${cfg.id}`).innerHTML = `<div style="color:var(--red);font-size:12px;text-align:center;padding:20px">読み込みに失敗しました<br><button onclick="wvReload('${cfg.id}')" style="margin-top:8px;padding:4px 10px;border-radius:5px;background:transparent;border:1px solid var(--red);color:var(--red);cursor:pointer;font-size:11px">再試行</button></div>`;
     });
   }
 }
 
 function wvBack(id) { const wv = document.getElementById(`wv-${id}`); if (wv?.canGoBack()) wv.goBack(); }
 
-// 笏笏笏 COLUMN COLLAPSE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── COLUMN COLLAPSE ─────────────────────────────
 const collapsedCols = new Set();
 function toggleColCollapse(id) {
   const col = document.getElementById(`col-${id}`);
@@ -1086,7 +1104,7 @@ function toggleColCollapse(id) {
   const btn = col.querySelector('.col-collapse-btn');
 
   if (isCollapsed) {
-    // 螻暮幕
+    // 展開
     collapsedCols.delete(id);
     const savedW = col.dataset.savedWidth || '';
     col.style.width = savedW || '';
@@ -1097,13 +1115,13 @@ function toggleColCollapse(id) {
     col.querySelectorAll('.col-actions .cbtn:not(.col-collapse-btn)').forEach(el => { el.style.display = ''; });
     col.querySelector('.col-info')?.style.setProperty('flex', '');
     if (btn) btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>`;
-    if (btn) btn.title = '謚倥ｊ縺溘◆繧';
-    // 謚倥ｊ縺溘◆縺ｿ荳ｭ繧ｯ繝ｪ繝・け螻暮幕繧定ｧ｣髯､
+    if (btn) btn.title = '折りたたむ';
+    // 折りたたみ中クリック展開を解除
     col.style.cursor = '';
     col._sdCollapseClick = null;
     saveColLayout();
   } else {
-    // 謚倥ｊ縺溘◆縺ｿ
+    // 折りたたみ
     collapsedCols.add(id);
     col.dataset.savedWidth = col.style.width || '';
     col.style.width = '42px';
@@ -1111,16 +1129,17 @@ function toggleColCollapse(id) {
     col.querySelectorAll('.feed, .col-webview, .col-search-bar').forEach(el => { el.style.display = 'none'; });
     const titleEl = col.querySelector('.col-title');
     if (titleEl) { titleEl.style.writingMode = 'vertical-rl'; titleEl.style.maxWidth = '20px'; }
-    // 謚倥ｊ縺溘◆縺ｿ繝懊ち繝ｳ莉･螟悶・繧｢繧ｯ繧ｷ繝ｧ繝ｳ繝懊ち繝ｳ繧帝撼陦ｨ遉ｺ
+    // 折りたたみボタン以外のアクションボタンを非表示
     col.querySelectorAll('.col-actions .cbtn:not(.col-collapse-btn)').forEach(el => { el.style.display = 'none'; });
     if (btn) btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>`;
-    if (btn) btn.title = '螻暮幕縺吶ｋ';
-    // 謚倥ｊ縺溘◆縺ｿ荳ｭ縺ｯ繧ｫ繝ｩ繝蜈ｨ菴薙け繝ｪ繝・け縺ｧ螻暮幕
+    if (btn) btn.title = '展開する';
+    // 折りたたみ中はカラム全体クリックで展開
     col.style.cursor = 'pointer';
     if (!col._sdCollapseClick) {
       col._sdCollapseClick = (e) => {
         if (!collapsedCols.has(id)) return;
-        // 繝懊ち繝ｳ繧ｯ繝ｪ繝・け縺ｯtoggleColCollapse縺悟挨騾泌・逅・☆繧九・縺ｧ莠碁㍾逋ｺ轣ｫ繧帝亟縺・        if (e.target.closest('button')) return;
+        // ボタンクリックはtoggleColCollapseが別途処理するので二重発火を防ぐ
+        if (e.target.closest('button')) return;
         toggleColCollapse(id);
       };
       col.addEventListener('click', col._sdCollapseClick);
@@ -1141,10 +1160,10 @@ function openFirstXWebViewDevTools() {
   else toast('X WebView not found');
 }
 
-// 繧ｫ繝ｩ繝繝倥ャ繝繝ｼ繧ｯ繝ｪ繝・け縺ｧ蜈磯ｭ縺ｸ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ
-// 繧ｫ繝ｩ繝繝倥ャ繝繝ｼ繧ｯ繝ｪ繝・け縺ｧ蜈磯ｭ縺ｸ・亥・縺ｮURL縺ｫ謌ｻ縺励※繝ｪ繝ｭ繝ｼ繝会ｼ・function wvScrollTop(id) {
+// カラムヘッダークリックで先頭へスクロール
+// カラムヘッダークリックで先頭へ（元のURLに戻してリロード）
 function wvScrollTop(id) {
-  // 謚倥ｊ縺溘◆縺ｿ荳ｭ縺ｯ繧ｷ繝ｳ繧ｰ繝ｫ繧ｯ繝ｪ繝・け縺ｧ繧ょｱ暮幕
+  // 折りたたみ中はシングルクリックでも展開
   if (collapsedCols.has(id)) { toggleColCollapse(id); return; }
 
   const col = document.getElementById(`col-${id}`);
@@ -1163,7 +1182,7 @@ function wvScrollTop(id) {
 }
 
 function bskyScrollTop(cid) {
-  // 謚倥ｊ縺溘◆縺ｿ荳ｭ縺ｯ繧ｷ繝ｳ繧ｰ繝ｫ繧ｯ繝ｪ繝・け縺ｧ繧ょｱ暮幕
+  // 折りたたみ中はシングルクリックでも展開
   if (collapsedCols.has(cid)) { toggleColCollapse(cid); return; }
   const feedEl = document.getElementById(`feed-${cid}`);
   if (feedEl) feedEl.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1180,7 +1199,7 @@ function setWvRefreshBusy(id, busy) {
   if (!sub) return;
   if (busy) {
     if (!sub.dataset.origText) sub.dataset.origText = sub.innerHTML;
-    sub.innerHTML = '<div class="ldot" style="background:var(--accent)"></div>譖ｴ譁ｰ荳ｭ...';
+    sub.innerHTML = '<div class="ldot" style="background:var(--accent)"></div>更新中...';
   } else if (sub.dataset.origText) {
     sub.innerHTML = sub.dataset.origText;
     delete sub.dataset.origText;
@@ -1244,8 +1263,9 @@ function flushWvReloadQueue() {
   ids.forEach(id => wvReload(id, { silent: true }));
 }
 
-// 繧ｽ繝輔ヨ繝ｪ繝ｭ繝ｼ繝・ 繝壹・繧ｸ蜈ｨ菴薙ｒ蜀崎ｪｭ縺ｿ霎ｼ縺ｿ縺帙★縲々縺ｮ縲梧眠縺励＞繝昴せ繝医阪・繧ｿ繝ｳ繧偵け繝ｪ繝・け縺励※
-// 譁ｰ逹繧定ｪｭ縺ｿ霎ｼ繧縲ゅせ繧ｯ繝ｭ繝ｼ繝ｫ菴咲ｽｮ縺ｨ繧ｻ繝・す繝ｧ繝ｳ縺檎ｶｭ謖√＆繧後ｋ縺溘ａ隕也せ縺碁｣帙・縺ｪ縺・・// 謌仙粥縺励◆繧液rue縲√・繧ｿ繝ｳ縺檎┌縺・螟ｱ謨励↑繧映alse繧定ｿ斐☆・亥他縺ｳ蜃ｺ縺怜・縺ｧ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ蛻､譁ｭ・・async function softReloadX(id) {
+// ソフトリロード: ページ全体を再読み込みせず、Xの「新しいポスト」ボタンをクリックして
+// 新着を読み込む。スクロール位置とセッションが維持されるため視点が飛ばない。
+// 成功したらtrue、ボタンが無い/失敗ならfalseを返す（呼び出し側でフォールバック判断）
 async function softReloadX(id) {
   const wv = document.getElementById(`wv-${id}`);
   if (!wv || wv.style.display === 'none') return false;
@@ -1255,10 +1275,11 @@ async function softReloadX(id) {
     const result = await wv.executeJavaScript(`
       (function() {
         return new Promise(function(resolve) {
-          // 縲梧眠縺励＞繝昴せ繝医ｒ陦ｨ遉ｺ縲阪ヰ繝翫・繝懊ち繝ｳ繧呈爾縺・          function findBanner() {
+          // 「新しいポストを表示」バナーボタンを探す
+          function findBanner() {
             return document.querySelector('[data-testid="cellInnerDiv"] [role="button"][data-testid$="-newTweetsButton"]')
               || Array.from(document.querySelectorAll('[role="button"]')).find(function(b) {
-                  return /譁ｰ縺励＞繝昴せ繝・譁ｰ縺励＞繝・う繝ｼ繝・Show .* posts?/i.test(b.textContent || '');
+                  return /新しいポスト|新しいツイート|Show .* posts?/i.test(b.textContent || '');
               });
           }
 
@@ -1266,7 +1287,7 @@ async function softReloadX(id) {
           var atTop = scroller.scrollTop < 60;
           var banner = findBanner();
 
-          // 繝舌リ繝ｼ縺梧里縺ｫ縺ゅｋ 竊・繧ｯ繝ｪ繝・け縺励※蜿肴丐
+          // バナーが既にある → クリックして反映
           if (banner) {
             banner.click();
             if (atTop) setTimeout(function(){ window.scrollTo({top:0,behavior:'smooth'}); }, 150);
@@ -1274,14 +1295,14 @@ async function softReloadX(id) {
             return;
           }
 
-          // 譛荳企Κ縺ｧ繝舌リ繝ｼ縺檎┌縺・竊・X縺ｫ譁ｰ逹繝ｭ繝ｼ繝峨ｒ菫・☆
+          // 最上部でバナーが無い → Xに新着ロードを促す
           if (atTop) {
             var origTop = scroller.scrollTop;
-            // 縺斐￥遏ｭ縺・ｸ銀・荳翫・繝励Ν蜍穂ｽ懊〒譁ｰ逹蜿門ｾ励ｒ繝医Μ繧ｬ繝ｼ
+            // ごく短い下→上のプル動作で新着取得をトリガー
             window.scrollTo({ top: origTop + 60, behavior: 'auto' });
             setTimeout(function() {
               window.scrollTo({ top: origTop, behavior: 'auto' });
-              // 蟆代＠蠕・▲縺ｦ繝舌リ繝ｼ蜃ｺ迴ｾ繧偵メ繧ｧ繝・け
+              // 少し待ってバナー出現をチェック
               setTimeout(function() {
                 var b2 = findBanner();
                 if (b2) {
@@ -1289,14 +1310,16 @@ async function softReloadX(id) {
                   setTimeout(function(){ window.scrollTo({top:0,behavior:'smooth'}); }, 150);
                   resolve('clicked');
                 } else {
-                  // 繝舌リ繝ｼ縺悟・縺ｪ縺・竊・繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ繧定ｦ∵ｱ・                  resolve('none');
+                  // バナーが出ない → フォールバックを要求
+                  resolve('none');
                 }
               }, 800);
             }, 60);
             return;
           }
 
-          // 荳九・譁ｹ繧定ｦ九※縺・ｋ 竊・菴輔ｂ縺励↑縺・ｼ郁ｦ也せ邯ｭ謖√∵ｬ｡蝗槭ヰ繝翫・蜃ｺ迴ｾ譎ゅ↓蜿門ｾ暦ｼ・          resolve('scrolled');
+          // 下の方を見ている → 何もしない（視点維持、次回バナー出現時に取得）
+          resolve('scrolled');
         });
       })();
     `);
@@ -1313,7 +1336,7 @@ function setAutoRefreshWv(id, ms) {
   });
 }
 
-// 笏笏笏 BLUESKY COLUMN 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── BLUESKY COLUMN ─────────────────────────────
 function insertBskyCol(cfg, before = null) {
   const cols = document.getElementById('cols');
   const addbtn = before || cols.querySelector('.add-col-btn');
@@ -1323,36 +1346,37 @@ function insertBskyCol(cfg, before = null) {
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cid}`;
-  // refreshBskyCol 縺・type 縺ｨ feedUri 繧定ｪｭ縺ｿ蜿悶ｌ繧九ｈ縺・↓ dataset 縺ｫ菫晏ｭ・  div.dataset.type = cfg.type || 'timeline';
+  // refreshBskyCol が type と feedUri を読み取れるように dataset に保存
+  div.dataset.type = cfg.type || 'timeline';
   if (cfg.feedUri) div.dataset.feeduri = cfg.feedUri;
 
   const hasSearch = cfg.type === 'search';
   div.innerHTML = `
     <div class="col-head">
       <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="蜈磯ｭ縺ｸ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ / 繝繝悶Ν繧ｯ繝ｪ繝・け縺ｧ螻暮幕" draggable="false" onclick="bskyScrollTop('${cid}')" ondblclick="if(collapsedCols.has('${cid}'))toggleColCollapse('${cid}')">
+      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" onclick="bskyScrollTop('${cid}')" ondblclick="if(collapsedCols.has('${cid}'))toggleColCollapse('${cid}')">
         <div class="col-title">${cfg.title}</div>
         <div class="col-sub"><div class="ldot"></div>${cfg.sub}</div>
       </div>
       <div class="col-actions">
         <span class="cbadge" id="badge-${cid}" style="display:none"></span>
-        <button class="cbtn" id="rfr-${cid}" title="譖ｴ譁ｰ" onclick="refreshBskyCol('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn col-collapse-btn" title="謚倥ｊ縺溘◆繧" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="閾ｪ蜍墓峩譁ｰ險ｭ螳・ onclick="openColSettings('${cid}','bsky','${cfg.type||`timeline`}','${cfg.feedUri||``}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="蜑企勁" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshBskyCol('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
+        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','bsky','${cfg.type||`timeline`}','${cfg.feedUri||``}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
-    ${hasSearch ? `<div class="col-search-bar"><input type="text" id="sq-${cid}" placeholder="Bluesky 繧呈､懃ｴ｢窶ｦ" onkeydown="if(event.key==='Enter')doSearch('${cid}')"><button onclick="doSearch('${cid}')">讀懃ｴ｢</button></div>` : ''}
-    <div class="feed" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ</div></div>
+    ${hasSearch ? `<div class="col-search-bar"><input type="text" id="sq-${cid}" placeholder="Bluesky を検索…" onkeydown="if(event.key==='Enter')doSearch('${cid}')"><button onclick="doSearch('${cid}')">検索</button></div>` : ''}
+    <div class="feed" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>読み込み中…</div></div>
   `;
   cols.insertBefore(div, addbtn);
 
-  // 閾ｪ蜍輔Ο繝ｼ繝峨→繝・ヵ繧ｩ繝ｫ繝郁・蜍墓峩譁ｰ髢句ｧ・  if (!hasSearch) {
+  // 自動ロードとデフォルト自動更新開始
   if (!hasSearch) {
     loadBskyFeed(cid, cfg.type, cfg.feedUri);
     setAutoRefresh(cid, DEFAULT_INTERVAL_MS, cfg.type, cfg.feedUri);
   }
-  // 繝輔か繝ｳ繝医し繧､繧ｺ險ｭ螳壹ｒ蠕ｩ蜈・  const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
+  // フォントサイズ設定を復元
   const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
   if (savedFs) {
     const feedEl = document.getElementById(`feed-${cid}`);
@@ -1364,7 +1388,7 @@ async function loadBskyFeed(cid, type, feedUri = null, append = false) {
   if (!state.b) return;
   const feedEl = document.getElementById(`feed-${cid}`);
   if (!feedEl) return;
-  if (!append) { feedEl.innerHTML = `<div class="feed-loading"><div class="spinner"></div>隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ</div>`; colCursors[cid] = null; }
+  if (!append) { feedEl.innerHTML = `<div class="feed-loading"><div class="spinner"></div>読み込み中…</div>`; colCursors[cid] = null; }
 
   try {
     let items = [], newCursor = null;
@@ -1393,10 +1417,10 @@ async function loadBskyFeed(cid, type, feedUri = null, append = false) {
       feedEl.querySelector('.load-more')?.remove();
       feedEl.insertAdjacentHTML('beforeend', html);
     } else {
-      feedEl.innerHTML = html || `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">謚慕ｨｿ縺後≠繧翫∪縺帙ｓ</div>`;
+      feedEl.innerHTML = html || `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">投稿がありません</div>`;
     }
 
-    // 繝輔ぅ繝ｼ繝峨・繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ縺ｧ譛ｪ隱ｭ繝舌ャ繧ｸ繧偵Μ繧ｻ繝・ヨ
+    // フィードのスクロールで未読バッジをリセット
     const feedElForScroll = document.getElementById(`feed-${cid}`);
     if (feedElForScroll) {
       feedElForScroll.addEventListener('scroll', () => {
@@ -1405,17 +1429,17 @@ async function loadBskyFeed(cid, type, feedUri = null, append = false) {
       }, { once: true });
     }
 
-    // 繧ゅ▲縺ｨ隱ｭ繧繝懊ち繝ｳ
+    // もっと読むボタン
     if (newCursor && type !== 'notif') {
-      feedEl.insertAdjacentHTML('beforeend', `<button class="load-more" onclick="loadBskyFeed('${cid}','${type}',${feedUri ? `'${feedUri}'` : 'null'},true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="6 9 12 15 18 9"/></svg>繧ゅ▲縺ｨ隕九ｋ</button>`);
+      feedEl.insertAdjacentHTML('beforeend', `<button class="load-more" onclick="loadBskyFeed('${cid}','${type}',${feedUri ? `'${feedUri}'` : 'null'},true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="6 9 12 15 18 9"/></svg>もっと見る</button>`);
     }
 
-    // 繝舌ャ繧ｸ譖ｴ譁ｰ
+    // バッジ更新
     const badge = document.getElementById(`badge-${cid}`);
     if (badge && items.length) { badge.textContent = items.length; badge.style.display = ''; setTimeout(() => { badge.style.display = 'none'; }, 5000); }
   } catch (e) {
-    if (!append) feedEl.innerHTML = `<div class="feed-err">蜿門ｾ励お繝ｩ繝ｼ: ${esc(e.message)}<br><button onclick="loadBskyFeed('${cid}','${type}',${feedUri ? `'${feedUri}'` : 'null'})">蜀崎ｩｦ陦・/button></div>`;
-    else toast(`繧ｨ繝ｩ繝ｼ: ${e.message}`);
+    if (!append) feedEl.innerHTML = `<div class="feed-err">取得エラー: ${esc(e.message)}<br><button onclick="loadBskyFeed('${cid}','${type}',${feedUri ? `'${feedUri}'` : 'null'})">再試行</button></div>`;
+    else toast(`エラー: ${e.message}`);
   }
 }
 
@@ -1423,15 +1447,15 @@ async function doSearch(cid) {
   const q = document.getElementById(`sq-${cid}`)?.value?.trim();
   if (!q) return;
   const feedEl = document.getElementById(`feed-${cid}`);
-  feedEl.innerHTML = `<div class="feed-loading"><div class="spinner"></div>讀懃ｴ｢荳ｭ窶ｦ</div>`;
+  feedEl.innerHTML = `<div class="feed-loading"><div class="spinner"></div>検索中…</div>`;
   try {
     const data = await bsky.search(state.b.accessJwt, q, 40);
     const posts = data.posts || [];
     feedEl.innerHTML = posts.length
       ? posts.map(p => renderBskyPost({ post: p })).join('')
-      : `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">縲・{esc(q)}縲阪・邨先棡縺ｯ0莉ｶ縺ｧ縺・/div>`;
+      : `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">「${esc(q)}」の結果は0件です</div>`;
   } catch (e) {
-    feedEl.innerHTML = `<div class="feed-err">讀懃ｴ｢繧ｨ繝ｩ繝ｼ: ${esc(e.message)}<br><button onclick="doSearch('${cid}')">蜀崎ｩｦ陦・/button></div>`;
+    feedEl.innerHTML = `<div class="feed-err">検索エラー: ${esc(e.message)}<br><button onclick="doSearch('${cid}')">再試行</button></div>`;
   }
 }
 
@@ -1450,7 +1474,7 @@ function removeCol(id) {
   saveColLayout();
 }
 
-// 笏笏笏 BLUESKY POST RENDERING 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── BLUESKY POST RENDERING ──────────────────────
 
 function renderBskyPost(item) {
   const post = item.post || item;
@@ -1506,18 +1530,18 @@ function renderBskyNotif(n) {
 
 let hoverCardTimer = null;
 let hoverCardHideTimer = null;
-const hoverCardCache = {}; // did 竊・profile data
+const hoverCardCache = {}; // did → profile data
 
 function hoverCardShow(event, did, handle) {
   if (!did && !handle) return;
   clearTimeout(hoverCardHideTimer);
-  // 300ms蠕後↓陦ｨ遉ｺ・医■繧峨▽縺埼亟豁｢・・  hoverCardTimer = setTimeout(() => _hoverCardRender(event.target, did, handle), 300);
+  // 300ms後に表示（ちらつき防止）
   hoverCardTimer = setTimeout(() => _hoverCardRender(event.target, did, handle), 300);
 }
 
 function hoverCardHide() {
   clearTimeout(hoverCardTimer);
-  // 繧ｫ繝ｼ繝我ｸ翫↓繝槭え繧ｹ縺御ｹ励▲縺溷ｴ蜷医・豸医＆縺ｪ縺・  hoverCardHideTimer = setTimeout(() => {
+  // カード上にマウスが乗った場合は消さない
   hoverCardHideTimer = setTimeout(() => {
     const card = document.getElementById('bsky-hover-card');
     if (card && !card.matches(':hover')) _hoverCardRemove();
@@ -1559,27 +1583,27 @@ async function hoverCardToggleFollow(btnEl) {
   const handle   = btnEl.dataset.handle;
   const followUri = btnEl.dataset.followuri || '';
   const isFollowing = !!followUri;
-  btnEl.disabled = true; btnEl.textContent = '窶ｦ';
+  btnEl.disabled = true; btnEl.textContent = '…';
   try {
     if (isFollowing) {
       await bskyCallWithRefresh(jwt => bsky.unfollow(jwt, state.b.did, followUri));
       const key = did || handle;
       if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: null };
       btnEl.style.borderColor = 'var(--accent)'; btnEl.style.background = 'var(--accent)'; btnEl.style.color = '#fff';
-      btnEl.textContent = '繝輔か繝ｭ繝ｼ'; btnEl.dataset.followuri = ''; btnEl.disabled = false;
-      toast(`@${handle} 縺ｮ繝輔か繝ｭ繝ｼ繧定ｧ｣髯､縺励∪縺励◆`);
+      btnEl.textContent = 'フォロー'; btnEl.dataset.followuri = ''; btnEl.disabled = false;
+      toast(`@${handle} のフォローを解除しました`);
     } else {
       const res = await bskyCallWithRefresh(jwt => bsky.follow(jwt, state.b.did, did));
       const newFollowUri = res?.uri || '';
       const key = did || handle;
       if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: newFollowUri };
       btnEl.style.borderColor = 'var(--border2)'; btnEl.style.background = 'transparent'; btnEl.style.color = 'var(--text2)';
-      btnEl.textContent = '繝輔か繝ｭ繝ｼ荳ｭ'; btnEl.dataset.followuri = newFollowUri; btnEl.disabled = false;
-      toast(`@${handle} 繧偵ヵ繧ｩ繝ｭ繝ｼ縺励∪縺励◆`);
+      btnEl.textContent = 'フォロー中'; btnEl.dataset.followuri = newFollowUri; btnEl.disabled = false;
+      toast(`@${handle} をフォローしました`);
     }
   } catch(e) {
-    toast(`繧ｨ繝ｩ繝ｼ: ${e.message}`);
-    btnEl.disabled = false; btnEl.textContent = isFollowing ? '繝輔か繝ｭ繝ｼ荳ｭ' : '繝輔か繝ｭ繝ｼ';
+    toast(`エラー: ${e.message}`);
+    btnEl.disabled = false; btnEl.textContent = isFollowing ? 'フォロー中' : 'フォロー';
   }
 }
 
@@ -1591,23 +1615,23 @@ function _hoverCardPosition(card, target) {
   let left = rect.left;
   let top = rect.bottom + 8;
 
-  // 蜿ｳ遶ｯ縺ｯ縺ｿ蜃ｺ縺苓｣懈ｭ｣
+  // 右端はみ出し補正
   if (left + cardW > vw - 10) left = vw - cardW - 10;
-  // 荳狗ｫｯ縺ｯ縺ｿ蜃ｺ縺・竊・荳翫↓陦ｨ遉ｺ
+  // 下端はみ出し → 上に表示
   if (top + cardH > vh - 10) top = rect.top - cardH - 8;
-  // 蠢ｵ縺ｮ縺溘ａ蟾ｦ遶ｯ陬懈ｭ｣
+  // 念のため左端補正
   if (left < 10) left = 10;
 
   card.style.left = left + 'px';
   card.style.top = top + 'px';
 }
 
-// 笏笏笏 INTERACTIONS 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── INTERACTIONS ────────────────────────────────
 async function toggleLike(btn, uri, cid, baseLikes) {
   if (!state.b) return;
   const post = btn.closest('.post');
   const on = !btn.classList.contains('liked');
-  // 讌ｽ隕ｳ逧ФI譖ｴ譁ｰ
+  // 楽観的UI更新
   btn.classList.toggle('liked', on);
   const svg = btn.querySelector('svg');
   if (svg) svg.setAttribute('fill', on ? 'currentColor' : 'none');
@@ -1622,17 +1646,17 @@ async function toggleLike(btn, uri, cid, baseLikes) {
       if (likeUri) await bsky.unlike(state.b.accessJwt, state.b.did, likeUri);
       if (post) post.dataset.likeuri = '';
     }
-    toast(on ? '縺・＞縺ｭ縺励∪縺励◆' : '縺・＞縺ｭ繧貞叙繧頑ｶ医＠縺ｾ縺励◆');
+    toast(on ? 'いいねしました' : 'いいねを取り消しました');
   } catch (e) {
-    // 螟ｱ謨玲凾縺ｯ繝ｭ繝ｼ繝ｫ繝舌ャ繧ｯ
+    // 失敗時はロールバック
     btn.classList.toggle('liked', !on);
     if (svg) svg.setAttribute('fill', !on ? 'currentColor' : 'none');
     if (span) span.textContent = baseLikes;
-    toast(`繧ｨ繝ｩ繝ｼ: ${e.message}`);
+    toast(`エラー: ${e.message}`);
   }
 }
 
-// 笏笏笏 REPOST MENU 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── REPOST MENU ────────────────────────────────
 function showRtMenu(event, btn, uri, cid, handle) {
   event.preventDefault();
   event.stopPropagation();
@@ -1657,14 +1681,15 @@ function showRtMenu(event, btn, uri, cid, handle) {
       style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-      蠑慕畑繝ｪ繝昴せ繝・    </div>
+      引用リポスト
+    </div>
   `;
   document.body.appendChild(menu);
   const close = () => { menu.remove(); document.removeEventListener('click', close); };
   setTimeout(() => document.addEventListener('click', close), 50);
 }
 
-// 蠑慕畑繝ｪ繝昴せ繝医Δ繝ｼ繝繝ｫ
+// 引用リポストモーダル
 let quoteTarget = null;
 function openQuoteModal(uri, cid, handle) {
   quoteTarget = { uri, cid, handle };
@@ -1684,22 +1709,23 @@ function openQuoteModal(uri, cid, handle) {
       <div class="chead">
         <h2 style="display:flex;align-items:center;gap:8px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color:#0085ff"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-          蠑慕畑繝ｪ繝昴せ繝・        </h2>
+          引用リポスト
+        </h2>
         <button onclick="document.getElementById('quote-modal-ov')?.remove();quoteTarget=null"
-          style="background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:2px 6px">笨・/button>
+          style="background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:2px 6px">✕</button>
       </div>
-      <!-- 蠑慕畑蜈・・繝ｬ繝薙Η繝ｼ -->
+      <!-- 引用元プレビュー -->
       <div style="border:1px solid var(--border2);border-radius:8px;padding:9px 11px;margin-bottom:12px;font-size:12px;color:var(--text2)">
-        <div style="font-weight:700;color:var(--text2);margin-bottom:3px">@${esc(handle)} 縺ｮ謚慕ｨｿ繧貞ｼ慕畑</div>
+        <div style="font-weight:700;color:var(--text2);margin-bottom:3px">@${esc(handle)} の投稿を引用</div>
         <div style="color:var(--text3);font-size:11px">${esc(uri.split('/').pop())}</div>
       </div>
       <div class="comp-wrap">
         <div class="comp-av" style="background:${avBg};position:relative;overflow:hidden">${avInner}</div>
-        <textarea class="comp-ta" id="quote-ta" placeholder="繧ｳ繝｡繝ｳ繝医ｒ霑ｽ蜉窶ｦ" maxlength="300" oninput="updQuoteCC()"></textarea>
+        <textarea class="comp-ta" id="quote-ta" placeholder="コメントを追加…" maxlength="300" oninput="updQuoteCC()"></textarea>
       </div>
       <div class="comp-foot">
         <span class="cc" id="quote-cct">0 / 300</span>
-        <button class="send-btn" id="quote-sndb" onclick="doQuotePost()">蠑慕畑縺励※謚慕ｨｿ</button>
+        <button class="send-btn" id="quote-sndb" onclick="doQuotePost()">引用して投稿</button>
       </div>
     </div>`;
   document.body.appendChild(ov);
@@ -1718,7 +1744,7 @@ async function doQuotePost() {
   if (!state.b || !quoteTarget) return;
   const text = document.getElementById('quote-ta')?.value.trim() || '';
   const btn = document.getElementById('quote-sndb');
-  if (btn) { btn.disabled = true; btn.textContent = '謚慕ｨｿ荳ｭ窶ｦ'; }
+  if (btn) { btn.disabled = true; btn.textContent = '投稿中…'; }
   try {
     const rawFacets = buildFacets(text);
     const resolvedFacets = text ? await resolveMentionDids(rawFacets, state.b.accessJwt) : [];
@@ -1744,8 +1770,8 @@ async function doQuotePost() {
       });
     }, 1000);
   } catch(e) {
-    toast(`繧ｨ繝ｩ繝ｼ: ${e.message}`);
-    if (btn) { btn.disabled = false; btn.textContent = '蠑慕畑縺励※謚慕ｨｿ'; }
+    toast(`エラー: ${e.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = '引用して投稿'; }
   }
 }
 
@@ -1766,11 +1792,11 @@ async function toggleRepost(btn, uri, cid) {
       if (repostUri) await bsky.unrepost(state.b.accessJwt, state.b.did, repostUri);
       if (post) post.dataset.reposturi = '';
     }
-    toast(on ? '繝ｪ繝昴せ繝医＠縺ｾ縺励◆' : '繝ｪ繝昴せ繝医ｒ蜿悶ｊ豸医＠縺ｾ縺励◆');
+    toast(on ? 'リポストしました' : 'リポストを取り消しました');
   } catch (e) {
     btn.classList.toggle('rted', !on);
     if (span) span.textContent = cur;
-    toast(`繧ｨ繝ｩ繝ｼ: ${e.message}`);
+    toast(`エラー: ${e.message}`);
   }
 }
 
@@ -1779,7 +1805,7 @@ let replyTarget = null; // { uri, cid, rootUri, rootCid }
 async function openReply(uri, cid, handle) {
   replyTarget = { uri, cid, rootUri: uri, rootCid: cid };
 
-  // 霑比ｿ｡蜈医・繝ｬ繝薙Η繝ｼ繧定｡ｨ遉ｺ
+  // 返信先プレビューを表示
   const mod = document.getElementById('compMod');
   let preview = mod.querySelector('.bsky-reply-preview');
   if (!preview) {
@@ -1789,7 +1815,7 @@ async function openReply(uri, cid, handle) {
     const compWrap = mod.querySelector('.comp-wrap');
     compWrap.parentNode.insertBefore(preview, compWrap);
   }
-  preview.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg><span style="color:var(--text2)">@${esc(handle)}</span> 縺ｸ縺ｮ霑比ｿ｡`;
+  preview.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg><span style="color:var(--text2)">@${esc(handle)}</span> への返信`;
 
   openComp();
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
@@ -1813,8 +1839,8 @@ function showProfile(did) {
   if (cached?.handle) {
     const url = `https://bsky.app/profile/${cached.handle}`;
     if (IS_ELECTRON) window.electronAPI && require ? null : window.open(url, '_blank');
-    // Electron迺ｰ蠅・〒縺ｯshell.openExternal繧棚PC邨檎罰縺ｧ蜻ｼ縺ｹ縺ｪ縺・◆繧『ebview縺ｧ髢九￥
-    // 莉｣譖ｿ: bsky.app繧淡ebView繧ｫ繝ｩ繝縺ｨ縺励※霑ｽ蜉
+    // Electron環境ではshell.openExternalをIPC経由で呼べないためwebviewで開く
+    // 代替: bsky.appをWebViewカラムとして追加
     openBskyProfileCol(cached.handle);
   } else {
     openBskyProfileCol(did);
@@ -1824,32 +1850,32 @@ function showProfile(did) {
 function openBskyProfileCol(handleOrDid) {
   const url = `https://bsky.app/profile/${handleOrDid}`;
 
-  // 譌｢縺ｫ蜷後§繝励Ο繝輔ぅ繝ｼ繝ｫ縺ｮ繧ｫ繝ｩ繝縺後≠繧後・縺昴％縺ｸ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ
+  // 既に同じプロフィールのカラムがあればそこへスクロール
   const existing = Array.from(document.querySelectorAll('webview')).find(w => w.src === url);
   if (existing) {
     const col = existing.closest('.col');
     if (col) {
-      // 謚倥ｊ縺溘◆縺ｿ荳ｭ縺ｪ繧牙ｱ暮幕
+      // 折りたたみ中なら展開
       const cid = col.id?.replace('col-', '');
       if (cid && collapsedCols.has(cid)) toggleColCollapse(cid);
       col.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-      toast('譌｢蟄倥・繝励Ο繝輔ぅ繝ｼ繝ｫ繧ｫ繝ｩ繝繧定｡ｨ遉ｺ縺励∪縺励◆');
+      toast('既存のプロフィールカラムを表示しました');
       return;
     }
   }
 
   extraColN++;
   const id = `bsky-prof-${extraColN}`;
-  insertWebViewCol({ id, title: '繝励Ο繝輔ぅ繝ｼ繝ｫ', sub: 'Bluesky', url, icCls: 'ic-b', icon: SVG.bsky }, null, 'persist:bsky');
+  insertWebViewCol({ id, title: 'プロフィール', sub: 'Bluesky', url, icCls: 'ic-b', icon: SVG.bsky }, null, 'persist:bsky');
   setTimeout(() => {
     const col = document.getElementById(`col-${id}`);
     if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'end' });
   }, 300);
   saveColLayout();
-  toast('繝励Ο繝輔ぅ繝ｼ繝ｫ繧ｫ繝ｩ繝繧帝幕縺阪∪縺励◆');
+  toast('プロフィールカラムを開きました');
 }
 
-// 笏笏笏 COMPOSE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── COMPOSE ────────────────────────────────────
 function renderCompUI() {
   const xBtn = document.getElementById('sb-post-x');
   const bBtn = document.getElementById('sb-post-b');
@@ -1881,18 +1907,18 @@ function openComp() {
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
 }
 
-let selectedXIdx = 0; // 謚慕ｨｿ縺ｫ菴ｿ縺・繧｢繧ｫ繧ｦ繝ｳ繝医・index
+let selectedXIdx = 0; // 投稿に使うXアカウントのindex
 
 function openXPost() {
   const sel = document.getElementById('x-acc-select');
   const xs = state.xs || [];
 
   if (xs.length <= 1) {
-    // 1繧｢繧ｫ繧ｦ繝ｳ繝医・縺ｿ縺ｪ繧蛾∈謚朸I繧帝撼陦ｨ遉ｺ
+    // 1アカウントのみなら選択UIを非表示
     sel.style.display = 'none';
     selectedXIdx = 0;
   } else {
-    // 隍・焚繧｢繧ｫ繧ｦ繝ｳ繝医↑繧峨・繧ｿ繝ｳ繧定｡ｨ遉ｺ
+    // 複数アカウントならボタンを表示
     sel.style.display = 'flex';
     sel.innerHTML = xs.map((a, i) => `
       <button id="x-acc-btn-${i}" onclick="selectXAcc(${i})"
@@ -1902,7 +1928,7 @@ function openXPost() {
       </button>`).join('');
   }
 
-  // 繧｢繝舌ち繝ｼ繧帝∈謚樔ｸｭ繧｢繧ｫ繧ｦ繝ｳ繝医↓譖ｴ譁ｰ
+  // アバターを選択中アカウントに更新
   updateXPostAv();
   document.getElementById('xPostMod').classList.add('on');
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
@@ -1910,7 +1936,7 @@ function openXPost() {
 
 function selectXAcc(idx) {
   selectedXIdx = idx;
-  // 繝懊ち繝ｳ縺ｮ繧ｹ繧ｿ繧､繝ｫ繧呈峩譁ｰ
+  // ボタンのスタイルを更新
   const xs = state.xs || [];
   xs.forEach((_, i) => {
     const btn = document.getElementById(`x-acc-btn-${i}`);
@@ -1933,7 +1959,7 @@ function updateXPostAv() {
   }
 }
 
-// 笏笏笏 X謚慕ｨｿ 逕ｻ蜒上・蜍慕判邂｡逅・笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── X投稿 画像・動画管理 ────────────────────────
 let xImgFiles = [];
 let xVideoFile = null;
 let xVideoPath = null;
@@ -1951,7 +1977,7 @@ function fmtSec(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-// 笏笏 逕ｻ蜒剰ｿｽ蜉 笏笏
+// ── 画像追加 ──
 function handleXImgDrop(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-on');
@@ -2009,10 +2035,10 @@ function renderXImgPreviews() {
   }).join('');
 }
 
-// 笏笏 蜍慕判霑ｽ蜉繝ｻUI 笏笏
+// ── 動画追加・UI ──
 function setXVideo(file) {
   xVideoFile = file;
-  // Electron迺ｰ蠅・〒縺ｯFile繧ｪ繝悶ず繧ｧ繧ｯ繝医°繧峨Ο繝ｼ繧ｫ繝ｫ繝代せ繧貞叙蠕励〒縺阪ｋ
+  // Electron環境ではFileオブジェクトからローカルパスを取得できる
   xVideoPath = IS_ELECTRON && file.path ? file.path : null;
 
   const wrap = document.getElementById('x-video-wrap');
@@ -2033,24 +2059,24 @@ function setXVideo(file) {
     updateTrimLabels();
     updateTrimHighlight();
     if (dur > composeMedia.MAX_VIDEO_SECONDS) {
-      setFFmpegStatus(`笞 蜍慕判縺・${fmtSec(dur)} 縺ゅｊ縺ｾ縺吶ゅせ繝ｩ繧､繝繝ｼ縺ｧ2蛻・0遘剃ｻ･蜀・↓繝医Μ繝溘Φ繧ｰ縺励※縺上□縺輔＞`);
+      setFFmpegStatus(`⚠ 動画が ${fmtSec(dur)} あります。スライダーで2分20秒以内にトリミングしてください`);
     } else {
       setFFmpegStatus('');
     }
   };
   wrap.style.display = 'block';
 
-  // 繝峨Ο繝・・繧ｨ繝ｪ繧｢繧壇im
+  // ドロップエリアをdim
   const drop = document.getElementById('x-img-drop');
   if (drop) { drop.style.opacity = '0.4'; drop.style.pointerEvents = 'none'; }
 
-  // 繝輔ぃ繧､繝ｫ蜷搾ｼ句炎髯､繝懊ち繝ｳ繧偵・繝ｬ繝薙Η繝ｼ繧ｨ繝ｪ繧｢縺ｫ陦ｨ遉ｺ
+  // ファイル名＋削除ボタンをプレビューエリアに表示
   const preview = document.getElementById('x-img-preview');
   if (preview) {
     preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2);width:100%">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;flex-shrink:0"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(file.name)}</span>
-      <button onclick="removeXVideo()" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit;flex-shrink:0">蜑企勁</button>
+      <button onclick="removeXVideo()" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit;flex-shrink:0">削除</button>
     </div>`;
   }
   updXCC();
@@ -2110,7 +2136,7 @@ function onTrimOut(val) {
   updateTrimHighlight();
   const trimDur = xTrimOut - xTrimIn;
   if (trimDur > composeMedia.MAX_VIDEO_SECONDS) {
-    setFFmpegStatus(`笞 繝医Μ繝蠕後・髟ｷ縺輔′ ${fmtSec(trimDur)} 縺ｧ縺吶・蛻・0遘抵ｼ・40遘抵ｼ我ｻ･蜀・↓縺励※縺上□縺輔＞`);
+    setFFmpegStatus(`⚠ トリム後の長さが ${fmtSec(trimDur)} です。2分20秒（140秒）以内にしてください`);
   } else {
     setFFmpegStatus('');
   }
@@ -2142,7 +2168,7 @@ function updateTrimHighlight() {
   hl.style.width = (outPct - inPct) + '%';
 }
 
-// 笏笏 繝ｪ繧ｻ繝・ヨ 笏笏
+// ── リセット ──
 function resetXImgUI() {
   const container = document.getElementById('x-img-preview');
   if (container) {
@@ -2156,7 +2182,7 @@ function resetXImgUI() {
   if (drop) { drop.style.opacity = '1'; drop.style.pointerEvents = ''; }
   const fi = document.getElementById('x-img-file');
   if (fi) fi.value = '';
-  removeXVideo(); // 蜍慕判繧ゅΜ繧ｻ繝・ヨ
+  removeXVideo(); // 動画もリセット
 }
 
 function updXCC() {
@@ -2164,7 +2190,7 @@ function updXCC() {
   const el = document.getElementById('x-cct');
   el.textContent = n + ' / 280';
   el.className = 'cc' + (n > 250 ? ' w' : '') + (n > 280 ? ' over' : '');
-  // 繝・く繧ｹ繝医′遨ｺ縺ｧ繧ら判蜒上°蜍慕判縺後≠繧後・謚慕ｨｿ蜿ｯ閭ｽ
+  // テキストが空でも画像か動画があれば投稿可能
   document.getElementById('x-sndb').disabled = (n === 0 && xImgFiles.length === 0 && !xVideoFile) || n > 280;
 }
 
@@ -2186,18 +2212,18 @@ async function doXPost() {
   if (!wv) wv = wvFallback;
 
   if (!wv) {
-    toast(`${acc?.username || 'X'} 縺ｮ繝帙・繝繧ｫ繝ｩ繝縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ縲ゅき繝ｩ繝霑ｽ蜉縺九ｉ縲後・繝ｼ繝縲阪ｒ霑ｽ蜉縺励※縺上□縺輔＞`);
+    toast(`${acc?.username || 'X'} のホームカラムが見つかりません。カラム追加から「ホーム」を追加してください`);
     return;
   }
 
-  // 蜍慕判縺ｮ髟ｷ縺輔メ繧ｧ繝・け
+  // 動画の長さチェック
   if (xVideoFile) {
     const vid = document.getElementById('x-video-preview');
     const duration = vid?.duration || 0;
     const trimEnd = xTrimOut || duration;
     const trimDur = trimEnd - xTrimIn;
     if (trimDur > 140) {
-      toast(`蜍慕判縺碁聞縺吶℃縺ｾ縺呻ｼ・{fmtSec(trimDur)}・峨・蛻・0遘剃ｻ･蜀・↓繝医Μ繝溘Φ繧ｰ縺励※縺上□縺輔＞`);
+      toast(`動画が長すぎます（${fmtSec(trimDur)}）。2分20秒以内にトリミングしてください`);
       return;
     }
   }
@@ -2220,7 +2246,7 @@ async function doXPost() {
 
 async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, postVideoPath, postTrimIn, postTrimOut }) {
   try {
-    // 笊絶武 蜍慕判謚慕ｨｿ 笊絶武
+    // ══ 動画投稿 ══
     if (postVideo) {
       const vid = document.getElementById('x-video-preview');
       const duration = vid?.duration || 0;
@@ -2232,9 +2258,9 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
       let videoDataUrl;
 
       if (needsTrim) {
-        setFFmpegStatus('繝医Μ繝溘Φ繧ｰ荳ｭ窶ｦ');
+        setFFmpegStatus('トリミング中…');
         const trimmedPath = await window.electronAPI.trimVideo(postVideoPath, postTrimIn, trimEnd);
-        setFFmpegStatus('隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ窶ｦ');
+        setFFmpegStatus('読み込み中…');
         videoDataUrl = await window.electronAPI.readFileBase64(trimmedPath);
         window.electronAPI.deleteTempFile(trimmedPath).catch(() => {});
         setFFmpegStatus('');
@@ -2249,10 +2275,11 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
 
       await wv.executeJavaScript(`
         (async () => {
-          // 謚慕ｨｿ谺・ｒ蠑ｷ蛻ｶ陦ｨ遉ｺ縺励※縺九ｉ蜿門ｾ暦ｼ郁ｿ比ｿ｡繝壹・繧ｸ縺ｧCSS縺ｧ髱櫁｡ｨ遉ｺ縺ｫ縺ｪ縺｣縺ｦ縺・ｋ蝣ｴ蜷医・蟇ｾ遲厄ｼ・          document.querySelectorAll('[data-testid="tweetTextarea_0"],[data-testid="tweetButtonInline"],[data-testid="toolBar"],[data-testid="tweetTextarea_0RichTextInputContainer"],[data-testid="tweetTextarea_0_label"]').forEach(el => {
+          // 投稿欄を強制表示してから取得（返信ページでCSSで非表示になっている場合の対策）
+          document.querySelectorAll('[data-testid="tweetTextarea_0"],[data-testid="tweetButtonInline"],[data-testid="toolBar"],[data-testid="tweetTextarea_0RichTextInputContainer"],[data-testid="tweetTextarea_0_label"]').forEach(el => {
             el.style.setProperty('display','block','important');
           });
-          // div:has(>[data-testid="tweetTextarea_0"]) 繧ょｼｷ蛻ｶ陦ｨ遉ｺ
+          // div:has(>[data-testid="tweetTextarea_0"]) も強制表示
           var ta0 = document.querySelector('[data-testid="tweetTextarea_0"]');
           if (ta0) {
             var p = ta0.parentElement;
@@ -2260,7 +2287,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
           }
           const box = document.querySelector('[data-testid="tweetTextarea_0"]')
                    || document.querySelector('[role="textbox"]');
-          if (!box) throw new Error('謚慕ｨｿ谺・′隕九▽縺九ｊ縺ｾ縺帙ｓ');
+          if (!box) throw new Error('投稿欄が見つかりません');
           box.style.setProperty('display','block','important');
           box.click(); box.focus();
           await new Promise(r => setTimeout(r, 300));
@@ -2286,7 +2313,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
           const fileInput = document.querySelector('input[data-testid="fileInput"]')
                          || document.querySelector('input[accept*="video"][type="file"]')
                          || document.querySelector('input[accept*="image"][type="file"]');
-          if (!fileInput) throw new Error('繝輔ぃ繧､繝ｫ蜈･蜉帶ｬ・′隕九▽縺九ｊ縺ｾ縺帙ｓ');
+          if (!fileInput) throw new Error('ファイル入力欄が見つかりません');
           const transfer = new DataTransfer();
           transfer.items.add(videoFile);
           Object.defineProperty(fileInput, 'files', { value: transfer.files, configurable: true });
@@ -2295,7 +2322,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
 
           const postBtn = document.querySelector('[data-testid="tweetButton"]')
                        || document.querySelector('[data-testid="tweetButtonInline"]');
-          if (!postBtn) throw new Error('騾∽ｿ｡繝懊ち繝ｳ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ');
+          if (!postBtn) throw new Error('送信ボタンが見つかりません');
           let retries = 20;
           while (postBtn.disabled && retries-- > 0) await new Promise(r => setTimeout(r, 500));
           postBtn.click();
@@ -2303,7 +2330,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
         })()
       `);
 
-    // 笊絶武 逕ｻ蜒乗兜遞ｿ 笊絶武
+    // ══ 画像投稿 ══
     } else {
       const imgPayloads = await Promise.all(postImgs.map(f => new Promise((res, rej) => {
         const reader = new FileReader();
@@ -2314,7 +2341,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
 
       await wv.executeJavaScript(`
         (async () => {
-          // 謚慕ｨｿ谺・ｒ蠑ｷ蛻ｶ陦ｨ遉ｺ
+          // 投稿欄を強制表示
           document.querySelectorAll('[data-testid="tweetTextarea_0"],[data-testid="tweetButtonInline"],[data-testid="toolBar"],[data-testid="tweetTextarea_0RichTextInputContainer"],[data-testid="tweetTextarea_0_label"]').forEach(el => {
             el.style.setProperty('display','block','important');
           });
@@ -2325,7 +2352,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
           }
           const box = document.querySelector('[data-testid="tweetTextarea_0"]')
                    || document.querySelector('[role="textbox"]');
-          if (!box) throw new Error('謚慕ｨｿ谺・′隕九▽縺九ｊ縺ｾ縺帙ｓ');
+          if (!box) throw new Error('投稿欄が見つかりません');
           box.style.setProperty('display','block','important');
           box.click(); box.focus();
           await new Promise(r => setTimeout(r, 300));
@@ -2369,7 +2396,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
 
           const postBtn = document.querySelector('[data-testid="tweetButton"]')
                        || document.querySelector('[data-testid="tweetButtonInline"]');
-          if (!postBtn) throw new Error('騾∽ｿ｡繝懊ち繝ｳ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ');
+          if (!postBtn) throw new Error('送信ボタンが見つかりません');
           let retries = 15;
           while (postBtn.disabled && retries-- > 0) await new Promise(r => setTimeout(r, 300));
           postBtn.click();
@@ -2406,7 +2433,7 @@ function updCC() {
   document.getElementById('sndb').disabled = (n === 0 && bImgFiles.length === 0) || n > 300;
 }
 
-// 笏笏笏 BLUESKY 逕ｻ蜒乗ｷｻ莉・笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── BLUESKY 画像添付 ────────────────────────────
 let bImgFiles = [];
 let bImgAlts = [];
 
@@ -2419,7 +2446,7 @@ function handleBImgDrop(e) {
 
 function addBImgFiles(files) {
   const remaining = 4 - bImgFiles.length;
-  if (remaining <= 0) { toast('逕ｻ蜒上・譛螟ｧ4譫壹∪縺ｧ'); return; }
+  if (remaining <= 0) { toast('画像は最大4枚まで'); return; }
   const newFiles = [...files].filter(f => f.type.startsWith('image/')).slice(0, remaining);
   bImgFiles.push(...newFiles);
   newFiles.forEach(() => bImgAlts.push(''));
@@ -2447,13 +2474,13 @@ function renderBImgPreviews() {
     return `<div style="position:relative;width:100%;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg3);margin-bottom:5px;border:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px;padding:5px 8px">
         <img src="${url}" style="width:52px;height:52px;object-fit:cover;border-radius:4px;flex-shrink:0">
-        <input type="text" placeholder="Alt 繝・く繧ｹ繝茨ｼ育判蜒上・隱ｬ譏趣ｼ・ maxlength="1000"
+        <input type="text" placeholder="Alt テキスト（画像の説明）" maxlength="1000"
           id="b-alt-${i}"
           style="flex:1;background:transparent;border:none;color:var(--text2);font-size:11px;font-family:inherit;outline:none;min-width:0"
           value="${esc(bImgAlts[i] || '')}"
           oninput="bImgAlts[${i}]=this.value">
         <button onclick="removeBImg(${i})"
-          style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:10px;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">笨・/button>
+          style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:10px;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
       </div>
     </div>`;
   }).join('');
@@ -2499,10 +2526,10 @@ async function resolveMentionDids(facets, jwt) {
 async function doSend() {
   const v = document.getElementById('cta').value.trim();
   if (!v && bImgFiles.length === 0) return;
-  if (!state.b) { toast('Bluesky 縺ｫ繝ｭ繧ｰ繧､繝ｳ縺励※縺・∪縺帙ｓ'); return; }
+  if (!state.b) { toast('Bluesky にログインしていません'); return; }
 
   const btn = document.getElementById('sndb');
-  btn.disabled = true; btn.textContent = '騾∽ｿ｡荳ｭ窶ｦ';
+  btn.disabled = true; btn.textContent = '送信中…';
   try {
     const replyRef = replyTarget
       ? {
@@ -2530,7 +2557,7 @@ async function doSend() {
       embed = { $type: 'app.bsky.embed.images', images };
     }
 
-    // 謚慕ｨｿ
+    // 投稿
     const rawFacets = buildFacets(v);
     const resolvedFacets = await resolveMentionDids(rawFacets, state.b.accessJwt);
 
@@ -2559,7 +2586,7 @@ async function doSend() {
     closeOv('compMod');
     toast('Posted to Bluesky');
 
-    // 蜈ｨBluesky timeline繧ｫ繝ｩ繝繧偵Μ繝輔Ξ繝・す繝･
+    // 全Bluesky timelineカラムをリフレッシュ
     setTimeout(() => {
       document.querySelectorAll('.col').forEach(col => {
         if (col.dataset.type === 'timeline') {
@@ -2575,18 +2602,18 @@ async function doSend() {
   }
 }
 
-// 笏笏笏 ADD COLUMN MODAL 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── ADD COLUMN MODAL ───────────────────────────
 function buildOptGrid() {
   const og = document.getElementById('opt-grid');
   og.innerHTML = '';
 
-  // X: 繧｢繧ｫ繧ｦ繝ｳ繝医＃縺ｨ縺ｫ繧ｻ繧ｯ繧ｷ繝ｧ繝ｳ繧貞・縺代※陦ｨ遉ｺ
+  // X: アカウントごとにセクションを分けて表示
   if (state.xs && state.xs.length > 0) {
     state.xs.forEach((acc, idx) => {
       og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:${idx > 0 ? 10 : 0}px;padding:4px 0;border-bottom:1px solid var(--border)">
         <span style="display:inline-flex;align-items:center;gap:5px">
           <span style="width:14px;height:14px;border-radius:50%;background:${acc.bg};display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${acc.initials}</span>
-          X ﾂｷ ${esc(acc.username)}
+          X · ${esc(acc.username)}
         </span>
       </div>`;
       og.innerHTML += mkOptX('x-home-new', SVG.x, 'Home', 'x.com/home', idx);
@@ -2600,7 +2627,7 @@ function buildOptGrid() {
   // Bluesky
   if (state.b) {
     if (state.xs && state.xs.length > 0) {
-      og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">Bluesky ﾂｷ @${state.b.handle}</div>`;
+      og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">Bluesky · @${state.b.handle}</div>`;
     }
     og.innerHTML += mkOpt('b-timeline-new', SVG.bsky, 'Timeline', 'Real-time feed', false, 'b');
     og.innerHTML += mkOpt('b-notif-new', SVG.bell, 'Notifications', 'Real-time notifications', false, 'b');
@@ -2630,7 +2657,7 @@ let extraColN = 0;
 function addColFromModal(type, plat, accountIdx) {
   closeOv('addMod');
   extraColN++;
-  // X: 繧｢繧ｫ繧ｦ繝ｳ繝・ndex繧棚D縺ｫ蜷ｫ繧√※荳諢上↓縺吶ｋ
+  // X: アカウントindexをIDに含めて一意にする
   const id = plat === 'x' ? `x${accountIdx}-${type}-${extraColN}` : `${type}-${extraColN}`;
 
   if (plat === 'x') {
@@ -2656,7 +2683,7 @@ function addColFromModal(type, plat, accountIdx) {
 
     const acc = state.xs?.[accountIdx ?? 0];
     const xPart = acc?.partition || `persist:x-${accountIdx ?? 0}`;
-    const accLabel = acc ? ` ﾂｷ ${acc.username}` : '';
+    const accLabel = acc ? ` · ${acc.username}` : '';
     insertWebViewCol({
       id,
       title: titleMap[type] || type,
@@ -2666,7 +2693,7 @@ function addColFromModal(type, plat, accountIdx) {
       icon: iconMap[type] || SVG.x
     }, null, xPart);
   } else {
-    // Bluesky險ｭ螳壹・WebView縺ｧ陦ｨ遉ｺ
+    // Bluesky設定はWebViewで表示
     if (type === 'b-settings') {
       insertWebViewCol({ id, title: 'Settings', sub: 'Bluesky', url: 'https://bsky.app/settings', icCls: 'ic-s', icon: SVG.gear }, null, 'persist:bsky');
       return;
@@ -2731,15 +2758,15 @@ function applyInterval(id, colType, feedType, feedUri, ms) {
 function applyColFontSize(id, colType, fs) {
   localStorage.setItem(`col_fs_${id}`, fs);
   if (colType === 'wv') {
-    // X縺ｮWebView縺ｫCSS繧呈ｳｨ蜈･
+    // XのWebViewにCSSを注入
     const wv = document.getElementById(`wv-${id}`);
     if (wv) wv.insertCSS(`* { font-size: ${fs}px !important; }`).catch(() => {});
   } else {
-    // Bsky縺ｮfeed縺ｫfont-size繧帝←逕ｨ
+    // Bskyのfeedにfont-sizeを適用
     const feed = document.getElementById(`feed-${id}`);
     if (feed) feed.style.fontSize = fs + 'px';
   }
-  toast(`譁・ｭ励し繧､繧ｺ: ${fs}px`);
+  toast(`文字サイズ: ${fs}px`);
   document.getElementById('col-settings-ov')?.remove();
 }
 
@@ -2753,11 +2780,12 @@ function showPostMenu(e, handle) {
     <div onclick="addNgUser('${esc(handle)}')" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-      @${esc(handle)} 繧偵Α繝･繝ｼ繝・    </div>
+      @${esc(handle)} をミュート
+    </div>
     <div onclick="copyHandle('${esc(handle)}')" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      繝上Φ繝峨Ν繧偵さ繝斐・
+      ハンドルをコピー
     </div>
   `;
   document.body.appendChild(menu);
@@ -2767,12 +2795,12 @@ function showPostMenu(e, handle) {
 function addNgUser(handle) {
   const clean = handle.replace(/^@/, '');
   if (!ngData.users.includes(clean)) { ngData.users.push(clean); saveNg(ngData); }
-  toast(`@${clean} 繧偵Α繝･繝ｼ繝医＠縺ｾ縺励◆`);
+  toast(`@${clean} をミュートしました`);
   document.getElementById('post-ctx-menu')?.remove();
-  refilterBskyCols(); // 蜊ｳ譎ょ渚譏
+  refilterBskyCols(); // 即時反映
 }
 function copyHandle(handle) {
-  navigator.clipboard?.writeText('@' + handle).then(() => toast('繧ｳ繝斐・縺励∪縺励◆'));
+  navigator.clipboard?.writeText('@' + handle).then(() => toast('コピーしました'));
   document.getElementById('post-ctx-menu')?.remove();
 }
 
@@ -2781,11 +2809,11 @@ function renderNotifIcons() {
   if (!el) return;
   el.innerHTML = '';
 
-  // X繧｢繧ｫ繧ｦ繝ｳ繝医＃縺ｨ縺ｮ騾夂衍繧｢繧､繧ｳ繝ｳ
+  // Xアカウントごとの通知アイコン
   (state.xs || []).forEach((acc, i) => {
     const btn = document.createElement('button');
     btn.className = 'si';
-    btn.title = `${acc.username} 縺ｮ騾夂衍`;
+    btn.title = `${acc.username} の通知`;
     btn.setAttribute('id', `sb-notif-x-${i}`);
     btn.innerHTML = `
       <span style="position:relative;display:flex;align-items:center;justify-content:center">
@@ -2796,12 +2824,12 @@ function renderNotifIcons() {
     el.appendChild(btn);
   });
 
-  // Bluesky騾夂衍繧｢繧､繧ｳ繝ｳ
+  // Bluesky通知アイコン
   if (state.b) {
     const unreadCount = notificationRuntime.getUnreadCount();
     const btn = document.createElement('button');
     btn.className = 'si';
-    btn.title = 'Bluesky 縺ｮ騾夂衍';
+    btn.title = 'Bluesky の通知';
     btn.id = 'sb-notif-b';
     btn.innerHTML = `
       <span style="position:relative;display:flex;align-items:center;justify-content:center">
@@ -2827,17 +2855,17 @@ function scrollToNotifCol(baseId, xIdx, acc) {
       }
     });
   } else {
-    // Bluesky騾夂衍
+    // Bluesky通知
     targetCol = document.getElementById(`col-${baseId}`);
   }
 
   if (targetCol) {
-    // 譌｢蟄倥き繝ｩ繝縺ｫ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ
+    // 既存カラムにスクロール
     targetCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
     targetCol.style.outline = '2px solid var(--accent)';
     setTimeout(() => { targetCol.style.outline = ''; }, 1200);
   } else {
-    // 繧ｫ繝ｩ繝縺後↑縺代ｌ縺ｰ霑ｽ蜉
+    // カラムがなければ追加
     if (xIdx >= 0 && acc) {
       extraColN++;
       const id = `x${xIdx}-x-notif-new-${extraColN}`;
@@ -2853,7 +2881,7 @@ function scrollToNotifCol(baseId, xIdx, acc) {
       saveColLayout();
       toast(`${acc.username} notifications column added`);
     } else {
-      // Bluesky騾夂衍繧ｫ繝ｩ繝繧定ｿｽ蜉
+      // Bluesky通知カラムを追加
       insertBskyCol({ id: 'b-notif', title: 'Notifications', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
       setTimeout(() => {
         const newCol = document.getElementById('col-b-notif');
@@ -2865,7 +2893,7 @@ function scrollToNotifCol(baseId, xIdx, acc) {
   }
 }
 
-// Bluesky譛ｪ隱ｭ騾夂衍謨ｰ繧偵・繝ｼ繝ｪ繝ｳ繧ｰ
+// Bluesky未読通知数をポーリング
 function startNotifPoll() {
   notificationRuntime.startPoll(fetchBskyUnread);
 }
@@ -2878,7 +2906,7 @@ async function fetchBskyUnread() {
   return data.count || 0;
 }
 
-// 笏笏笏 SCROLL TO START 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── SCROLL TO START ────────────────────────────
 function scrollColsToStart() {
   const cols = document.getElementById('cols');
   cols.scrollTo({ left: 0, behavior: 'smooth' });
@@ -2893,8 +2921,8 @@ function refreshAll() {
   toast('Refreshing all feeds...');
 }
 
-// 笏笏笏 UTILS 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
-// 笏笏笏 NOTIF SHORTCUTS & SCROLL 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── UTILS ─────────────────────────────────────
+// ─── NOTIF SHORTCUTS & SCROLL ───────────────────
 
 function goToNotifCol(plat, xIdx) {
   let targetCol = null;
@@ -2916,7 +2944,7 @@ function goToNotifCol(plat, xIdx) {
         url: 'https://x.com/notifications', icCls: 'ic-n', icon: SVG.bell
       }, null, xPart);
       targetCol = document.getElementById(`col-${id}`);
-      saveColLayout(); // 竊・霑ｽ蜉
+      saveColLayout(); // ← 追加
       toast(`${acc.username} notifications column added`);
     }
   } else {
@@ -2928,12 +2956,12 @@ function goToNotifCol(plat, xIdx) {
       const id = 'b-notif-auto';
       insertBskyCol({ id, title: 'Notifications', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
       targetCol = document.getElementById(`col-${id}`);
-      saveColLayout(); // 竊・霑ｽ蜉
+      saveColLayout(); // ← 追加
       toast('Bluesky notifications column added');
     }
   }
 
-  // 繧ｫ繝ｩ繝縺ｫ繧ｹ繧ｯ繝ｭ繝ｼ繝ｫ
+  // カラムにスクロール
   if (targetCol) {
     targetCol.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
     targetCol.style.outline = '2px solid var(--accent)';
@@ -2941,7 +2969,7 @@ function goToNotifCol(plat, xIdx) {
   }
 }
 
-// Bluesky譛ｪ隱ｭ騾夂衍謨ｰ繧貞叙蠕励＠縺ｦ繝舌ャ繧ｸ譖ｴ譁ｰ
+// Bluesky未読通知数を取得してバッジ更新
 async function fetchBskyUnreadCount() {
   if (!state.b) return;
   try {
@@ -2949,7 +2977,7 @@ async function fetchBskyUnreadCount() {
   } catch {}
 }
 
-// Bluesky騾夂衍繧呈里隱ｭ蛹悶＠縺ｦ繝舌ャ繧ｸ繧呈ｶ医☆
+// Bluesky通知を既読化してバッジを消す
 async function markBskyNotifsRead() {
   if (!state.b) return;
   try {
@@ -2968,7 +2996,7 @@ async function goToNotifColAndRead() {
   await markBskyNotifsRead();
 }
 
-// 笏笏笏 MEMORY MANAGEMENT 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── MEMORY MANAGEMENT ──────────────────────────
 
 function startMemoryCleaner() {
   memoryCleaner.start();
@@ -3065,7 +3093,7 @@ function confirmXList(accountIdx) {
   let listId = raw;
   const m = raw.match(/lists\/([0-9]+)/);
   if (m) listId = m[1];
-  // 謨ｰ蟄励・縺ｿ縺ｧ縺ｪ縺代ｌ縺ｰ繧ｨ繝ｩ繝ｼ
+  // 数字のみでなければエラー
   if (!/^[0-9]+$/.test(listId)) { toast('Enter a valid list URL or ID'); return; }
 
   const url = `https://x.com/i/lists/${listId}`;
@@ -3090,7 +3118,7 @@ function confirmXList(accountIdx) {
 }
 
 function openAddMod() { buildOptGrid(); document.getElementById('addMod').classList.add('on'); }
-// 笏笏笏 MENTION SUGGEST 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── MENTION SUGGEST ────────────────────────────
 let _mentionTimer = null;
 let _mentionLastQ = '';
 
@@ -3100,7 +3128,7 @@ async function onCompTextareaInput(e) {
   const val = ta.value;
   const pos = ta.selectionStart;
 
-  // 繧ｫ繝ｼ繧ｽ繝ｫ蜑阪・ @word 繧呈､懷・
+  // カーソル前の @word を検出
   const before = val.slice(0, pos);
   const m = before.match(/@([a-zA-Z0-9._-]*)$/);
 
@@ -3121,7 +3149,7 @@ async function onCompTextareaInput(e) {
       const actors = data.actors || [];
       if (!actors.length) { if (box) box.style.display = 'none'; return; }
 
-      // 繝懊ャ繧ｯ繧ｹ菴懈・ or 蜀榊茜逕ｨ
+      // ボックス作成 or 再利用
       let suggest = document.getElementById('mention-suggest');
       if (!suggest) {
         suggest = document.createElement('div');
@@ -3194,7 +3222,7 @@ function closeOv(id, e) {
   }
 }
 
-// 笏笏笏 繧｢繝励Μ蜀・Γ繝九Η繝ｼ 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── アプリ内メニュー ────────────────────────────
 function toggleAmDrop(id, e) {
   e.stopPropagation();
   const drop = document.getElementById(id);
@@ -3215,7 +3243,7 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('sh'), 2800);
 }
 
-// 笏笏笏 KEYBOARD SHORTCUTS 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── KEYBOARD SHORTCUTS ─────────────────────────
 document.addEventListener('keydown', e => {
   const lb = document.getElementById('lightbox');
   if (lb?.classList.contains('on')) {
@@ -3271,7 +3299,7 @@ if (IS_ELECTRON) {
   });
 }
 
-// 笏笏笏 DRAG & DROP 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── DRAG & DROP ─────────────────────────────────
 let dragSrc = null;
 fileDragShield.attach();
 
@@ -3333,7 +3361,7 @@ function initDnD() {
     if (lastDragOverCol) { lastDragOverCol.classList.remove('drag-over'); lastDragOverCol = null; }
     if (!target || !dragSrc || target === dragSrc) return;
 
-    // 繝峨Ο繝・・蜈医→菴咲ｽｮ繧偵せ繝ｯ繝・・
+    // ドロップ先と位置をスワップ
     const cols2 = [...cols.querySelectorAll('.col')];
     const srcIdx = cols2.indexOf(dragSrc);
     const tgtIdx = cols2.indexOf(target);
@@ -3343,7 +3371,7 @@ function initDnD() {
       cols.insertBefore(dragSrc, target);
     }
     dragSrc.style.opacity = '';
-    toast('繧ｫ繝ｩ繝繧堤ｧｻ蜍輔＠縺ｾ縺励◆');
+    toast('カラムを移動しました');
     saveColLayout();
   });
 }
@@ -3361,12 +3389,12 @@ const colObserver = new MutationObserver(muts => {
     if (n.nodeType===1 && n.classList?.contains('col')) { makeDraggable(n); addResizeHandle(n); }
 });
 
-// 笏笏笏 COLUMN RESIZE 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── COLUMN RESIZE ────────────────────────────────
 function addResizeHandle(col) {
   if (col.querySelector('.col-resize')) return;
   const handle = document.createElement('div');
   handle.className = 'col-resize';
-  handle.title = '繝峨Λ繝・げ縺ｧ蟷・ｒ螟画峩';
+  handle.title = 'ドラッグで幅を変更';
   col.appendChild(handle);
   let startX, startW;
   handle.addEventListener('mousedown', e => {
@@ -3388,7 +3416,7 @@ function addResizeHandle(col) {
   });
 }
 
-// 笏笏笏 INIT 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+// ─── INIT ───────────────────────────────────────
 state = stateStore.load();
 if (state.x && !(state.xs && state.xs.length > 0)) {
   state.xs = [{ ...state.x, partition: 'persist:x-0' }];
@@ -3414,15 +3442,16 @@ if ((state.xs && state.xs.length > 0) || state.b) {
   });
 }
 
-// 笏笏笏 VISIBILITY-BASED REFRESH THROTTLE 笏笏笏笏笏笏笏笏笏笏
+// ─── VISIBILITY-BASED REFRESH THROTTLE ──────────
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    // 繝舌ャ繧ｯ繧ｰ繝ｩ繧ｦ繝ｳ繝・ 蜈ｨ繧ｿ繧､繝槭・繧剃ｸ譎ょ●豁｢
+    // バックグラウンド: 全タイマーを一時停止
     refreshScheduler.clearAll();
     notificationRuntime.stopPoll();
     memoryCleaner.stop();
   } else {
-    // 繝輔か繧｢繧ｰ繝ｩ繧ｦ繝ｳ繝牙ｾｩ蟶ｰ: 繧ｿ繧､繝槭・繧貞・髢九・縺ｿ・亥叉譎よ峩譁ｰ縺ｯ縺励↑縺・ｼ・    // ShareX遲峨・繧ｭ繝｣繝励メ繝｣繝・・繝ｫ縺後ヵ繧ｩ繝ｼ繧ｫ繧ｹ繧剃ｸ迸ｬ螂ｪ縺・→隱､逋ｺ轣ｫ縺吶ｋ縺溘ａ
+    // フォアグラウンド復帰: タイマーを再開のみ（即時更新はしない）
+    // ShareX等のキャプチャツールがフォーカスを一瞬奪うと誤発火するため
     Object.keys(autoRefreshIntervals).forEach(id => {
       const ms = autoRefreshIntervals[id];
       if (!ms || ms <= 0) return;
@@ -3443,7 +3472,9 @@ document.addEventListener('visibilitychange', () => {
 
 startMemoryCleaner();
 
-// 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・//  WIDGET MODE 窶・繝・せ繧ｯ繝医ャ繝裕L繧ｦ繧｣繧ｸ繧ｧ繝・ヨ
+// ═══════════════════════════════════════════════
+//  WIDGET MODE — デスクトップTLウィジェット
+// ═══════════════════════════════════════════════
 const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 
 if (IS_WIDGET) {
@@ -3453,7 +3484,7 @@ if (IS_WIDGET) {
 async function initWidgetMode() {
   document.body.classList.add('widget-mode');
 
-  // 繧ｦ繧｣繧ｸ繧ｧ繝・ヨ逕ｨ繧ｹ繧ｿ繧､繝ｫ繧呈ｳｨ蜈･
+  // ウィジェット用スタイルを注入
   const ws = document.createElement('style');
   ws.textContent = `
     body.widget-mode { background: transparent !important; }
@@ -3476,7 +3507,7 @@ async function initWidgetMode() {
     }
     body.widget-mode .col .col-actions .cbtn { display: none !important; }
     body.widget-mode .col .col-actions .cbtn.wg-keep { display: flex !important; }
-    /* 繝峨Λ繝・げ繝上Φ繝峨Ν繝舌・ */
+    /* ドラッグハンドルバー */
     #widget-bar {
       height: 34px;
       display: flex;
@@ -3527,7 +3558,7 @@ async function initWidgetMode() {
   `;
   document.head.appendChild(ws);
 
-  // 繝峨Λ繝・げ繝上Φ繝峨Ν繝舌・繧呈諺蜈･
+  // ドラッグハンドルバーを挿入
   const bar = document.createElement('div');
   bar.id = 'widget-bar';
 
@@ -3536,7 +3567,7 @@ async function initWidgetMode() {
     const fullLayout = columnRuntime.readStoredLayout();
     const selId = columnRuntime.getWidgetColumnId() || fullLayout[0]?.id;
     colOptions = fullLayout.map(c =>
-      `<option value="${c.id}" ${c.id === selId ? 'selected' : ''}>${(c.title || c.id)}${c.sub ? ' ﾂｷ ' + c.sub : ''}</option>`
+      `<option value="${c.id}" ${c.id === selId ? 'selected' : ''}>${(c.title || c.id)}${c.sub ? ' · ' + c.sub : ''}</option>`
     ).join('');
   } catch {}
 
