@@ -136,9 +136,17 @@ function saveColLayout() {
     if (wv) {
       // WebViewカラム
       const wvId = col.id.replace('col-', '');
-      let savedUrl = normalizeXUrl(wv.src);
+      const savedUrl = normalizeXUrl(wv.src);
+      const definition = networkAdapters.resolveColumnDefinition({
+        kind: 'wv',
+        network: d.network,
+        definitionId: d.definitionId,
+        url: wv.src,
+        partition: wv.partition,
+      });
       layout.push({
         kind: 'wv',
+        ...(definition && { network: definition.network, definitionId: definition.id }),
         id: wvId,
         url: savedUrl,
         partition: wv.partition,
@@ -152,8 +160,16 @@ function saveColLayout() {
     } else if (d.type) {
       // Bskyカラム
       const bskyId = col.id.replace('col-', '');
+      const definition = networkAdapters.resolveColumnDefinition({
+        kind: 'bsky',
+        network: d.network,
+        definitionId: d.definitionId,
+        type: d.type,
+        feedUri: d.feeduri || '',
+      });
       layout.push({
         kind: 'bsky',
+        ...(definition && { network: definition.network, definitionId: definition.id }),
         id: bskyId,
         type: d.type,
         feedUri: d.feeduri || '',
@@ -182,17 +198,25 @@ function restoreColLayout() {
   if (!layout.length) return false;
 
   layout.forEach(col => {
+    const definition = networkAdapters.resolveColumnDefinition(col);
     if (col.kind === 'wv') {
-      let icon = SVG.x;
-      let icCls = col.icCls || 'ic-x';
-      if (col.partition === 'persist:bsky') { icon = SVG.gear; }
-      else if (col.url?.includes('notifications')) { icon = SVG.bell; icCls = 'ic-n'; }
-      else if (col.url?.includes('search')) { icCls = 'ic-s'; }
-      else if (col.url?.includes('settings')) { icon = SVG.gear; icCls = 'ic-s'; }
+      let icon = definition?.icon || SVG.x;
+      let icCls = definition
+        ? getColumnIconClass(definition.columnType, definition.network)
+        : col.icCls || 'ic-x';
+      if (!definition && col.partition === 'persist:bsky') { icon = SVG.gear; }
+      else if (!definition && col.url?.includes('notifications')) { icon = SVG.bell; icCls = 'ic-n'; }
+      else if (!definition && col.url?.includes('search')) { icCls = 'ic-s'; }
+      else if (!definition && col.url?.includes('settings')) { icon = SVG.gear; icCls = 'ic-s'; }
+
+      const defaultUrl = definition?.defaultParams?.url;
+      const url = definition?.columnType === 'list' ? col.url : defaultUrl || col.url;
 
       insertWebViewCol({
         id: col.id, title: col.title, sub: col.sub,
-        url: col.url, icCls, icon,
+        url, icCls, icon,
+        network: definition?.network,
+        definitionId: definition?.id,
       }, null, col.partition || 'persist:x-0');
 
       if (col.interval !== undefined) {
@@ -200,19 +224,24 @@ function restoreColLayout() {
         setAutoRefreshWv(col.id, col.interval);
       }
     } else if (col.kind === 'bsky') {
-      let icon = SVG.bsky;
-      let icCls = col.icCls || 'ic-b';
-      if (col.type === 'notif') { icon = SVG.bell; icCls = 'ic-n'; }
-      else if (col.type === 'search') { icCls = 'ic-s'; }
+      const runtimeType = definition?.defaultParams?.runtimeType || col.type;
+      let icon = definition?.icon || SVG.bsky;
+      let icCls = definition
+        ? getColumnIconClass(definition.columnType, definition.network)
+        : col.icCls || 'ic-b';
+      if (!definition && col.type === 'notif') { icon = SVG.bell; icCls = 'ic-n'; }
+      else if (!definition && col.type === 'search') { icCls = 'ic-s'; }
 
       insertBskyCol({
         id: col.id, title: col.title, sub: col.sub,
-        type: col.type, feedUri: col.feedUri || null, icCls, icon,
+        type: runtimeType, feedUri: col.feedUri || definition?.defaultParams?.feedUri || null, icCls, icon,
+        network: definition?.network,
+        definitionId: definition?.id,
       });
 
       if (col.interval !== undefined) {
         clearAutoRefresh(col.id);
-        setAutoRefresh(col.id, col.interval, col.type, col.feedUri || null);
+        setAutoRefresh(col.id, col.interval, runtimeType, col.feedUri || definition?.defaultParams?.feedUri || null);
       }
     }
 
@@ -753,6 +782,8 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cfg.id}`;
+  if (cfg.network) div.dataset.network = cfg.network;
+  if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
   div.innerHTML = `
     <div class="col-head">
       <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
@@ -1347,6 +1378,8 @@ function insertBskyCol(cfg, before = null) {
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cid}`;
+  if (cfg.network) div.dataset.network = cfg.network;
+  if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
   // refreshBskyCol が type と feedUri を読み取れるように dataset に保存
   div.dataset.type = cfg.type || 'timeline';
   if (cfg.feedUri) div.dataset.feeduri = cfg.feedUri;
@@ -2688,6 +2721,8 @@ function addColFromModal(definitionId, network, accountIdx) {
       url: definition.defaultParams.url || 'https://x.com',
       icCls: getColumnIconClass(definition.columnType, network),
       icon: definition.icon,
+      network: definition.network,
+      definitionId: definition.id,
     }, null, xPart);
   } else {
     // Bluesky設定はWebViewで表示
@@ -2699,6 +2734,8 @@ function addColFromModal(definitionId, network, accountIdx) {
         url: definition.defaultParams.url,
         icCls: getColumnIconClass(definition.columnType, network),
         icon: definition.icon,
+        network: definition.network,
+        definitionId: definition.id,
       }, null, 'persist:bsky');
     } else {
       const runtimeType = definition.defaultParams.runtimeType;
@@ -2714,6 +2751,8 @@ function addColFromModal(definitionId, network, accountIdx) {
         feedUri: definition.defaultParams.feedUri,
         icCls: getColumnIconClass(definition.columnType, network),
         icon: definition.icon,
+        network: definition.network,
+        definitionId: definition.id,
       });
     }
   }

@@ -163,11 +163,56 @@
         .find(definition => definition.id === definitionId) || null;
     }
 
+    function inferNetwork(storedColumn) {
+      if (storedColumn.network) return storedColumn.network;
+      if (storedColumn.kind === 'bsky') return 'b';
+      if (storedColumn.partition === 'persist:bsky') return 'b';
+      return storedColumn.kind === 'wv' ? 'x' : null;
+    }
+
+    function getXColumnTypeFromUrl(value) {
+      try {
+        const path = new URL(value).pathname.replace(/\/$/, '');
+        if (path === '/home') return 'timeline';
+        if (path.startsWith('/notifications')) return 'notifications';
+        if (path.startsWith('/search')) return 'search';
+        if (path.startsWith('/i/lists')) return 'list';
+        if (path.startsWith('/settings')) return 'settings';
+      } catch {}
+      return null;
+    }
+
+    function resolveColumnDefinition(storedColumn = {}) {
+      const networkId = inferNetwork(storedColumn);
+      if (!networkId) return null;
+
+      if (storedColumn.definitionId) {
+        const declared = getColumnDefinition(networkId, storedColumn.definitionId);
+        if (declared) return declared;
+      }
+
+      const definitions = getColumnDefinitions(networkId);
+      if (networkId === 'x') {
+        const columnType = getXColumnTypeFromUrl(storedColumn.url);
+        return definitions.find(definition => definition.columnType === columnType) || null;
+      }
+
+      if (storedColumn.kind === 'wv') {
+        return definitions.find(definition => definition.columnType === 'settings') || null;
+      }
+
+      return definitions.find(definition => (
+        definition.defaultParams.runtimeType === storedColumn.type
+        && (!definition.defaultParams.feedUri || definition.defaultParams.feedUri === storedColumn.feedUri)
+      )) || null;
+    }
+
     return {
       adapters,
       getAdapter,
       getColumnDefinitions,
       getColumnDefinition,
+      resolveColumnDefinition,
     };
   }
 

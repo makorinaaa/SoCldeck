@@ -1,7 +1,7 @@
 (function (global) {
   const COLUMN_LAYOUT_KEY = 'socialdeck_cols';
   const WIDGET_COLUMN_KEY = 'socialdeck_widget_col';
-  const SAFE_X_PATHS = new Set(['/home', '/notifications', '/messages', '/explore']);
+  const SAFE_X_PATHS = new Set(['/home', '/notifications', '/messages', '/explore', '/search', '/settings']);
 
   function isWidgetLocation(locationLike = global.location) {
     return new URLSearchParams(locationLike.search).get('widget') === '1';
@@ -12,7 +12,8 @@
     try {
       const url = new URL(value);
       const path = url.pathname.replace(/\/$/, '');
-      if (!SAFE_X_PATHS.has(path)) return 'https://x.com/home';
+      const isList = /^\/i\/lists\/\d+$/.test(path);
+      if (!SAFE_X_PATHS.has(path) && !isList) return 'https://x.com/home';
     } catch {}
     return value;
   }
