@@ -1253,11 +1253,27 @@ async function wvReload(id, opts = {}) {
   }
 }
 
-function flushWvReloadQueue() {
+async function refreshXColumnIds(ids) {
+  await Promise.all(ids.map(async id => {
+    const refreshed = await softReloadX(id);
+    if (!refreshed) wvReload(id, { silent: true });
+  }));
+}
+
+async function flushWvReloadQueue() {
   if (wvReloadQueue.size === 0) return;
   const ids = [...wvReloadQueue];
   wvReloadQueue.clear();
-  ids.forEach(id => wvReload(id, { silent: true }));
+  await refreshXColumnIds(ids);
+}
+
+async function refreshXColumnsForPartition(partition) {
+  const ids = [...document.querySelectorAll('webview')]
+    .filter(webview => webview.partition === partition)
+    .map(webview => webview.id?.replace('wv-', ''))
+    .filter(Boolean);
+
+  await refreshXColumnIds(ids);
 }
 
 // ソフトリロード: 新着バナー、または「おすすめ」→「フォロー中」のタブ往復で
@@ -2359,11 +2375,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
 
     setTimeout(() => {
       const targetPartition = acc?.partition || 'persist:x-0';
-      document.querySelectorAll('webview').forEach(el => {
-        if (el.partition !== targetPartition) return;
-        const id = el.id?.replace('wv-', '');
-        if (id) wvReload(id);
-      });
+      refreshXColumnsForPartition(targetPartition);
     }, 2500);
 
   } catch (e) {
@@ -2371,7 +2383,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
     setFFmpegStatus('');
   } finally {
     xPostingNow = false;
-    flushWvReloadQueue();
+    await flushWvReloadQueue();
   }
 }
 
