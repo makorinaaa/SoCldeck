@@ -114,3 +114,27 @@ test('Bluesky compose capability prepares AT Protocol delivery', () => {
     },
   });
 });
+
+test('X compose capability prepares account timeline completion', () => {
+  const registry = createRegistry();
+
+  assert.deepEqual(plain(registry.prepareComposeCompletion({
+    target: { networkId: 'x', accountId: 'alice' },
+  })), {
+    message: 'Posted to alice',
+    refresh: { kind: 'x-account-columns', accountId: 'alice' },
+    delayMs: 2500,
+  });
+});
+
+test('Bluesky compose capability prepares timeline completion', () => {
+  const registry = createRegistry();
+
+  assert.deepEqual(plain(registry.prepareComposeCompletion({
+    target: { networkId: 'b', accountId: 'did:plc:alice' },
+  })), {
+    message: 'Posted to Bluesky',
+    refresh: { kind: 'bsky-timelines', accountId: 'did:plc:alice' },
+    delayMs: 1000,
+  });
+});

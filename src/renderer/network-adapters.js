@@ -109,6 +109,17 @@
     };
   }
 
+  function prepareXComposeCompletion(request) {
+    return {
+      message: `Posted to ${request.target.accountId}`,
+      refresh: {
+        kind: 'x-account-columns',
+        accountId: request.target.accountId,
+      },
+      delayMs: 2500,
+    };
+  }
+
   function prepareBlueskyComposeDelivery(request) {
     const hasUnsupportedAttachment = request.attachments
       .some(attachment => attachment.kind !== 'image');
@@ -133,6 +144,17 @@
     };
   }
 
+  function prepareBlueskyComposeCompletion(request) {
+    return {
+      message: 'Posted to Bluesky',
+      refresh: {
+        kind: 'bsky-timelines',
+        accountId: request.target.accountId,
+      },
+      delayMs: 1000,
+    };
+  }
+
   function createXAdapter({ icons }) {
     return {
       id: 'x',
@@ -141,6 +163,7 @@
       capabilities: {
         compose: {
           prepareDelivery: prepareXComposeDelivery,
+          prepareCompletion: prepareXComposeCompletion,
         },
         columns: {
           createPlan: createXColumnPlan,
@@ -209,6 +232,7 @@
       capabilities: {
         compose: {
           prepareDelivery: prepareBlueskyComposeDelivery,
+          prepareCompletion: prepareBlueskyComposeCompletion,
         },
         columns: {
           createPlan: createBlueskyColumnPlan,
@@ -365,6 +389,15 @@
       return compose.prepareDelivery(request);
     }
 
+    function prepareComposeCompletion(request) {
+      const networkId = request?.target?.networkId;
+      const compose = getCapability(networkId, 'compose');
+      if (!compose?.prepareCompletion) {
+        throw new Error(`Compose completion is unavailable for network: ${networkId || 'missing'}`);
+      }
+      return compose.prepareCompletion(request);
+    }
+
     return {
       adapters,
       getAdapter,
@@ -374,6 +407,7 @@
       resolveColumnDefinition,
       createColumnPlan,
       prepareComposeDelivery,
+      prepareComposeCompletion,
     };
   }
 

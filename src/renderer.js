@@ -125,6 +125,11 @@ const SVG = {
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
 const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({ icons: SVG });
+const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
+  notify: toast,
+  refresh: refreshAfterCompose,
+  onRefreshError: error => console.warn('Compose refresh failed:', error),
+});
 
 function saveColLayout() {
   if (new URLSearchParams(location.search).get('widget') === '1') return;
@@ -1277,6 +1282,27 @@ async function refreshXColumnsForPartition(partition) {
   await refreshXColumnIds(ids);
 }
 
+async function refreshAfterCompose(target) {
+  if (target.kind === 'x-account-columns') {
+    const account = state.xs?.find(item => item.username === target.accountId);
+    const partition = account?.partition
+      || (target.accountId.startsWith('persist:x-') ? target.accountId : null);
+    if (partition) await refreshXColumnsForPartition(partition);
+    return;
+  }
+
+  if (target.kind === 'bsky-timelines') {
+    if (state.b?.did !== target.accountId) return;
+    const timelineIds = [...document.querySelectorAll('.col[data-type="timeline"]')]
+      .map(column => column.id?.replace('col-', ''))
+      .filter(Boolean);
+    await Promise.all(timelineIds.map(id => silentRefreshBsky(id, 'timeline', null)));
+    return;
+  }
+
+  throw new Error(`Unsupported compose refresh target: ${target.kind}`);
+}
+
 // ソフトリロード: 新着バナー、または「おすすめ」→「フォロー中」のタブ往復で
 // ページ全体を再読み込みせずにXへ新着取得を促す。
 async function softReloadX(id) {
@@ -2208,6 +2234,7 @@ async function doXPost() {
       : null,
   });
   const delivery = networkAdapters.prepareComposeDelivery(request);
+  const completionPlan = networkAdapters.prepareComposeCompletion(request);
   const postText = delivery.text;
   const postImgs = delivery.imageFiles;
   const postVideo = delivery.video?.file || null;
@@ -2221,10 +2248,28 @@ async function doXPost() {
   closeOv('xPostMod');
 
   xPostingNow = true;
-  _doXPostBackground({ wv, acc, postText, postImgs, postVideo, postVideoPath, postTrimIn, postTrimOut });
+  _doXPostBackground({
+    wv,
+    postText,
+    postImgs,
+    postVideo,
+    postVideoPath,
+    postTrimIn,
+    postTrimOut,
+    completionPlan,
+  });
 }
 
-async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, postVideoPath, postTrimIn, postTrimOut }) {
+async function _doXPostBackground({
+  wv,
+  postText,
+  postImgs,
+  postVideo,
+  postVideoPath,
+  postTrimIn,
+  postTrimOut,
+  completionPlan,
+}) {
   try {
     // ══ 動画投稿 ══
     if (postVideo) {
@@ -2385,12 +2430,7 @@ async function _doXPostBackground({ wv, acc, postText, postImgs, postVideo, post
       `);
     }
 
-    toast(`Posted to ${acc?.username || 'X'}`);
-
-    setTimeout(() => {
-      const targetPartition = acc?.partition || 'persist:x-0';
-      refreshXColumnsForPartition(targetPartition);
-    }, 2500);
+    composeCompletion.complete(completionPlan);
 
   } catch (e) {
     toast('X post error: ' + e.message);
@@ -2523,6 +2563,7 @@ async function doSend() {
       : null,
   });
   const delivery = networkAdapters.prepareComposeDelivery(request);
+  const completionPlan = networkAdapters.prepareComposeCompletion(request);
 
   const btn = document.getElementById('sndb');
   btn.disabled = true; btn.textContent = '送信中…';
@@ -2576,17 +2617,7 @@ async function doSend() {
     resetBImgUI();
     document.querySelector('.bsky-reply-preview')?.remove();
     closeOv('compMod');
-    toast('Posted to Bluesky');
-
-    // 全Bluesky timelineカラムをリフレッシュ
-    setTimeout(() => {
-      document.querySelectorAll('.col').forEach(col => {
-        if (col.dataset.type === 'timeline') {
-          const cid = col.id?.replace('col-', '');
-          if (cid) silentRefreshBsky(cid, 'timeline', null);
-        }
-      });
-    }, 1000);
+    composeCompletion.complete(completionPlan);
   } catch (e) {
     toast(`Post error: ${e.message}`);
   } finally {
