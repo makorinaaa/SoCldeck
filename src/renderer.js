@@ -1260,67 +1260,20 @@ function flushWvReloadQueue() {
   ids.forEach(id => wvReload(id, { silent: true }));
 }
 
-// ソフトリロード: ページ全体を再読み込みせず、Xの「新しいポスト」ボタンをクリックして
-// 新着を読み込む。スクロール位置とセッションが維持されるため視点が飛ばない。
-// 成功したらtrue、ボタンが無い/失敗ならfalseを返す（呼び出し側でフォールバック判断）
+// ソフトリロード: 新着バナー、または「おすすめ」→「フォロー中」のタブ往復で
+// ページ全体を再読み込みせずにXへ新着取得を促す。
 async function softReloadX(id) {
   const wv = document.getElementById(`wv-${id}`);
   if (!wv || wv.style.display === 'none') return false;
   if (xPostingNow) { wvReloadQueue.add(id); return true; }
 
   try {
-    const result = await wv.executeJavaScript(`
-      (function() {
-        return new Promise(function(resolve) {
-          // 「新しいポストを表示」バナーボタンを探す
-          function findBanner() {
-            return document.querySelector('[data-testid="cellInnerDiv"] [role="button"][data-testid$="-newTweetsButton"]')
-              || Array.from(document.querySelectorAll('[role="button"]')).find(function(b) {
-                  return /新しいポスト|新しいツイート|Show .* posts?/i.test(b.textContent || '');
-              });
-          }
-
-          var scroller = document.scrollingElement || document.documentElement;
-          var atTop = scroller.scrollTop < 60;
-          var banner = findBanner();
-
-          // バナーが既にある → クリックして反映
-          if (banner) {
-            banner.click();
-            if (atTop) setTimeout(function(){ window.scrollTo({top:0,behavior:'smooth'}); }, 150);
-            resolve('clicked');
-            return;
-          }
-
-          // 最上部でバナーが無い → Xに新着ロードを促す
-          if (atTop) {
-            var origTop = scroller.scrollTop;
-            // ごく短い下→上のプル動作で新着取得をトリガー
-            window.scrollTo({ top: origTop + 60, behavior: 'auto' });
-            setTimeout(function() {
-              window.scrollTo({ top: origTop, behavior: 'auto' });
-              // 少し待ってバナー出現をチェック
-              setTimeout(function() {
-                var b2 = findBanner();
-                if (b2) {
-                  b2.click();
-                  setTimeout(function(){ window.scrollTo({top:0,behavior:'smooth'}); }, 150);
-                  resolve('clicked');
-                } else {
-                  // バナーが出ない → フォールバックを要求
-                  resolve('none');
-                }
-              }, 800);
-            }, 60);
-            return;
-          }
-
-          // 下の方を見ている → 何もしない（視点維持、次回バナー出現時に取得）
-          resolve('scrolled');
-        });
-      })();
-    `);
-    return result === 'clicked';
+    const script = window.SocialDeckXTimelineRefresh.createRefreshScript();
+    const result = await wv.executeJavaScript(script);
+    return result === 'clicked'
+      || result === 'tab-toggled'
+      || result === 'deferred'
+      || result === 'not-following';
   } catch {
     return false;
   }
