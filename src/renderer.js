@@ -2207,16 +2207,13 @@ async function doXPost() {
         }
       : null,
   });
-  const postText = request.text;
-  const postImgs = request.attachments
-    .filter(attachment => attachment.kind === 'image')
-    .map(attachment => attachment.file);
-  const videoAttachment = request.attachments
-    .find(attachment => attachment.kind === 'video');
-  const postVideo = videoAttachment?.file || null;
+  const delivery = networkAdapters.prepareComposeDelivery(request);
+  const postText = delivery.text;
+  const postImgs = delivery.imageFiles;
+  const postVideo = delivery.video?.file || null;
   const postVideoPath = xVideoPath;
-  const postTrimIn = videoAttachment?.trim.startSeconds || 0;
-  const postTrimOut = videoAttachment?.trim.endSeconds || 0;
+  const postTrimIn = delivery.video?.trim.startSeconds || 0;
+  const postTrimOut = delivery.video?.trim.endSeconds || 0;
 
   document.getElementById('x-cta').value = '';
   updXCC();
@@ -2525,18 +2522,17 @@ async function doSend() {
         }
       : null,
   });
+  const delivery = networkAdapters.prepareComposeDelivery(request);
 
   const btn = document.getElementById('sndb');
   btn.disabled = true; btn.textContent = '送信中…';
   try {
-    const replyRef = request.replyTo;
+    const replyRef = delivery.reply;
 
     let embed = undefined;
-    const imageAttachments = request.attachments
-      .filter(attachment => attachment.kind === 'image');
-    if (imageAttachments.length > 0) {
-      const images = await Promise.all(imageAttachments.map(async attachment => {
-        const file = attachment.file;
+    if (delivery.images.length > 0) {
+      const images = await Promise.all(delivery.images.map(async image => {
+        const file = image.file;
         const buf = await file.arrayBuffer();
         const res = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
           method: 'POST',
@@ -2548,18 +2544,18 @@ async function doSend() {
         });
         if (!res.ok) throw new Error('Image upload failed');
         const data = await res.json();
-        return { alt: attachment.altText, image: data.blob };
+        return { alt: image.alt, image: data.blob };
       }));
       embed = { $type: 'app.bsky.embed.images', images };
     }
 
     // 投稿
-    const rawFacets = buildFacets(request.text);
+    const rawFacets = buildFacets(delivery.text);
     const resolvedFacets = await resolveMentionDids(rawFacets, state.b.accessJwt);
 
     const record = {
       $type: 'app.bsky.feed.post',
-      text: request.text,
+      text: delivery.text,
       createdAt: new Date().toISOString(),
     };
     if (resolvedFacets.length) record.facets = resolvedFacets;
@@ -2568,7 +2564,7 @@ async function doSend() {
 
     await bskyCallWithRefresh(jwt =>
       apiPost('com.atproto.repo.createRecord', {
-        repo: state.b.did,
+        repo: delivery.repoDid,
         collection: 'app.bsky.feed.post',
         record,
       }, jwt)

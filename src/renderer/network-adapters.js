@@ -85,12 +85,63 @@
     };
   }
 
+  function prepareXComposeDelivery(request) {
+    const imageFiles = request.attachments
+      .filter(attachment => attachment.kind === 'image')
+      .map(attachment => attachment.file);
+    const videoAttachment = request.attachments
+      .find(attachment => attachment.kind === 'video');
+    if (imageFiles.length > 0 && videoAttachment) {
+      throw new Error('X compose delivery cannot mix image and video attachments');
+    }
+
+    return {
+      kind: 'x-webview',
+      accountId: request.target.accountId,
+      text: request.text,
+      imageFiles,
+      video: videoAttachment
+        ? {
+            file: videoAttachment.file,
+            trim: { ...videoAttachment.trim },
+          }
+        : null,
+    };
+  }
+
+  function prepareBlueskyComposeDelivery(request) {
+    const hasUnsupportedAttachment = request.attachments
+      .some(attachment => attachment.kind !== 'image');
+    if (hasUnsupportedAttachment) {
+      throw new Error('Bluesky compose delivery only supports image attachments');
+    }
+
+    return {
+      kind: 'bsky-atproto',
+      repoDid: request.target.accountId,
+      text: request.text,
+      images: request.attachments.map(attachment => ({
+        file: attachment.file,
+        alt: attachment.altText,
+      })),
+      reply: request.replyTo
+        ? {
+            root: { ...request.replyTo.root },
+            parent: { ...request.replyTo.parent },
+          }
+        : null,
+    };
+  }
+
   function createXAdapter({ icons }) {
     return {
       id: 'x',
       label: 'X',
       kind: 'webview-backed',
       capabilities: {
+        compose: {
+          prepareDelivery: prepareXComposeDelivery,
+        },
         columns: {
           createPlan: createXColumnPlan,
           definitions: [
@@ -156,6 +207,9 @@
       label: 'Bluesky',
       kind: 'api-backed',
       capabilities: {
+        compose: {
+          prepareDelivery: prepareBlueskyComposeDelivery,
+        },
         columns: {
           createPlan: createBlueskyColumnPlan,
           definitions: [
@@ -228,6 +282,10 @@
       return adapters.find(adapter => adapter.id === id) || null;
     }
 
+    function getCapability(networkId, capabilityId) {
+      return getAdapter(networkId)?.capabilities?.[capabilityId] || null;
+    }
+
     function getColumnDefinitions(networkId) {
       const adapter = getAdapter(networkId);
       return adapter?.capabilities?.columns?.definitions || [];
@@ -298,13 +356,24 @@
       }) || null;
     }
 
+    function prepareComposeDelivery(request) {
+      const networkId = request?.target?.networkId;
+      const compose = getCapability(networkId, 'compose');
+      if (!compose?.prepareDelivery) {
+        throw new Error(`Compose capability is unavailable for network: ${networkId || 'missing'}`);
+      }
+      return compose.prepareDelivery(request);
+    }
+
     return {
       adapters,
       getAdapter,
+      getCapability,
       getColumnDefinitions,
       getColumnDefinition,
       resolveColumnDefinition,
       createColumnPlan,
+      prepareComposeDelivery,
     };
   }
 
