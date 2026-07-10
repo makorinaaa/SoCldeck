@@ -5,6 +5,7 @@
 const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
 const composeRequests = window.SocialDeckComposeRequest;
+const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
 
 // ─── Bluesky API ───────────────────────────────
@@ -2297,6 +2298,13 @@ async function _deliverXPost({
   postTrimIn,
   postTrimOut,
 }) {
+  const preparation = await wv.executeJavaScript(
+    xComposePreparation.createPreparationScript()
+  );
+  if (preparation.status !== 'ready') {
+    throw new Error('Xの投稿欄を初期化できませんでした。Xカラムを確認して再試行してください');
+  }
+
   // ══ 動画投稿 ══
   if (postVideo) {
       const vid = document.getElementById('x-video-preview');
