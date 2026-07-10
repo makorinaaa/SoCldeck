@@ -25,7 +25,7 @@ The posting intent confirmed by a user at send time, including the target Networ
 _Avoid_: Draft, API payload, modal state, post form
 
 **Compose Attempt**:
-The Runtime State for submitting one Compose Request, including whether delivery is idle, sending, failed, or succeeded. A failed Compose Attempt retains its Compose Request for retry; a successful or explicitly cancelled attempt releases it.
+The Runtime State for submitting one Compose Request, including whether delivery is idle, sending, failed, unknown, or succeeded. A failed or unconfirmed Compose Attempt retains its Compose Request; a successful or explicitly cancelled attempt releases it.
 _Avoid_: Workspace State, saved draft, network payload, delivery queue
 
 **Network Adapter**:

@@ -118,3 +118,22 @@ test('allows retry after delivery throws synchronously', async () => {
   assert.equal(failed.status, 'failed');
   assert.equal(succeeded.status, 'succeeded');
 });
+
+test('retains the Compose Request when delivery cannot be confirmed', async () => {
+  const request = {
+    target: { networkId: 'x', accountId: 'alice' },
+    text: 'check before retrying',
+    attachments: [],
+    replyTo: null,
+  };
+  const attempt = loadComposeAttempt().createComposeAttemptRuntime();
+
+  const result = await attempt.submit(request, async () => ({
+    status: 'unknown',
+    reason: 'confirmation-timeout',
+  }));
+
+  assert.equal(result.status, 'unknown');
+  assert.strictEqual(result.retainedRequest, request);
+  assert.equal(result.value.reason, 'confirmation-timeout');
+});

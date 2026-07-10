@@ -19,12 +19,21 @@
       const submission = (async () => {
         try {
           const value = await deliver(request);
-          snapshot = {
-            status: 'succeeded',
-            retainedRequest: null,
-            error: null,
-            value,
-          };
+          if (value?.status === 'unknown') {
+            snapshot = {
+              status: 'unknown',
+              retainedRequest: request,
+              error: null,
+              value,
+            };
+          } else {
+            snapshot = {
+              status: 'succeeded',
+              retainedRequest: null,
+              error: null,
+              value,
+            };
+          }
         } catch (error) {
           snapshot = {
             status: 'failed',

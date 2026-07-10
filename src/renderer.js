@@ -5,6 +5,7 @@
 const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
 const composeRequests = window.SocialDeckComposeRequest;
+const xPostConfirmation = window.SocialDeckXPostConfirmation;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -2191,6 +2192,12 @@ function updXCC() {
 
 async function doXPost() {
   if (xComposeAttempt.getSnapshot().status === 'sending') return;
+  if (xComposeAttempt.getSnapshot().status === 'unknown') {
+    const confirmedMissing = confirm(
+      'X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
+    );
+    if (!confirmedMissing) return;
+  }
   const text = document.getElementById('x-cta').value.trim();
   if (!text && xImgFiles.length === 0 && !xVideoFile) return;
 
@@ -2267,6 +2274,12 @@ async function doXPost() {
   if (result.status === 'succeeded') {
     closeOv('xPostMod');
     composeCompletion.complete(completionPlan);
+    return;
+  }
+
+  if (result.status === 'unknown') {
+    setComposeButtonLabel('x-sndb', '確認後に再試行');
+    toast('投稿結果を確認できませんでした。X上で投稿状況を確認してください');
     return;
   }
 
@@ -2363,6 +2376,8 @@ async function _deliverXPost({
           if (!postBtn) throw new Error('送信ボタンが見つかりません');
           let retries = 20;
           while (postBtn.disabled && retries-- > 0) await new Promise(r => setTimeout(r, 500));
+          if (postBtn.disabled) throw new Error('送信ボタンを有効化できませんでした');
+          box.setAttribute('data-sd-compose-submit', 'pending');
           postBtn.click();
           return 'ok';
         })()
@@ -2437,11 +2452,24 @@ async function _deliverXPost({
           if (!postBtn) throw new Error('送信ボタンが見つかりません');
           let retries = 15;
           while (postBtn.disabled && retries-- > 0) await new Promise(r => setTimeout(r, 300));
+          if (postBtn.disabled) throw new Error('送信ボタンを有効化できませんでした');
+          box.setAttribute('data-sd-compose-submit', 'pending');
           postBtn.click();
           return 'ok';
         })()
       `);
   }
+
+  const confirmation = await wv.executeJavaScript(
+    xPostConfirmation.createConfirmationScript({
+      hadText: !!postText,
+      hadMedia: !!postVideo || postImgs.length > 0,
+    })
+  );
+  if (confirmation.status === 'failed') {
+    throw new Error(confirmation.message || 'X rejected the post');
+  }
+  return confirmation;
 }
 
 function updCC() {
