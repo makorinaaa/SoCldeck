@@ -102,6 +102,24 @@ test('keeps using the new-posts banner when X provides one', async () => {
   assert.deepEqual(clicks, ['banner']);
 });
 
+test('prefers the Following tab refresh over a stale new-posts banner', async () => {
+  const clicks = [];
+  const tabs = [
+    createTab('おすすめ', false, clicks),
+    createTab('フォロー中', true, clicks),
+  ];
+  const banner = { click: () => clicks.push('banner') };
+
+  const result = await loadRefreshRuntime().refreshFollowingTimeline({
+    documentLike: createTimelineDocument({ tabs, banner }),
+    schedule: callback => callback(),
+    scrollTo: () => {},
+  });
+
+  assert.equal(result, 'tab-toggled');
+  assert.deepEqual(clicks, ['おすすめ', 'フォロー中']);
+});
+
 test('runs the Following refresh through the generated WebView script', async () => {
   const clicks = [];
   const tabs = [

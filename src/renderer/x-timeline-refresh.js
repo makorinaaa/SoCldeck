@@ -17,13 +17,27 @@
         .find(tab => pattern.test(normalizedText(tab)));
     }
 
+    const scroller = documentLike.scrollingElement || documentLike.documentElement;
+    const atTop = (scroller?.scrollTop || 0) < 60;
+    const followingTab = findTab(/^(フォロー中|Following)$/i);
+    const forYouTab = findTab(/^(おすすめ|For you)$/i);
+
+    if (atTop && followingTab && forYouTab && followingTab.getAttribute('aria-selected') === 'true') {
+      forYouTab.click();
+      await wait(300);
+
+      const refreshedFollowingTab = findTab(/^(フォロー中|Following)$/i);
+      if (!refreshedFollowingTab) return 'tabs-missing';
+      refreshedFollowingTab.click();
+      await wait(500);
+      scrollTo({ top: 0, behavior: 'auto' });
+      return 'tab-toggled';
+    }
+
     const banner = documentLike.querySelector('[data-testid$="-newTweetsButton"]')
       || Array.from(documentLike.querySelectorAll('[role="button"]')).find(button => (
         /新しいポスト|新しいツイート|Show .* posts?/i.test(normalizedText(button))
       ));
-    const scroller = documentLike.scrollingElement || documentLike.documentElement;
-    const atTop = (scroller?.scrollTop || 0) < 60;
-
     if (banner) {
       banner.click();
       if (atTop) {
@@ -34,21 +48,8 @@
     }
 
     if (!atTop) return 'deferred';
-
-    const followingTab = findTab(/^(フォロー中|Following)$/i);
-    const forYouTab = findTab(/^(おすすめ|For you)$/i);
     if (!followingTab || !forYouTab) return 'tabs-missing';
-    if (followingTab.getAttribute('aria-selected') !== 'true') return 'not-following';
-
-    forYouTab.click();
-    await wait(300);
-
-    const refreshedFollowingTab = findTab(/^(フォロー中|Following)$/i);
-    if (!refreshedFollowingTab) return 'tabs-missing';
-    refreshedFollowingTab.click();
-    await wait(500);
-    scrollTo({ top: 0, behavior: 'auto' });
-    return 'tab-toggled';
+    return 'not-following';
   }
 
   function createRefreshScript() {
