@@ -24,6 +24,10 @@ _Avoid_: Universal post model, X post modal, Bluesky post modal
 The posting intent confirmed by a user at send time, including the target Network Account, text, attachments, and optional reply context. It excludes network payloads, credentials, and delivery mechanics.
 _Avoid_: Draft, API payload, modal state, post form
 
+**Compose Attempt**:
+The Runtime State for submitting one Compose Request, including whether delivery is idle, sending, failed, or succeeded. A failed Compose Attempt retains its Compose Request for retry; a successful or explicitly cancelled attempt releases it.
+_Avoid_: Workspace State, saved draft, network payload, delivery queue
+
 **Network Adapter**:
 A boundary that exposes one social network's capabilities to SocialDeck. A Network Adapter hides authentication and integration mechanics while presenting network capabilities such as columns, posting, notifications, search, and profile display.
 _Avoid_: API client, webview helper, platform module

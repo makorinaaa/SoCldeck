@@ -125,6 +125,8 @@ const SVG = {
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
 const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({ icons: SVG });
+const xComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
+const bskyComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
 const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
   notify: toast,
   refresh: refreshAfterCompose,
@@ -2188,6 +2190,7 @@ function updXCC() {
 }
 
 async function doXPost() {
+  if (xComposeAttempt.getSnapshot().status === 'sending') return;
   const text = document.getElementById('x-cta').value.trim();
   if (!text && xImgFiles.length === 0 && !xVideoFile) return;
 
@@ -2242,25 +2245,37 @@ async function doXPost() {
   const postTrimIn = delivery.video?.trim.startSeconds || 0;
   const postTrimOut = delivery.video?.trim.endSeconds || 0;
 
-  document.getElementById('x-cta').value = '';
-  updXCC();
-  resetXImgUI();
-  closeOv('xPostMod');
-
+  setComposeBusy('xPostMod', 'x-sndb', true, '送信中…');
   xPostingNow = true;
-  _doXPostBackground({
-    wv,
-    postText,
-    postImgs,
-    postVideo,
-    postVideoPath,
-    postTrimIn,
-    postTrimOut,
-    completionPlan,
-  });
+  const result = await xComposeAttempt.submit(request, () => _deliverXPost({
+      wv,
+      postText,
+      postImgs,
+      postVideo,
+      postVideoPath,
+      postTrimIn,
+      postTrimOut,
+    }));
+  xPostingNow = false;
+  try {
+    await flushWvReloadQueue();
+  } catch (error) {
+    console.warn('Queued X refresh failed:', error);
+  }
+
+  setComposeBusy('xPostMod', 'x-sndb', false);
+  if (result.status === 'succeeded') {
+    closeOv('xPostMod');
+    composeCompletion.complete(completionPlan);
+    return;
+  }
+
+  setFFmpegStatus('');
+  setComposeButtonLabel('x-sndb', '再試行');
+  toast('X post error: ' + result.error.message);
 }
 
-async function _doXPostBackground({
+async function _deliverXPost({
   wv,
   postText,
   postImgs,
@@ -2268,11 +2283,9 @@ async function _doXPostBackground({
   postVideoPath,
   postTrimIn,
   postTrimOut,
-  completionPlan,
 }) {
-  try {
-    // ══ 動画投稿 ══
-    if (postVideo) {
+  // ══ 動画投稿 ══
+  if (postVideo) {
       const vid = document.getElementById('x-video-preview');
       const duration = vid?.duration || 0;
       const trimEnd = postTrimOut || duration;
@@ -2355,8 +2368,8 @@ async function _doXPostBackground({
         })()
       `);
 
-    // ══ 画像投稿 ══
-    } else {
+  // ══ 画像投稿 ══
+  } else {
       const imgPayloads = await Promise.all(postImgs.map(f => new Promise((res, rej) => {
         const reader = new FileReader();
         reader.onload = () => res({ dataUrl: reader.result, type: f.type, name: f.name });
@@ -2428,16 +2441,6 @@ async function _doXPostBackground({
           return 'ok';
         })()
       `);
-    }
-
-    composeCompletion.complete(completionPlan);
-
-  } catch (e) {
-    toast('X post error: ' + e.message);
-    setFFmpegStatus('');
-  } finally {
-    xPostingNow = false;
-    await flushWvReloadQueue();
   }
 }
 
@@ -2540,6 +2543,7 @@ async function resolveMentionDids(facets, jwt) {
 }
 
 async function doSend() {
+  if (bskyComposeAttempt.getSnapshot().status === 'sending') return;
   const text = document.getElementById('cta').value.trim();
   if (!text && bImgFiles.length === 0) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
@@ -2565,9 +2569,8 @@ async function doSend() {
   const delivery = networkAdapters.prepareComposeDelivery(request);
   const completionPlan = networkAdapters.prepareComposeCompletion(request);
 
-  const btn = document.getElementById('sndb');
-  btn.disabled = true; btn.textContent = '送信中…';
-  try {
+  setComposeBusy('compMod', 'sndb', true, '送信中…');
+  const result = await bskyComposeAttempt.submit(request, async () => {
     const replyRef = delivery.reply;
 
     let embed = undefined;
@@ -2610,19 +2613,17 @@ async function doSend() {
         record,
       }, jwt)
     );
+  });
 
-    document.getElementById('cta').value = '';
-    updCC();
-    replyTarget = null;
-    resetBImgUI();
-    document.querySelector('.bsky-reply-preview')?.remove();
+  setComposeBusy('compMod', 'sndb', false);
+  if (result.status === 'succeeded') {
     closeOv('compMod');
     composeCompletion.complete(completionPlan);
-  } catch (e) {
-    toast(`Post error: ${e.message}`);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Post';
+    return;
   }
+
+  setComposeButtonLabel('sndb', '再試行');
+  toast(`Post error: ${result.error.message}`);
 }
 
 // ─── ADD COLUMN MODAL ───────────────────────────
@@ -3188,20 +3189,55 @@ document.addEventListener('click', e => {
   }
 });
 
+function setComposeButtonLabel(buttonId, label = null) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+  if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent;
+  button.textContent = label || button.dataset.defaultLabel;
+}
+
+function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
+  const modal = document.getElementById(modalId);
+  if (modal) {
+    modal.setAttribute('aria-busy', String(busy));
+    const content = modal.querySelector('.cmodal');
+    if (content) content.style.pointerEvents = busy ? 'none' : '';
+  }
+
+  const button = document.getElementById(buttonId);
+  if (button) button.disabled = busy;
+  setComposeButtonLabel(buttonId, busy ? busyLabel : null);
+  if (!busy) {
+    if (buttonId === 'x-sndb') updXCC();
+    if (buttonId === 'sndb') updCC();
+  }
+}
+
+function isComposeSending(modalId) {
+  if (modalId === 'xPostMod') return xComposeAttempt.getSnapshot().status === 'sending';
+  if (modalId === 'compMod') return bskyComposeAttempt.getSnapshot().status === 'sending';
+  return false;
+}
+
 function closeOv(id, e) {
+  if (isComposeSending(id)) return;
   if (!e || e.target.classList.contains('ov')) {
     document.getElementById(id).classList.remove('on');
     if (id === 'xPostMod') {
+      xComposeAttempt.reset();
       resetXImgUI();
       document.getElementById('x-cta').value = '';
+      setComposeButtonLabel('x-sndb');
       updXCC();
     }
     if (id === 'compMod') {
+      bskyComposeAttempt.reset();
       resetBImgUI();
       const cta = document.getElementById('cta');
       if (cta) { cta.value = ''; updCC(); }
       replyTarget = null;
       document.querySelector('.bsky-reply-preview')?.remove();
+      setComposeButtonLabel('sndb');
     }
   }
 }
@@ -3241,7 +3277,10 @@ document.addEventListener('keydown', e => {
     else loginBluesky();
   }
   if (e.key === 'Escape') {
-    document.querySelectorAll('.ov.on').forEach(o => o.classList.remove('on'));
+    document.querySelectorAll('.ov.on').forEach(o => {
+      if (o.id === 'xPostMod' || o.id === 'compMod') closeOv(o.id);
+      else o.classList.remove('on');
+    });
     document.getElementById('quote-modal-ov')?.remove();
     quoteTarget = null;
   }
