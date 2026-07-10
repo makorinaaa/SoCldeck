@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════
 const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
+const composeRequests = window.SocialDeckComposeRequest;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -2194,12 +2195,28 @@ async function doXPost() {
     }
   }
 
-  const postText      = text;
-  const postImgs      = [...xImgFiles];
-  const postVideo     = xVideoFile;
+  const request = composeRequests.createComposeRequest({
+    networkId: 'x',
+    accountId: acc?.username || targetPartition,
+    text,
+    images: xImgFiles.map(file => ({ file })),
+    video: xVideoFile
+      ? {
+          file: xVideoFile,
+          trim: { startSeconds: xTrimIn, endSeconds: xTrimOut },
+        }
+      : null,
+  });
+  const postText = request.text;
+  const postImgs = request.attachments
+    .filter(attachment => attachment.kind === 'image')
+    .map(attachment => attachment.file);
+  const videoAttachment = request.attachments
+    .find(attachment => attachment.kind === 'video');
+  const postVideo = videoAttachment?.file || null;
   const postVideoPath = xVideoPath;
-  const postTrimIn    = xTrimIn;
-  const postTrimOut   = xTrimOut;
+  const postTrimIn = videoAttachment?.trim.startSeconds || 0;
+  const postTrimOut = videoAttachment?.trim.endSeconds || 0;
 
   document.getElementById('x-cta').value = '';
   updXCC();
@@ -2486,23 +2503,40 @@ async function resolveMentionDids(facets, jwt) {
 }
 
 async function doSend() {
-  const v = document.getElementById('cta').value.trim();
-  if (!v && bImgFiles.length === 0) return;
+  const text = document.getElementById('cta').value.trim();
+  if (!text && bImgFiles.length === 0) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
+
+  const request = composeRequests.createComposeRequest({
+    networkId: 'b',
+    accountId: state.b.did,
+    text,
+    images: bImgFiles.map((file, index) => ({
+      file,
+      altText: bImgAlts[index] || '',
+    })),
+    replyTo: replyTarget
+      ? {
+          root: {
+            uri: replyTarget.rootUri || replyTarget.uri,
+            cid: replyTarget.rootCid || replyTarget.cid,
+          },
+          parent: { uri: replyTarget.uri, cid: replyTarget.cid },
+        }
+      : null,
+  });
 
   const btn = document.getElementById('sndb');
   btn.disabled = true; btn.textContent = '送信中…';
   try {
-    const replyRef = replyTarget
-      ? {
-          root:   { uri: replyTarget.rootUri || replyTarget.uri, cid: replyTarget.rootCid || replyTarget.cid },
-          parent: { uri: replyTarget.uri, cid: replyTarget.cid }
-        }
-      : null;
+    const replyRef = request.replyTo;
 
     let embed = undefined;
-    if (bImgFiles.length > 0) {
-      const images = await Promise.all(bImgFiles.map(async (file, idx) => {
+    const imageAttachments = request.attachments
+      .filter(attachment => attachment.kind === 'image');
+    if (imageAttachments.length > 0) {
+      const images = await Promise.all(imageAttachments.map(async attachment => {
+        const file = attachment.file;
         const buf = await file.arrayBuffer();
         const res = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
           method: 'POST',
@@ -2514,18 +2548,18 @@ async function doSend() {
         });
         if (!res.ok) throw new Error('Image upload failed');
         const data = await res.json();
-        return { alt: bImgAlts[idx] || '', image: data.blob };
+        return { alt: attachment.altText, image: data.blob };
       }));
       embed = { $type: 'app.bsky.embed.images', images };
     }
 
     // 投稿
-    const rawFacets = buildFacets(v);
+    const rawFacets = buildFacets(request.text);
     const resolvedFacets = await resolveMentionDids(rawFacets, state.b.accessJwt);
 
     const record = {
       $type: 'app.bsky.feed.post',
-      text: v,
+      text: request.text,
       createdAt: new Date().toISOString(),
     };
     if (resolvedFacets.length) record.facets = resolvedFacets;

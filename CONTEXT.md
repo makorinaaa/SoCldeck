@@ -20,6 +20,10 @@ _Avoid_: Session, profile, login
 The shared user-facing flow for preparing a post: choosing a Network Account, writing text, attaching media, and sending. The Compose Experience is common across networks, while delivery rules and payloads remain network-specific.
 _Avoid_: Universal post model, X post modal, Bluesky post modal
 
+**Compose Request**:
+The posting intent confirmed by a user at send time, including the target Network Account, text, attachments, and optional reply context. It excludes network payloads, credentials, and delivery mechanics.
+_Avoid_: Draft, API payload, modal state, post form
+
 **Network Adapter**:
 A boundary that exposes one social network's capabilities to SocialDeck. A Network Adapter hides authentication and integration mechanics while presenting network capabilities such as columns, posting, notifications, search, and profile display.
 _Avoid_: API client, webview helper, platform module
