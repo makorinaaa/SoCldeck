@@ -35,13 +35,13 @@ function createTimelineDocument({ tabs, scrollTop = 0, banner = null }) {
   };
 }
 
-test('refreshes an active Following timeline by switching tabs and returning', async () => {
+test('refreshes an active Following timeline and settles at the top', async () => {
   const clicks = [];
   const tabs = [
     createTab('おすすめ', false, clicks),
     createTab('フォロー中', true, clicks),
   ];
-  const documentLike = createTimelineDocument({ tabs });
+  const documentLike = createTimelineDocument({ tabs, scrollTop: 40 });
   const scheduleImmediately = callback => callback();
 
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
@@ -51,6 +51,7 @@ test('refreshes an active Following timeline by switching tabs and returning', a
 
   assert.equal(result, 'tab-toggled');
   assert.deepEqual(clicks, ['おすすめ', 'フォロー中']);
+  assert.equal(documentLike.scrollingElement.scrollTop, 0);
 });
 
 test('leaves a timeline unchanged while the user is scrolled down', async () => {
@@ -89,13 +90,15 @@ test('keeps using the new-posts banner when X provides one', async () => {
   const clicks = [];
   const banner = { click: () => clicks.push('banner') };
 
+  const documentLike = createTimelineDocument({ tabs: [], banner, scrollTop: 30 });
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
-    documentLike: createTimelineDocument({ tabs: [], banner }),
+    documentLike,
     schedule: callback => callback(),
   });
 
   assert.equal(result, 'clicked');
   assert.deepEqual(clicks, ['banner']);
+  assert.equal(documentLike.scrollingElement.scrollTop, 0);
 });
 
 test('prefers the Following tab refresh over a stale new-posts banner', async () => {

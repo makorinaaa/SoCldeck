@@ -895,7 +895,10 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
         function clickBanner() {
           var b = findBanner();
           if (b) {
+            var scroller = document.scrollingElement || document.documentElement;
+            var atTop = scroller.scrollTop < 60;
             b.click();
+            if (atTop) setTimeout(function(){ scroller.scrollTop = 0; }, 120);
             return true;
           }
           return false;

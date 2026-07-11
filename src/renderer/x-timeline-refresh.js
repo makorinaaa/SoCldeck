@@ -29,6 +29,7 @@
       if (!refreshedFollowingTab) return 'tabs-missing';
       refreshedFollowingTab.click();
       await wait(500);
+      if (scroller) scroller.scrollTop = 0;
       return 'tab-toggled';
     }
 
@@ -38,6 +39,10 @@
       ));
     if (banner) {
       banner.click();
+      if (atTop && scroller) {
+        await wait(150);
+        scroller.scrollTop = 0;
+      }
       return 'clicked';
     }
 
