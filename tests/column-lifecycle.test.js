@@ -43,6 +43,12 @@ function createHarness({ failId } = {}) {
     applyWidth: (id, width) => events.push(['width', id, width]),
     applyCollapsed: id => events.push(['collapsed', id]),
     reportRestoreError: (storedColumn, error) => errors.push([storedColumn.id, error.message]),
+    cleanupRuntimeState: id => events.push(['cleanup-runtime', id]),
+    removeElement: id => {
+      events.push(['remove-element', id]);
+      return true;
+    },
+    persistWorkspace: () => events.push(['persist']),
   });
   return { lifecycle, events, saved, errors };
 }
@@ -76,6 +82,45 @@ test('returns an input requirement without registering an incomplete Column', ()
 
   assert.equal(result.status, 'input-required');
   assert.deepEqual(events, []);
+});
+
+test('removes a Column after cleaning all Runtime State', () => {
+  const { lifecycle, events } = createHarness();
+
+  const result = lifecycle.remove('timeline');
+
+  assert.equal(result.status, 'removed');
+  assert.deepEqual(events, [
+    ['cleanup', 'timeline'],
+    ['cleanup-runtime', 'timeline'],
+    ['remove-element', 'timeline'],
+    ['persist'],
+  ]);
+});
+
+test('does not persist when a Column element no longer exists', () => {
+  const events = [];
+  const lifecycle = loadFactory()({
+    createPlan: () => null,
+    registerRefresh: () => {},
+    insertPlan: () => false,
+    cleanupRefresh: id => events.push(['cleanup', id]),
+    cleanupRuntimeState: id => events.push(['cleanup-runtime', id]),
+    removeElement: id => {
+      events.push(['remove-element', id]);
+      return false;
+    },
+    persistWorkspace: () => events.push(['persist']),
+  });
+
+  const result = lifecycle.remove('missing');
+
+  assert.equal(result.status, 'not-found');
+  assert.deepEqual(events, [
+    ['cleanup', 'missing'],
+    ['cleanup-runtime', 'missing'],
+    ['remove-element', 'missing'],
+  ]);
 });
 
 test('restores Column lifecycle state through a Network Adapter plan', () => {

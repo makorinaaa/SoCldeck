@@ -132,6 +132,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   registerRefresh: registerColumnRefreshPlan,
   cleanupRefresh: id => {
     clearAutoRefresh(id);
+    delete autoRefreshIntervals[id];
     columnRefreshPlans.delete(id);
   },
   insertPlan: insertColumnPlan,
@@ -145,6 +146,19 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   },
   applyCollapsed: id => setTimeout(() => toggleColCollapse(id), 0),
   reportRestoreError: insertColumnRestoreError,
+  cleanupRuntimeState: id => {
+    delete colCursors[id];
+    collapsedCols.delete(id);
+    wvSilentReloading.delete(id);
+    localStorage.removeItem(`col_fs_${id}`);
+  },
+  removeElement: id => {
+    const element = document.getElementById(`col-${id}`);
+    if (!element) return false;
+    element.remove();
+    return true;
+  },
+  persistWorkspace: saveColLayout,
 });
 const xComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
 const bskyComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
@@ -1461,12 +1475,7 @@ function refreshBskyCol(cid, btn) {
 }
 
 function removeCol(id) {
-  clearAutoRefresh(id);
-  delete autoRefreshIntervals[id];
-  columnRefreshPlans.delete(id);
-  const el = document.getElementById(`col-${id}`);
-  if (el) el.remove();
-  saveColLayout();
+  columnLifecycle.remove(id);
 }
 
 // ─── BLUESKY POST RENDERING ──────────────────────

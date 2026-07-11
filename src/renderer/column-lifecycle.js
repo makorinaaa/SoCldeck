@@ -8,6 +8,9 @@
     applyWidth,
     applyCollapsed,
     reportRestoreError = () => {},
+    cleanupRuntimeState = () => {},
+    removeElement = () => false,
+    persistWorkspace = () => {},
   }) {
     function materialize(plan) {
       if (!plan || !plan.config || !plan.refresh) {
@@ -38,6 +41,15 @@
         network: plan.config.network,
         definitionId: plan.config.definitionId,
       };
+    }
+
+    function remove(id) {
+      cleanupRefresh(id);
+      cleanupRuntimeState(id);
+      const removed = removeElement(id);
+      if (!removed) return { status: 'not-found', id };
+      persistWorkspace();
+      return { status: 'removed', id };
     }
 
     function restore(layout, { persistNormalized } = {}) {
@@ -74,7 +86,7 @@
       };
     }
 
-    return { create, restore };
+    return { create, remove, restore };
   }
 
   global.SocialDeckColumnLifecycle = { createColumnLifecycle };
