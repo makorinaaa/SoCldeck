@@ -2,7 +2,6 @@
   async function refreshFollowingTimeline({
     documentLike,
     schedule,
-    scrollTo,
   }) {
     function wait(ms) {
       return new Promise(resolve => schedule(resolve, ms));
@@ -30,7 +29,6 @@
       if (!refreshedFollowingTab) return 'tabs-missing';
       refreshedFollowingTab.click();
       await wait(500);
-      scrollTo({ top: 0, behavior: 'auto' });
       return 'tab-toggled';
     }
 
@@ -40,10 +38,6 @@
       ));
     if (banner) {
       banner.click();
-      if (atTop) {
-        await wait(150);
-        scrollTo({ top: 0, behavior: 'auto' });
-      }
       return 'clicked';
     }
 
@@ -55,8 +49,7 @@
   function createRefreshScript() {
     return `(${refreshFollowingTimeline.toString()})({
       documentLike: document,
-      schedule: setTimeout,
-      scrollTo: function(options) { window.scrollTo(options); }
+      schedule: setTimeout
     })`;
   }
 

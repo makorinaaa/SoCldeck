@@ -47,7 +47,6 @@ test('refreshes an active Following timeline by switching tabs and returning', a
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
     documentLike,
     schedule: scheduleImmediately,
-    scrollTo: () => {},
   });
 
   assert.equal(result, 'tab-toggled');
@@ -64,7 +63,6 @@ test('leaves a timeline unchanged while the user is scrolled down', async () => 
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
     documentLike: createTimelineDocument({ tabs, scrollTop: 200 }),
     schedule: callback => callback(),
-    scrollTo: () => {},
   });
 
   assert.equal(result, 'deferred');
@@ -81,7 +79,6 @@ test('leaves the For you timeline selected', async () => {
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
     documentLike: createTimelineDocument({ tabs }),
     schedule: callback => callback(),
-    scrollTo: () => {},
   });
 
   assert.equal(result, 'not-following');
@@ -95,7 +92,6 @@ test('keeps using the new-posts banner when X provides one', async () => {
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
     documentLike: createTimelineDocument({ tabs: [], banner }),
     schedule: callback => callback(),
-    scrollTo: () => {},
   });
 
   assert.equal(result, 'clicked');
@@ -113,7 +109,6 @@ test('prefers the Following tab refresh over a stale new-posts banner', async ()
   const result = await loadRefreshRuntime().refreshFollowingTimeline({
     documentLike: createTimelineDocument({ tabs, banner }),
     schedule: callback => callback(),
-    scrollTo: () => {},
   });
 
   assert.equal(result, 'tab-toggled');
@@ -131,7 +126,6 @@ test('runs the Following refresh through the generated WebView script', async ()
   const result = await vm.runInNewContext(runtime.createRefreshScript(), {
     document: createTimelineDocument({ tabs }),
     setTimeout: callback => callback(),
-    window: { scrollTo: () => {} },
   });
 
   assert.equal(result, 'tab-toggled');

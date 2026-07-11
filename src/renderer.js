@@ -895,11 +895,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
         function clickBanner() {
           var b = findBanner();
           if (b) {
-            var scroller = document.scrollingElement || document.documentElement;
-            var atTop = scroller.scrollTop < 60;
             b.click();
-            // 最上部にいたときだけトップを維持（新着の先頭が見える）
-            if (atTop) setTimeout(function(){ window.scrollTo({top:0,behavior:'auto'}); }, 120);
             return true;
           }
           return false;
