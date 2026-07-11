@@ -35,7 +35,7 @@
       : definition.defaultParams.url || storedColumn?.url;
     return {
       kind: 'wv',
-      refresh: { kind: 'wv' },
+      refresh: { networkId: 'x', kind: 'webview' },
       partition: getStoredValue(storedColumn, 'partition', account?.partition || `persist:x-${accountIndex}`),
       config: {
         id,
@@ -64,7 +64,7 @@
     if (definition.columnType === 'settings' || definition.columnType === 'profile') {
       return {
         kind: 'wv',
-        refresh: { kind: 'wv' },
+        refresh: { networkId: 'b', kind: 'webview' },
         partition: getStoredValue(storedColumn, 'partition', 'persist:bsky'),
         config: {
           ...commonConfig,
@@ -77,7 +77,7 @@
     const feedUri = storedColumn?.feedUri || definition.defaultParams.feedUri || null;
     return {
       kind: 'bsky',
-      refresh: { kind: 'bsky', type, feedUri },
+      refresh: { networkId: 'b', kind: 'feed', type, feedUri },
       config: {
         ...commonConfig,
         type,
@@ -156,6 +156,16 @@
     };
   }
 
+  async function refreshXColumn({ id, operations }) {
+    const refreshed = await operations.refreshXTimeline(id);
+    if (!refreshed) operations.reloadWebView(id);
+  }
+
+  function refreshBlueskyColumn({ id, plan, operations }) {
+    if (plan.kind === 'webview') return operations.reloadWebView(id);
+    return operations.refreshBlueskyFeed(id, plan.type, plan.feedUri);
+  }
+
   function createXAdapter({ icons }) {
     return {
       id: 'x',
@@ -168,6 +178,7 @@
         },
         columns: {
           createPlan: createXColumnPlan,
+          refresh: refreshXColumn,
           definitions: [
             createDefinition({
               id: 'x-home-new',
@@ -237,6 +248,7 @@
         },
         columns: {
           createPlan: createBlueskyColumnPlan,
+          refresh: refreshBlueskyColumn,
           definitions: [
             createDefinition({
               id: 'b-timeline-new',
@@ -415,6 +427,12 @@
       return compose.prepareCompletion(request);
     }
 
+    function executeColumnRefresh(id, plan, operations) {
+      const refresh = getCapability(plan?.networkId, 'columns')?.refresh;
+      if (!refresh) throw new Error(`Column refresh is unavailable for network: ${plan?.networkId || 'missing'}`);
+      return refresh({ id, plan, operations });
+    }
+
     return {
       adapters,
       getAdapter,
@@ -423,6 +441,7 @@
       getColumnDefinition,
       resolveColumnDefinition,
       createColumnPlan,
+      executeColumnRefresh,
       prepareComposeDelivery,
       prepareComposeCompletion,
     };

@@ -129,17 +129,14 @@ const COL_KEY = columnRuntime.layoutKey;
 const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({ icons: SVG });
 const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   createPlan: request => networkAdapters.createColumnPlan(request),
-  registerRefresh: registerColumnRefreshPlan,
-  cleanupRefresh: id => {
-    clearAutoRefresh(id);
-    delete autoRefreshIntervals[id];
-    columnRefreshPlans.delete(id);
-  },
   insertPlan: insertColumnPlan,
-  setRefreshInterval: (id, interval) => {
-    clearAutoRefresh(id);
-    setColumnAutoRefresh(id, interval);
-  },
+  scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
+  clearRefreshSchedule: id => refreshScheduler.remove(id),
+  executeRefresh: (id, plan) => networkAdapters.executeColumnRefresh(id, plan, {
+    refreshXTimeline: softReloadX,
+    reloadWebView: id => wvReload(id, { silent: true }),
+    refreshBlueskyFeed: silentRefreshBsky,
+  }),
   applyWidth: (id, width) => {
     const el = document.getElementById(`col-${id}`);
     if (el) { el.style.width = width; el.style.minWidth = width; }
@@ -174,7 +171,7 @@ function saveColLayout() {
   if (!cols) return;
   const layout = columnRuntime.captureLayout(cols.querySelectorAll('.col'), {
     resolveDefinition: storedColumn => networkAdapters.resolveColumnDefinition(storedColumn),
-    getInterval: id => autoRefreshIntervals[id] ?? DEFAULT_INTERVAL_MS,
+    getInterval: id => columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS),
     isCollapsed: id => collapsedCols.has(id),
   });
   columnRuntime.writeStoredLayout(layout);
@@ -558,9 +555,7 @@ async function logoutAll() {
     await window.electronAPI.clearAllXSessions();
   }
   // 全カラムの自動更新を停止
-  refreshScheduler.clearAll();
-  Object.keys(autoRefreshIntervals).forEach(id => delete autoRefreshIntervals[id]);
-  columnRefreshPlans.clear();
+  columnLifecycle.clear();
   state = { xs: [], activeX: 0, b: null };
   saveState();
   columnRuntime.clearStoredLayout(); // カラムレイアウトもリセット
@@ -644,30 +639,10 @@ async function initWvPreloadPath() {
   }
 }
 const refreshScheduler = window.SocialDeckRefreshScheduler.createRefreshScheduler();
-const autoRefreshTimers = refreshScheduler.timers;
-const autoRefreshIntervals = refreshScheduler.intervals;
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
-const columnRefreshPlans = new Map();
-
-function registerColumnRefreshPlan(id, plan) {
-  if (plan) columnRefreshPlans.set(id, plan);
-}
 
 function setColumnAutoRefresh(id, ms) {
-  const plan = columnRefreshPlans.get(id);
-  refreshScheduler.set(id, ms, async () => {
-    if (plan?.kind === 'wv') {
-      const ok = await softReloadX(id);
-      if (!ok) wvReload(id, { silent: true });
-      return;
-    }
-    if (plan?.kind === 'bsky') {
-      silentRefreshBsky(id, plan.type, plan.feedUri);
-    }
-  });
-}
-function clearAutoRefresh(id) {
-  refreshScheduler.clear(id);
+  columnLifecycle.setRefreshInterval(id, ms);
 }
 async function silentRefreshBsky(cid, type, feedUri) {
   if (!state.b) return;
@@ -768,7 +743,6 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cfg.id}`;
-  if (!columnRefreshPlans.has(cfg.id)) registerColumnRefreshPlan(cfg.id, { kind: 'wv' });
   if (cfg.network) div.dataset.network = cfg.network;
   if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
   div.innerHTML = `
@@ -1058,7 +1032,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       // 自動更新タイマーは初回のみ設定（ShareX等による dom-ready 再発火でリセットされないように）
       if (!_domReadyOnce) {
         _domReadyOnce = true;
-        if (autoRefreshIntervals[cfg.id] === undefined) {
+        if (columnLifecycle.getRefreshInterval(cfg.id) === undefined) {
           setColumnAutoRefresh(cfg.id, DEFAULT_INTERVAL_MS);
         }
       }
@@ -1344,9 +1318,6 @@ function insertBskyCol(cfg, before = null) {
   const addbtn = before || cols.querySelector('.add-col-btn');
   const cid = cfg.id || `b-${++colIdSeq}`;
   colCursors[cid] = null;
-  if (!columnRefreshPlans.has(cid)) {
-    registerColumnRefreshPlan(cid, { kind: 'bsky', type: cfg.type || 'timeline', feedUri: cfg.feedUri || null });
-  }
 
   const div = document.createElement('div');
   div.className = 'col';
@@ -2757,7 +2728,7 @@ function addColFromModal(definitionId, network, accountIdx) {
 }
 
 function openColSettings(id, colType) {
-  const ms = refreshScheduler.getInterval(id, DEFAULT_INTERVAL_MS);
+  const ms = columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS);
   const cur = Math.round(ms / 1000);
   const curFs = parseInt(localStorage.getItem(`col_fs_${id}`)) || 13;
   document.getElementById('col-settings-ov')?.remove();
@@ -3544,17 +3515,13 @@ if ((state.xs && state.xs.length > 0) || state.b) {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     // バックグラウンド: 全タイマーを一時停止
-    refreshScheduler.clearAll();
+    columnLifecycle.pauseRefresh();
     notificationRuntime.stopPoll();
     memoryCleaner.stop();
   } else {
     // フォアグラウンド復帰: タイマーを再開のみ（即時更新はしない）
     // ShareX等のキャプチャツールがフォーカスを一瞬奪うと誤発火するため
-    Object.keys(autoRefreshIntervals).forEach(id => {
-      const ms = autoRefreshIntervals[id];
-      if (!ms || ms <= 0) return;
-      setColumnAutoRefresh(id, ms);
-    });
+    columnLifecycle.resumeRefresh();
     if (state.b) startNotifPoll();
     startMemoryCleaner();
   }

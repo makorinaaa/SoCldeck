@@ -185,3 +185,34 @@ test('resolves a legacy Bluesky profile WebView to its Column Definition', () =>
 
   assert.equal(definition.id, 'b-profile');
 });
+
+test('X Column refresh falls back to WebView reload when timeline refresh is unavailable', async () => {
+  const registry = createRegistry();
+  const calls = [];
+
+  await registry.executeColumnRefresh('x-home', { networkId: 'x', kind: 'webview' }, {
+    refreshXTimeline: async id => {
+      calls.push(['timeline', id]);
+      return false;
+    },
+    reloadWebView: id => calls.push(['reload', id]),
+  });
+
+  assert.deepEqual(calls, [['timeline', 'x-home'], ['reload', 'x-home']]);
+});
+
+test('Bluesky Column refresh delegates feed parameters to its adapter operation', () => {
+  const registry = createRegistry();
+  const calls = [];
+
+  registry.executeColumnRefresh('b-feed', {
+    networkId: 'b',
+    kind: 'feed',
+    type: 'feed',
+    feedUri: 'at://feed',
+  }, {
+    refreshBlueskyFeed: (...args) => calls.push(args),
+  });
+
+  assert.deepEqual(calls, [['b-feed', 'feed', 'at://feed']]);
+});

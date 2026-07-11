@@ -18,6 +18,7 @@ function createHarness({ failId } = {}) {
   const events = [];
   const saved = [];
   const errors = [];
+  const scheduled = {};
   const lifecycle = loadFactory()({
     createPlan: request => {
       const storedColumn = request.storedColumn || request;
@@ -33,13 +34,16 @@ function createHarness({ failId } = {}) {
         },
       };
     },
-    registerRefresh: (id, refresh) => events.push(['register', id, refresh.kind]),
-    cleanupRefresh: id => events.push(['cleanup', id]),
+    scheduleRefresh: (id, interval, callback) => {
+      events.push(['schedule', id, interval]);
+      scheduled[id] = callback;
+    },
+    clearRefreshSchedule: id => events.push(['clear-refresh', id]),
+    executeRefresh: (id, plan) => events.push(['execute-refresh', id, plan.kind]),
     insertPlan: plan => {
       events.push(['insert', plan.config.id]);
       return true;
     },
-    setRefreshInterval: (id, interval) => events.push(['interval', id, interval]),
     applyWidth: (id, width) => events.push(['width', id, width]),
     applyCollapsed: id => events.push(['collapsed', id]),
     reportRestoreError: (storedColumn, error) => errors.push([storedColumn.id, error.message]),
@@ -50,7 +54,7 @@ function createHarness({ failId } = {}) {
     },
     persistWorkspace: () => events.push(['persist']),
   });
-  return { lifecycle, events, saved, errors };
+  return { lifecycle, events, saved, errors, scheduled };
 }
 
 test('creates a Column from a Definition through its lifecycle interface', () => {
@@ -65,7 +69,6 @@ test('creates a Column from a Definition through its lifecycle interface', () =>
   assert.equal(result.status, 'created');
   assert.equal(result.id, 'x-home-2');
   assert.deepEqual(events, [
-    ['register', 'x-home-2', 'wv'],
     ['insert', 'x-home-2'],
     ['persist'],
   ]);
@@ -75,7 +78,6 @@ test('returns an input requirement without registering an incomplete Column', ()
   const events = [];
   const lifecycle = loadFactory()({
     createPlan: () => ({ kind: 'input-required', input: 'x-list' }),
-    registerRefresh: () => events.push('register'),
     insertPlan: () => events.push('insert'),
   });
 
@@ -92,7 +94,7 @@ test('removes a Column after cleaning all Runtime State', () => {
 
   assert.equal(result.status, 'removed');
   assert.deepEqual(events, [
-    ['cleanup', 'timeline'],
+    ['clear-refresh', 'timeline'],
     ['cleanup-runtime', 'timeline'],
     ['remove-element', 'timeline'],
     ['persist'],
@@ -103,9 +105,8 @@ test('does not persist when a Column element no longer exists', () => {
   const events = [];
   const lifecycle = loadFactory()({
     createPlan: () => null,
-    registerRefresh: () => {},
     insertPlan: () => false,
-    cleanupRefresh: id => events.push(['cleanup', id]),
+    clearRefreshSchedule: id => events.push(['clear-refresh', id]),
     cleanupRuntimeState: id => events.push(['cleanup-runtime', id]),
     removeElement: id => {
       events.push(['remove-element', id]);
@@ -118,9 +119,23 @@ test('does not persist when a Column element no longer exists', () => {
 
   assert.equal(result.status, 'not-found');
   assert.deepEqual(events, [
-    ['cleanup', 'missing'],
+    ['clear-refresh', 'missing'],
     ['cleanup-runtime', 'missing'],
     ['remove-element', 'missing'],
+  ]);
+});
+
+test('executes the registered refresh plan when its schedule fires', () => {
+  const { lifecycle, events, scheduled } = createHarness();
+  lifecycle.create({ networkId: 'wv', definitionId: 'home', id: 'x-home-3' });
+
+  lifecycle.setRefreshInterval('x-home-3', 30000);
+  scheduled['x-home-3']();
+
+  assert.deepEqual(events.slice(-3), [
+    ['clear-refresh', 'x-home-3'],
+    ['schedule', 'x-home-3', 30000],
+    ['execute-refresh', 'x-home-3', 'wv'],
   ]);
 });
 
@@ -139,9 +154,9 @@ test('restores Column lifecycle state through a Network Adapter plan', () => {
   });
 
   assert.deepEqual(events, [
-    ['register', 'x-home-1', 'wv'],
     ['insert', 'x-home-1'],
-    ['interval', 'x-home-1', 15000],
+    ['clear-refresh', 'x-home-1'],
+    ['schedule', 'x-home-1', 15000],
     ['width', 'x-home-1', '420px'],
     ['collapsed', 'x-home-1'],
   ]);
@@ -168,8 +183,7 @@ test('isolates a failed Column and preserves the original Workspace State', () =
   assert.equal(result.failures.length, 1);
   assert.deepEqual(errors, [['broken', 'Column Definition could not be resolved']]);
   assert.deepEqual(events, [
-    ['cleanup', 'broken'],
-    ['register', 'timeline', 'bsky'],
+    ['clear-refresh', 'broken'],
     ['insert', 'timeline'],
   ]);
   assert.deepEqual(saved, []);

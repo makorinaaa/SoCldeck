@@ -1,10 +1,10 @@
 (function (global) {
   function createColumnLifecycle({
     createPlan,
-    registerRefresh,
-    cleanupRefresh = () => {},
     insertPlan,
-    setRefreshInterval,
+    scheduleRefresh = () => {},
+    clearRefreshSchedule = () => {},
+    executeRefresh = () => {},
     applyWidth,
     applyCollapsed,
     reportRestoreError = () => {},
@@ -12,12 +12,28 @@
     removeElement = () => false,
     persistWorkspace = () => {},
   }) {
+    const refreshPlans = new Map();
+    const refreshIntervals = {};
+
+    function setRefreshInterval(id, interval) {
+      refreshIntervals[id] = interval;
+      clearRefreshSchedule(id);
+      if (!interval || interval <= 0) return;
+      scheduleRefresh(id, interval, () => executeRefresh(id, refreshPlans.get(id)));
+    }
+
+    function cleanupRefresh(id) {
+      clearRefreshSchedule(id);
+      delete refreshIntervals[id];
+      refreshPlans.delete(id);
+    }
+
     function materialize(plan) {
       if (!plan || !plan.config || !plan.refresh) {
         throw new Error('Column Definition could not be resolved');
       }
 
-      registerRefresh(plan.config.id, plan.refresh);
+      refreshPlans.set(plan.config.id, plan.refresh);
       if (!insertPlan(plan)) throw new Error(`Unsupported Column plan: ${plan.kind || 'missing'}`);
       return plan;
     }
@@ -51,6 +67,19 @@
       if (!removed) return { status: 'not-found', id };
       persistWorkspace();
       return { status: 'removed', id };
+    }
+
+    function pauseRefresh() {
+      Object.keys(refreshIntervals).forEach(clearRefreshSchedule);
+    }
+
+    function resumeRefresh() {
+      Object.entries(refreshIntervals).forEach(([id, interval]) => setRefreshInterval(id, interval));
+    }
+
+    function clear() {
+      Object.keys(refreshIntervals).forEach(cleanupRefresh);
+      refreshPlans.clear();
     }
 
     function restore(layout, { persistNormalized } = {}) {
@@ -87,7 +116,17 @@
       };
     }
 
-    return { create, persist: persistWorkspace, remove, restore };
+    return {
+      clear,
+      create,
+      getRefreshInterval: (id, fallback) => refreshIntervals[id] ?? fallback,
+      pauseRefresh,
+      persist: persistWorkspace,
+      remove,
+      restore,
+      resumeRefresh,
+      setRefreshInterval,
+    };
   }
 
   global.SocialDeckColumnLifecycle = { createColumnLifecycle };

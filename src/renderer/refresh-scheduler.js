@@ -22,6 +22,11 @@
       Object.keys(timers).forEach(clear);
     }
 
+    function remove(id) {
+      clear(id);
+      delete intervals[id];
+    }
+
     function getInterval(id, fallback = DEFAULT_INTERVAL_MS) {
       return intervals[id] ?? fallback;
     }
@@ -33,6 +38,7 @@
       set,
       clear,
       clearAll,
+      remove,
       getInterval,
     };
   }
