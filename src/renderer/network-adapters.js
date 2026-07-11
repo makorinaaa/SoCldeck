@@ -1,5 +1,5 @@
 (function (global) {
-  function createDefinition({ id, network, columnType, label, description, icon, requiresAccount = false, defaultParams = {} }) {
+  function createDefinition({ id, network, columnType, label, description, icon, requiresAccount = false, defaultParams = {}, picker = true }) {
     return {
       id,
       network,
@@ -9,6 +9,7 @@
       icon,
       requiresAccount,
       defaultParams,
+      picker,
     };
   }
 
@@ -22,15 +23,15 @@
     return storedColumn?.[key] || fallback;
   }
 
-  function createXColumnPlan({ definition, id, account, storedColumn }) {
-    if (definition.columnType === 'list' && !storedColumn?.url) {
+  function createXColumnPlan({ definition, id, account, storedColumn, params = {} }) {
+    if (definition.columnType === 'list' && !storedColumn?.url && !params.url) {
       return { kind: 'input-required', input: 'x-list' };
     }
 
     const accountIndex = account?.index ?? 0;
     const accountLabel = account?.username ? ` · ${account.username}` : '';
     const url = definition.columnType === 'list'
-      ? storedColumn.url
+      ? storedColumn?.url || params.url
       : definition.defaultParams.url || storedColumn?.url;
     return {
       kind: 'wv',
@@ -38,8 +39,8 @@
       partition: getStoredValue(storedColumn, 'partition', account?.partition || `persist:x-${accountIndex}`),
       config: {
         id,
-        title: getStoredValue(storedColumn, 'title', definition.label),
-        sub: getStoredValue(storedColumn, 'sub', `X${accountLabel}`),
+        title: getStoredValue(storedColumn, 'title', params.title || definition.label),
+        sub: getStoredValue(storedColumn, 'sub', params.sub || `X${accountLabel}`),
         url,
         icCls: getIconClass(definition.columnType, definition.network),
         icon: definition.icon,
@@ -49,25 +50,25 @@
     };
   }
 
-  function createBlueskyColumnPlan({ definition, id, storedColumn }) {
+  function createBlueskyColumnPlan({ definition, id, storedColumn, params = {} }) {
     const commonConfig = {
       id,
-      title: getStoredValue(storedColumn, 'title', definition.label),
-      sub: getStoredValue(storedColumn, 'sub', 'Bluesky'),
+      title: getStoredValue(storedColumn, 'title', params.title || definition.label),
+      sub: getStoredValue(storedColumn, 'sub', params.sub || 'Bluesky'),
       icCls: getIconClass(definition.columnType, definition.network),
       icon: definition.icon,
       network: definition.network,
       definitionId: definition.id,
     };
 
-    if (definition.columnType === 'settings') {
+    if (definition.columnType === 'settings' || definition.columnType === 'profile') {
       return {
         kind: 'wv',
         refresh: { kind: 'wv' },
         partition: getStoredValue(storedColumn, 'partition', 'persist:bsky'),
         config: {
           ...commonConfig,
-          url: definition.defaultParams.url || storedColumn?.url,
+          url: storedColumn?.url || params.url || definition.defaultParams.url,
         },
       };
     }
@@ -281,6 +282,16 @@
               },
             }),
             createDefinition({
+              id: 'b-profile',
+              network: 'b',
+              columnType: 'profile',
+              label: 'Profile',
+              description: 'Bluesky profile',
+              icon: icons.bsky,
+              requiresAccount: true,
+              picker: false,
+            }),
+            createDefinition({
               id: 'b-settings',
               network: 'b',
               columnType: 'settings',
@@ -355,8 +366,13 @@
       }
 
       if (storedColumn.kind === 'wv') {
-        if (!storedColumn.url?.includes('/settings')) return null;
-        return definitions.find(definition => definition.columnType === 'settings') || null;
+        if (storedColumn.url?.includes('/settings')) {
+          return definitions.find(definition => definition.columnType === 'settings') || null;
+        }
+        if (storedColumn.url?.includes('/profile/')) {
+          return definitions.find(definition => definition.columnType === 'profile') || null;
+        }
+        return null;
       }
 
       return definitions.find(definition => (
@@ -365,7 +381,7 @@
       )) || null;
     }
 
-    function createColumnPlan({ networkId, definitionId, id, account, storedColumn } = {}) {
+    function createColumnPlan({ networkId, definitionId, id, account, storedColumn, params } = {}) {
       const definition = storedColumn
         ? resolveColumnDefinition(storedColumn)
         : getColumnDefinition(networkId, definitionId);
@@ -377,6 +393,7 @@
         id: id || storedColumn?.id,
         account,
         storedColumn,
+        params,
       }) || null;
     }
 

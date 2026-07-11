@@ -127,6 +127,25 @@ const SVG = {
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
 const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({ icons: SVG });
+const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
+  createPlan: request => networkAdapters.createColumnPlan(request),
+  registerRefresh: registerColumnRefreshPlan,
+  cleanupRefresh: id => {
+    clearAutoRefresh(id);
+    columnRefreshPlans.delete(id);
+  },
+  insertPlan: insertColumnPlan,
+  setRefreshInterval: (id, interval) => {
+    clearAutoRefresh(id);
+    setColumnAutoRefresh(id, interval);
+  },
+  applyWidth: (id, width) => {
+    const el = document.getElementById(`col-${id}`);
+    if (el) { el.style.width = width; el.style.minWidth = width; }
+  },
+  applyCollapsed: id => setTimeout(() => toggleColCollapse(id), 0),
+  reportRestoreError: insertColumnRestoreError,
+});
 const xComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
 const bskyComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
 const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
@@ -185,26 +204,7 @@ function restoreColLayout() {
   const layout = loadColLayout();
   if (!layout.length) return false;
 
-  const lifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
-    createPlan: storedColumn => networkAdapters.createColumnPlan({ storedColumn }),
-    registerRefresh: registerColumnRefreshPlan,
-    cleanupRefresh: id => {
-      clearAutoRefresh(id);
-      columnRefreshPlans.delete(id);
-    },
-    insertPlan: insertColumnPlan,
-    setRefreshInterval: (id, interval) => {
-      clearAutoRefresh(id);
-      setColumnAutoRefresh(id, interval);
-    },
-    applyWidth: (id, width) => {
-      const el = document.getElementById(`col-${id}`);
-      if (el) { el.style.width = width; el.style.minWidth = width; }
-    },
-    applyCollapsed: id => setTimeout(() => toggleColCollapse(id), 0),
-    reportRestoreError: insertColumnRestoreError,
-  });
-  lifecycle.restore(layout, {
+  columnLifecycle.restore(layout, {
     persistNormalized: columnRuntime.isWidgetMode()
       ? undefined
       : normalized => columnRuntime.writeStoredLayout(normalized),
@@ -742,8 +742,8 @@ function renderDefaultCols() {
 
   // 初回起動: Blueskyのデフォルトカラムのみ追加
   if (state.b) {
-    insertBskyCol({ id: 'b-home', title: 'ホーム', sub: 'Bluesky', type: 'timeline', icCls: 'ic-b', icon: SVG.bsky });
-    insertBskyCol({ id: 'b-notif', title: '通知', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
+    columnLifecycle.create({ networkId: 'b', definitionId: 'b-timeline-new', id: 'b-home' });
+    columnLifecycle.create({ networkId: 'b', definitionId: 'b-notif-new', id: 'b-notif' });
   }
 }
 
@@ -1861,7 +1861,16 @@ function openBskyProfileCol(handleOrDid) {
 
   extraColN++;
   const id = `bsky-prof-${extraColN}`;
-  insertWebViewCol({ id, title: 'プロフィール', sub: 'Bluesky', url, icCls: 'ic-b', icon: SVG.bsky }, null, 'persist:bsky');
+  const result = columnLifecycle.create({
+    networkId: 'b',
+    definitionId: 'b-profile',
+    id,
+    params: { url, title: 'プロフィール' },
+  });
+  if (result.status !== 'created') {
+    toast('プロフィールカラムを開けませんでした');
+    return;
+  }
   setTimeout(() => {
     const col = document.getElementById(`col-${id}`);
     if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'end' });
@@ -2686,7 +2695,7 @@ function buildOptGrid() {
     if (state.xs && state.xs.length > 0) {
       og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">Bluesky · @${state.b.handle}</div>`;
     }
-    networkAdapters.getColumnDefinitions('b').forEach(def => {
+    networkAdapters.getColumnDefinitions('b').filter(def => def.picker !== false).forEach(def => {
       og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'b');
     });
   }
@@ -2717,18 +2726,18 @@ function addColFromModal(definitionId, network, accountIdx) {
     ? `x${accountIdx}-${definitionId}-${extraColN}`
     : `${definitionId}-${extraColN}`;
   const xAccount = network === 'x' ? state.xs?.[accountIdx ?? 0] : null;
-  const plan = networkAdapters.createColumnPlan({
+  const result = columnLifecycle.create({
     networkId: network,
     definitionId,
     id,
     account: xAccount ? { ...xAccount, index: accountIdx ?? 0 } : null,
   });
 
-  if (plan?.kind === 'input-required' && plan.input === 'x-list') {
+  if (result.status === 'input-required' && result.plan.input === 'x-list') {
     openXListDialog(accountIdx);
     return;
   }
-  if (!insertColumnPlan(plan)) {
+  if (result.status !== 'created') {
     toast('Column type is unavailable');
     return;
   }
@@ -2888,11 +2897,16 @@ function scrollToNotifCol(baseId, xIdx, acc) {
     if (xIdx >= 0 && acc) {
       extraColN++;
       const id = `x${xIdx}-x-notif-new-${extraColN}`;
-      insertWebViewCol({
-        id, title: 'Notifications', sub: `X - ${acc.username}`,
-        url: 'https://x.com/notifications',
-        icCls: 'ic-n', icon: SVG.bell
-      }, null, acc.partition);
+      const result = columnLifecycle.create({
+        networkId: 'x',
+        definitionId: 'x-notif-new',
+        id,
+        account: { ...acc, index: xIdx },
+      });
+      if (result.status !== 'created') {
+        toast('Notifications column could not be added');
+        return;
+      }
       setTimeout(() => {
         const newCol = document.getElementById(`col-${id}`);
         if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
@@ -2901,7 +2915,13 @@ function scrollToNotifCol(baseId, xIdx, acc) {
       toast(`${acc.username} notifications column added`);
     } else {
       // Bluesky通知カラムを追加
-      insertBskyCol({ id: 'b-notif', title: 'Notifications', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
+      const result = columnLifecycle.create({
+        networkId: 'b', definitionId: 'b-notif-new', id: 'b-notif',
+      });
+      if (result.status !== 'created') {
+        toast('Notifications column could not be added');
+        return;
+      }
       setTimeout(() => {
         const newCol = document.getElementById('col-b-notif');
         if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
@@ -2958,10 +2978,16 @@ function goToNotifCol(plat, xIdx) {
     });
     if (!targetCol) {
       const id = `x${xIdx}-notif-auto`;
-      insertWebViewCol({
-        id, title: 'Notifications', sub: `X - ${acc.username}`,
-        url: 'https://x.com/notifications', icCls: 'ic-n', icon: SVG.bell
-      }, null, xPart);
+      const result = columnLifecycle.create({
+        networkId: 'x',
+        definitionId: 'x-notif-new',
+        id,
+        account: { ...acc, index: xIdx, partition: xPart },
+      });
+      if (result.status !== 'created') {
+        toast('Notifications column could not be added');
+        return;
+      }
       targetCol = document.getElementById(`col-${id}`);
       saveColLayout(); // ← 追加
       toast(`${acc.username} notifications column added`);
@@ -2973,7 +2999,13 @@ function goToNotifCol(plat, xIdx) {
     });
     if (!targetCol) {
       const id = 'b-notif-auto';
-      insertBskyCol({ id, title: 'Notifications', sub: 'Bluesky', type: 'notif', icCls: 'ic-n', icon: SVG.bell });
+      const result = columnLifecycle.create({
+        networkId: 'b', definitionId: 'b-notif-new', id,
+      });
+      if (result.status !== 'created') {
+        toast('Notifications column could not be added');
+        return;
+      }
       targetCol = document.getElementById(`col-${id}`);
       saveColLayout(); // ← 追加
       toast('Bluesky notifications column added');
@@ -3123,10 +3155,17 @@ function confirmXList(accountIdx) {
 
   extraColN++;
   const id = `x${accountIdx}-list-${listId}-${extraColN}`;
-  insertWebViewCol({
-    id, title, sub: `X${accLabel}`,
-    url, icCls: 'ic-x', icon: SVG.x
-  }, null, xPart);
+  const result = columnLifecycle.create({
+    networkId: 'x',
+    definitionId: 'x-list-new',
+    id,
+    account: acc ? { ...acc, index: accountIdx ?? 0, partition: xPart } : null,
+    params: { url, title, sub: `X${accLabel}` },
+  });
+  if (result.status !== 'created') {
+    toast('List column could not be added');
+    return;
+  }
 
   document.getElementById('x-list-dialog-ov')?.remove();
   const cols = document.getElementById('cols');

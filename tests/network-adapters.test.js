@@ -138,3 +138,50 @@ test('Bluesky compose capability prepares timeline completion', () => {
     delayMs: 1000,
   });
 });
+
+test('X list Column plan accepts Definition parameters', () => {
+  const registry = createRegistry();
+
+  const plan = registry.createColumnPlan({
+    networkId: 'x',
+    definitionId: 'x-list-new',
+    id: 'x-list-1',
+    account: { index: 1, username: 'alice', partition: 'persist:x-1' },
+    params: { url: 'https://x.com/i/lists/123', title: 'Team' },
+  });
+
+  assert.equal(plan.kind, 'wv');
+  assert.equal(plan.partition, 'persist:x-1');
+  assert.equal(plan.config.url, 'https://x.com/i/lists/123');
+  assert.equal(plan.config.title, 'Team');
+  assert.equal(plan.config.definitionId, 'x-list-new');
+});
+
+test('Bluesky profile Column is parameterized and hidden from the picker', () => {
+  const registry = createRegistry();
+  const definition = registry.getColumnDefinition('b', 'b-profile');
+  const plan = registry.createColumnPlan({
+    networkId: 'b',
+    definitionId: 'b-profile',
+    id: 'b-profile-1',
+    params: { url: 'https://bsky.app/profile/alice.test' },
+  });
+
+  assert.equal(definition.picker, false);
+  assert.equal(plan.kind, 'wv');
+  assert.equal(plan.partition, 'persist:bsky');
+  assert.equal(plan.config.url, 'https://bsky.app/profile/alice.test');
+  assert.equal(plan.config.definitionId, 'b-profile');
+});
+
+test('resolves a legacy Bluesky profile WebView to its Column Definition', () => {
+  const registry = createRegistry();
+
+  const definition = registry.resolveColumnDefinition({
+    kind: 'wv',
+    partition: 'persist:bsky',
+    url: 'https://bsky.app/profile/alice.test',
+  });
+
+  assert.equal(definition.id, 'b-profile');
+});

@@ -9,6 +9,29 @@
     applyCollapsed,
     reportRestoreError = () => {},
   }) {
+    function materialize(plan) {
+      if (!plan || !plan.config || !plan.refresh) {
+        throw new Error('Column Definition could not be resolved');
+      }
+
+      registerRefresh(plan.config.id, plan.refresh);
+      if (!insertPlan(plan)) throw new Error(`Unsupported Column plan: ${plan.kind || 'missing'}`);
+      return plan;
+    }
+
+    function create(request) {
+      let plan;
+      try {
+        plan = createPlan(request);
+        if (plan?.kind === 'input-required') return { status: 'input-required', plan };
+        materialize(plan);
+        return { status: 'created', id: plan.config.id, plan };
+      } catch (error) {
+        cleanupRefresh(plan?.config?.id || request?.id);
+        return { status: 'failed', error };
+      }
+    }
+
     function normalizeStoredColumn(storedColumn, plan) {
       return {
         ...storedColumn,
@@ -23,13 +46,7 @@
 
       layout.forEach(storedColumn => {
         try {
-          const plan = createPlan(storedColumn);
-          if (!plan || !plan.config || !plan.refresh) {
-            throw new Error('Column Definition could not be resolved');
-          }
-
-          registerRefresh(plan.config.id, plan.refresh);
-          if (!insertPlan(plan)) throw new Error(`Unsupported Column plan: ${plan.kind || 'missing'}`);
+          const plan = materialize(createPlan({ storedColumn }));
 
           if (storedColumn.interval !== undefined) {
             setRefreshInterval(storedColumn.id, storedColumn.interval);
@@ -57,7 +74,7 @@
       };
     }
 
-    return { restore };
+    return { create, restore };
   }
 
   global.SocialDeckColumnLifecycle = { createColumnLifecycle };

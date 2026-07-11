@@ -19,15 +19,17 @@ function createHarness({ failId } = {}) {
   const saved = [];
   const errors = [];
   const lifecycle = loadFactory()({
-    createPlan: storedColumn => {
+    createPlan: request => {
+      const storedColumn = request.storedColumn || request;
       if (storedColumn.id === failId) return null;
+      const kind = storedColumn.kind || request.networkId;
       return {
-        kind: storedColumn.kind,
-        refresh: { kind: storedColumn.kind },
+        kind,
+        refresh: { kind },
         config: {
           id: storedColumn.id,
-          network: storedColumn.kind === 'wv' ? 'x' : 'b',
-          definitionId: storedColumn.kind === 'wv' ? 'x-home-new' : 'b-timeline-new',
+          network: kind === 'wv' ? 'x' : 'b',
+          definitionId: kind === 'wv' ? 'x-home-new' : 'b-timeline-new',
         },
       };
     },
@@ -44,6 +46,37 @@ function createHarness({ failId } = {}) {
   });
   return { lifecycle, events, saved, errors };
 }
+
+test('creates a Column from a Definition through its lifecycle interface', () => {
+  const { lifecycle, events } = createHarness();
+
+  const result = lifecycle.create({
+    networkId: 'wv',
+    definitionId: 'home',
+    id: 'x-home-2',
+  });
+
+  assert.equal(result.status, 'created');
+  assert.equal(result.id, 'x-home-2');
+  assert.deepEqual(events, [
+    ['register', 'x-home-2', 'wv'],
+    ['insert', 'x-home-2'],
+  ]);
+});
+
+test('returns an input requirement without registering an incomplete Column', () => {
+  const events = [];
+  const lifecycle = loadFactory()({
+    createPlan: () => ({ kind: 'input-required', input: 'x-list' }),
+    registerRefresh: () => events.push('register'),
+    insertPlan: () => events.push('insert'),
+  });
+
+  const result = lifecycle.create({ networkId: 'x', definitionId: 'x-list-new' });
+
+  assert.equal(result.status, 'input-required');
+  assert.deepEqual(events, []);
+});
 
 test('restores Column lifecycle state through a Network Adapter plan', () => {
   const { lifecycle, events, saved } = createHarness();
