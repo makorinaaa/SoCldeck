@@ -52,6 +52,10 @@ _Avoid_: Render config, saved column, modal option
 A concrete Column in a user's workspace, created from a Column Definition and bound to any required Network Account or parameters.
 _Avoid_: Column definition, modal option, DOM column
 
+**Column Lifecycle**:
+The life of a Column Instance from creation or workspace restoration through refresh and workspace changes to removal.
+_Avoid_: Feed lifecycle, DOM lifecycle, render cycle
+
 **Workspace State**:
 The durable state needed to restore a user's SocialDeck workspace, such as Network Accounts, Column layout, and user preferences.
 _Avoid_: Runtime state, localStorage blob, session

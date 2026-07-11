@@ -153,63 +153,61 @@ function loadColLayout() {
 
 function insertColumnPlan(plan) {
   if (plan?.kind === 'wv') {
-    registerColumnRefreshPlan(plan.config.id, plan.refresh);
     insertWebViewCol(plan.config, null, plan.partition);
     return true;
   }
   if (plan?.kind === 'bsky') {
-    registerColumnRefreshPlan(plan.config.id, plan.refresh);
     insertBskyCol(plan.config);
     return true;
   }
   return false;
 }
 
-function insertLegacyStoredColumn(col) {
-  if (col.kind === 'wv') {
-    let icon = SVG.x;
-    let icCls = col.icCls || 'ic-x';
-    if (col.partition === 'persist:bsky') { icon = SVG.gear; }
-    else if (col.url?.includes('notifications')) { icon = SVG.bell; icCls = 'ic-n'; }
-    else if (col.url?.includes('search')) { icCls = 'ic-s'; }
-    else if (col.url?.includes('settings')) { icon = SVG.gear; icCls = 'ic-s'; }
-    insertWebViewCol({
-      id: col.id, title: col.title, sub: col.sub,
-      url: col.url, icCls, icon,
-    }, null, col.partition || 'persist:x-0');
-    return;
-  }
-
-  if (col.kind === 'bsky') {
-    let icon = SVG.bsky;
-    let icCls = col.icCls || 'ic-b';
-    if (col.type === 'notif') { icon = SVG.bell; icCls = 'ic-n'; }
-    else if (col.type === 'search') { icCls = 'ic-s'; }
-    insertBskyCol({
-      id: col.id, title: col.title, sub: col.sub,
-      type: col.type, feedUri: col.feedUri || null, icCls, icon,
-    });
-  }
+function insertColumnRestoreError(col, error) {
+  const column = document.createElement('div');
+  column.className = 'col';
+  column.id = `col-${col.id}`;
+  column.innerHTML = `
+    <div class="col-head">
+      <div class="col-info">
+        <div class="col-title">${esc(col.title || 'Column restore failed')}</div>
+        <div class="col-sub">Workspace State was preserved</div>
+      </div>
+      <div class="col-actions">
+        <button class="cbtn" title="削除" onclick="removeCol('${esc(col.id)}')">&times;</button>
+      </div>
+    </div>
+    <div class="feed-empty">${esc(error.message || 'Column Definition could not be resolved')}</div>`;
+  document.getElementById('cols')?.appendChild(column);
 }
 
 function restoreColLayout() {
   const layout = loadColLayout();
   if (!layout.length) return false;
 
-  layout.forEach(col => {
-    const plan = networkAdapters.createColumnPlan({ storedColumn: col });
-    if (!insertColumnPlan(plan)) insertLegacyStoredColumn(col);
-
-    if (col.interval !== undefined) {
-      clearAutoRefresh(col.id);
-      setColumnAutoRefresh(col.id, col.interval);
-    }
-
-    if (col.width) {
-      const el = document.getElementById(`col-${col.id}`);
-      if (el) { el.style.width = col.width; el.style.minWidth = col.width; }
-    }
-    if (col.collapsed) setTimeout(() => toggleColCollapse(col.id), 0);
+  const lifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
+    createPlan: storedColumn => networkAdapters.createColumnPlan({ storedColumn }),
+    registerRefresh: registerColumnRefreshPlan,
+    cleanupRefresh: id => {
+      clearAutoRefresh(id);
+      columnRefreshPlans.delete(id);
+    },
+    insertPlan: insertColumnPlan,
+    setRefreshInterval: (id, interval) => {
+      clearAutoRefresh(id);
+      setColumnAutoRefresh(id, interval);
+    },
+    applyWidth: (id, width) => {
+      const el = document.getElementById(`col-${id}`);
+      if (el) { el.style.width = width; el.style.minWidth = width; }
+    },
+    applyCollapsed: id => setTimeout(() => toggleColCollapse(id), 0),
+    reportRestoreError: insertColumnRestoreError,
+  });
+  lifecycle.restore(layout, {
+    persistNormalized: columnRuntime.isWidgetMode()
+      ? undefined
+      : normalized => columnRuntime.writeStoredLayout(normalized),
   });
   return true;
 }
