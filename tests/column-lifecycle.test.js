@@ -67,6 +67,7 @@ test('creates a Column from a Definition through its lifecycle interface', () =>
   assert.deepEqual(events, [
     ['register', 'x-home-2', 'wv'],
     ['insert', 'x-home-2'],
+    ['persist'],
   ]);
 });
 

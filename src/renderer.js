@@ -1079,7 +1079,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       wv.executeJavaScript(X_AD_SCRIPT).catch(() => {});
       wv.executeJavaScript(X_IMG_SCRIPT).catch(() => {});
       // ナビゲーション完了後にレイアウトを保存（正規化済みURLが使われる）
-      saveColLayout();
+      columnLifecycle.persist();
 
       const ov = document.getElementById(`wvov-${cfg.id}`);
       if (ov && ov.style.display !== 'none') {
@@ -1138,7 +1138,7 @@ function toggleColCollapse(id) {
     // 折りたたみ中クリック展開を解除
     col.style.cursor = '';
     col._sdCollapseClick = null;
-    saveColLayout();
+    columnLifecycle.persist();
   } else {
     // 折りたたみ
     collapsedCols.add(id);
@@ -1163,7 +1163,7 @@ function toggleColCollapse(id) {
       };
       col.addEventListener('click', col._sdCollapseClick);
     }
-    saveColLayout();
+    columnLifecycle.persist();
   }
 }
 
@@ -1884,7 +1884,6 @@ function openBskyProfileCol(handleOrDid) {
     const col = document.getElementById(`col-${id}`);
     if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'end' });
   }, 300);
-  saveColLayout();
   toast('プロフィールカラムを開きました');
 }
 
@@ -2755,7 +2754,6 @@ function addColFromModal(definitionId, network, accountIdx) {
   const lastCol = cols.querySelector('.col:last-of-type');
   if (lastCol) lastCol.scrollIntoView({ behavior: 'smooth', inline: 'end' });
   toast('Column added');
-  saveColLayout();
 }
 
 function openColSettings(id, colType) {
@@ -2789,7 +2787,7 @@ function applyInterval(id, ms) {
   const label = ms===0?'OFF':ms<60000?(ms/1000)+' sec':(ms/60000)+' min';
   toast('Auto refresh: '+label);
   document.getElementById('col-settings-ov')?.remove();
-  saveColLayout();
+  columnLifecycle.persist();
 }
 
 function applyColFontSize(id, colType, fs) {
@@ -2920,7 +2918,6 @@ function scrollToNotifCol(baseId, xIdx, acc) {
         const newCol = document.getElementById(`col-${id}`);
         if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
       }, 300);
-      saveColLayout();
       toast(`${acc.username} notifications column added`);
     } else {
       // Bluesky通知カラムを追加
@@ -2935,7 +2932,6 @@ function scrollToNotifCol(baseId, xIdx, acc) {
         const newCol = document.getElementById('col-b-notif');
         if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
       }, 300);
-      saveColLayout();
       toast('Bluesky notifications column added');
     }
   }
@@ -2998,7 +2994,6 @@ function goToNotifCol(plat, xIdx) {
         return;
       }
       targetCol = document.getElementById(`col-${id}`);
-      saveColLayout(); // ← 追加
       toast(`${acc.username} notifications column added`);
     }
   } else {
@@ -3016,7 +3011,6 @@ function goToNotifCol(plat, xIdx) {
         return;
       }
       targetCol = document.getElementById(`col-${id}`);
-      saveColLayout(); // ← 追加
       toast('Bluesky notifications column added');
     }
   }
@@ -3181,7 +3175,6 @@ function confirmXList(accountIdx) {
   const lastCol = cols.querySelector('.col:last-of-type');
   if (lastCol) lastCol.scrollIntoView({ behavior: 'smooth', inline: 'end' });
   toast('List column added');
-  saveColLayout();
 }
 
 function openAddMod() { buildOptGrid(); document.getElementById('addMod').classList.add('on'); }
@@ -3477,7 +3470,7 @@ function initDnD() {
     }
     dragSrc.style.opacity = '';
     toast('カラムを移動しました');
-    saveColLayout();
+    columnLifecycle.persist();
   });
 }
 function makeDraggable(col) {
@@ -3514,7 +3507,7 @@ function addResizeHandle(col) {
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      saveColLayout();
+      columnLifecycle.persist();
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);

@@ -28,6 +28,7 @@
         plan = createPlan(request);
         if (plan?.kind === 'input-required') return { status: 'input-required', plan };
         materialize(plan);
+        persistWorkspace();
         return { status: 'created', id: plan.config.id, plan };
       } catch (error) {
         cleanupRefresh(plan?.config?.id || request?.id);
@@ -86,7 +87,7 @@
       };
     }
 
-    return { create, remove, restore };
+    return { create, persist: persistWorkspace, remove, restore };
   }
 
   global.SocialDeckColumnLifecycle = { createColumnLifecycle };
