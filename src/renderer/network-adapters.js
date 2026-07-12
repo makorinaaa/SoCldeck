@@ -157,13 +157,24 @@
   }
 
   async function refreshXColumn({ id, operations }) {
-    const refreshed = await operations.refreshXTimeline(id);
-    if (!refreshed) operations.reloadWebView(id);
+    const result = await operations.refreshXTimeline(id);
+    if (result === 'deferred' || result === 'queued' || result === 'not-following') {
+      return { status: 'deferred', detail: result };
+    }
+    if (result === 'clicked' || result === 'tab-toggled') {
+      return { status: 'succeeded', detail: result };
+    }
+    operations.reloadWebView(id);
+    return { status: 'succeeded', detail: 'reloaded' };
   }
 
-  function refreshBlueskyColumn({ id, plan, operations }) {
-    if (plan.kind === 'webview') return operations.reloadWebView(id);
-    return operations.refreshBlueskyFeed(id, plan.type, plan.feedUri);
+  async function refreshBlueskyColumn({ id, plan, operations }) {
+    if (plan.kind === 'webview') {
+      operations.reloadWebView(id);
+      return { status: 'succeeded', detail: 'reloaded' };
+    }
+    return await operations.refreshBlueskyFeed(id, plan.type, plan.feedUri)
+      || { status: 'succeeded' };
   }
 
   function createXAdapter({ icons }) {

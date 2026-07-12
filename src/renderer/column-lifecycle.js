@@ -11,21 +11,55 @@
     cleanupRuntimeState = () => {},
     removeElement = () => false,
     persistWorkspace = () => {},
+    onRefreshStateChange = () => {},
+    now = () => new Date(),
   }) {
     const refreshPlans = new Map();
     const refreshIntervals = {};
+    const refreshStates = new Map();
+
+    function setRefreshState(id, status, details = {}) {
+      const previous = refreshStates.get(id) || {};
+      const state = { ...previous, ...details, status };
+      refreshStates.set(id, state);
+      onRefreshStateChange(id, state);
+      return state;
+    }
+
+    async function refreshNow(id) {
+      const plan = refreshPlans.get(id);
+      if (!plan) return { status: 'failed', error: new Error('Column refresh plan is unavailable') };
+
+      setRefreshState(id, 'refreshing', { error: null });
+      try {
+        const outcome = await executeRefresh(id, plan);
+        const status = outcome?.status || 'succeeded';
+        const details = status === 'succeeded'
+          ? { lastUpdatedAt: now(), detail: outcome?.detail || null }
+          : { detail: outcome?.detail || null };
+        setRefreshState(id, status, details);
+        return { ...outcome, status };
+      } catch (error) {
+        setRefreshState(id, 'failed', { error });
+        return { status: 'failed', error };
+      }
+    }
 
     function setRefreshInterval(id, interval) {
       refreshIntervals[id] = interval;
       clearRefreshSchedule(id);
-      if (!interval || interval <= 0) return;
-      scheduleRefresh(id, interval, () => executeRefresh(id, refreshPlans.get(id)));
+      if (!interval || interval <= 0) {
+        setRefreshState(id, 'disabled');
+        return;
+      }
+      scheduleRefresh(id, interval, () => refreshNow(id));
     }
 
     function cleanupRefresh(id) {
       clearRefreshSchedule(id);
       delete refreshIntervals[id];
       refreshPlans.delete(id);
+      refreshStates.delete(id);
     }
 
     function materialize(plan) {
@@ -70,11 +104,20 @@
     }
 
     function pauseRefresh() {
-      Object.keys(refreshIntervals).forEach(clearRefreshSchedule);
+      Object.keys(refreshIntervals).forEach(id => {
+        clearRefreshSchedule(id);
+        if (refreshIntervals[id] > 0) setRefreshState(id, 'paused');
+      });
     }
 
     function resumeRefresh() {
-      Object.entries(refreshIntervals).forEach(([id, interval]) => setRefreshInterval(id, interval));
+      Object.entries(refreshIntervals).forEach(([id, interval]) => {
+        setRefreshInterval(id, interval);
+        if (interval > 0) {
+          const previous = refreshStates.get(id);
+          setRefreshState(id, previous?.lastUpdatedAt ? 'succeeded' : 'idle');
+        }
+      });
     }
 
     function clear() {
@@ -120,9 +163,11 @@
       clear,
       create,
       getRefreshInterval: (id, fallback) => refreshIntervals[id] ?? fallback,
+      getRefreshState: id => refreshStates.get(id) || { status: 'idle' },
       pauseRefresh,
       persist: persistWorkspace,
       remove,
+      refreshNow,
       restore,
       resumeRefresh,
       setRefreshInterval,

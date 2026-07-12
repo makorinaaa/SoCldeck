@@ -19,6 +19,7 @@ function createHarness({ failId } = {}) {
   const saved = [];
   const errors = [];
   const scheduled = {};
+  const refreshStates = [];
   const lifecycle = loadFactory()({
     createPlan: request => {
       const storedColumn = request.storedColumn || request;
@@ -40,6 +41,8 @@ function createHarness({ failId } = {}) {
     },
     clearRefreshSchedule: id => events.push(['clear-refresh', id]),
     executeRefresh: (id, plan) => events.push(['execute-refresh', id, plan.kind]),
+    onRefreshStateChange: (id, state) => refreshStates.push([id, state]),
+    now: () => new Date('2026-07-12T03:04:05.000Z'),
     insertPlan: plan => {
       events.push(['insert', plan.config.id]);
       return true;
@@ -54,7 +57,7 @@ function createHarness({ failId } = {}) {
     },
     persistWorkspace: () => events.push(['persist']),
   });
-  return { lifecycle, events, saved, errors, scheduled };
+  return { lifecycle, events, saved, errors, scheduled, refreshStates };
 }
 
 test('creates a Column from a Definition through its lifecycle interface', () => {
@@ -125,18 +128,42 @@ test('does not persist when a Column element no longer exists', () => {
   ]);
 });
 
-test('executes the registered refresh plan when its schedule fires', () => {
-  const { lifecycle, events, scheduled } = createHarness();
+test('reports refresh progress and completion when its schedule fires', async () => {
+  const { lifecycle, events, scheduled, refreshStates } = createHarness();
   lifecycle.create({ networkId: 'wv', definitionId: 'home', id: 'x-home-3' });
 
   lifecycle.setRefreshInterval('x-home-3', 30000);
-  scheduled['x-home-3']();
+  await scheduled['x-home-3']();
 
   assert.deepEqual(events.slice(-3), [
     ['clear-refresh', 'x-home-3'],
     ['schedule', 'x-home-3', 30000],
     ['execute-refresh', 'x-home-3', 'wv'],
   ]);
+  assert.equal(refreshStates[0][1].status, 'refreshing');
+  assert.equal(refreshStates[1][1].status, 'succeeded');
+  assert.equal(refreshStates[1][1].lastUpdatedAt.toISOString(), '2026-07-12T03:04:05.000Z');
+});
+
+test('reports a deferred refresh without changing the last successful time', async () => {
+  const states = [];
+  const lifecycle = loadFactory()({
+    createPlan: request => ({
+      kind: 'wv',
+      refresh: { kind: 'wv' },
+      config: { id: request.id, network: 'x', definitionId: request.definitionId },
+    }),
+    insertPlan: () => true,
+    executeRefresh: async () => ({ status: 'deferred', detail: 'reading' }),
+    onRefreshStateChange: (id, state) => states.push(state),
+  });
+  lifecycle.create({ networkId: 'x', definitionId: 'home', id: 'x-home-4' });
+
+  const result = await lifecycle.refreshNow('x-home-4');
+
+  assert.equal(result.status, 'deferred');
+  assert.equal(states.at(-1).status, 'deferred');
+  assert.equal(states.at(-1).lastUpdatedAt, undefined);
 });
 
 test('restores Column lifecycle state through a Network Adapter plan', () => {

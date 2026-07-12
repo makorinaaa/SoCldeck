@@ -133,7 +133,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
   clearRefreshSchedule: id => refreshScheduler.remove(id),
   executeRefresh: (id, plan) => networkAdapters.executeColumnRefresh(id, plan, {
-    refreshXTimeline: softReloadX,
+    refreshXTimeline: executeXTimelineRefresh,
     reloadWebView: id => wvReload(id, { silent: true }),
     refreshBlueskyFeed: silentRefreshBsky,
   }),
@@ -156,6 +156,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
     return true;
   },
   persistWorkspace: saveColLayout,
+  onRefreshStateChange: renderColumnRefreshState,
 });
 const xComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
 const bskyComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
@@ -209,6 +210,31 @@ function insertColumnRestoreError(col, error) {
     </div>
     <div class="feed-empty">${esc(error.message || 'Column Definition could not be resolved')}</div>`;
   document.getElementById('cols')?.appendChild(column);
+}
+
+function renderColumnRefreshState(id, state) {
+  const element = document.getElementById(`refresh-state-${id}`);
+  if (!element) return;
+  const labels = { refreshing: '更新中', deferred: '保留', failed: '失敗', paused: '停止中', disabled: 'OFF' };
+  element.className = `col-refresh-state ${state.status}`;
+
+  if (state.status === 'succeeded' && state.lastUpdatedAt) {
+    const updatedAt = new Date(state.lastUpdatedAt);
+    element.textContent = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    element.title = `最終更新: ${updatedAt.toLocaleString()}`;
+    return;
+  }
+
+  element.textContent = labels[state.status] || '';
+  element.title = state.status === 'failed'
+    ? `更新失敗: ${state.error?.message || 'Unknown error'}`
+    : state.status === 'deferred'
+      ? '閲覧中または準備中のため更新を延期しました'
+      : state.status === 'paused'
+        ? 'バックグラウンドのため自動更新を停止中です'
+        : state.status === 'disabled'
+          ? '自動更新はOFFです'
+        : '';
 }
 
 function restoreColLayout() {
@@ -645,10 +671,10 @@ function setColumnAutoRefresh(id, ms) {
   columnLifecycle.setRefreshInterval(id, ms);
 }
 async function silentRefreshBsky(cid, type, feedUri) {
-  if (!state.b) return;
+  if (!state.b) return { status: 'deferred', detail: 'account-unavailable' };
   const feedEl = document.getElementById(`feed-${cid}`);
-  if (!feedEl) return;
-  if (feedEl.querySelector('.feed-loading')) return;
+  if (!feedEl) return { status: 'deferred', detail: 'column-unavailable' };
+  if (feedEl.querySelector('.feed-loading')) return { status: 'deferred', detail: 'loading' };
 
   try {
     let items = [];
@@ -662,7 +688,7 @@ async function silentRefreshBsky(cid, type, feedUri) {
       const data = await bskyCallWithRefresh(jwt => bsky.notifications(jwt, 10));
       items = (data.notifications || []).map(n => ({ _notif: n }));
     }
-    if (!items.length) return;
+    if (!items.length) return { status: 'succeeded', detail: 'no-changes' };
 
     const existingUris = new Set([...feedEl.querySelectorAll('.post[data-uri]')].map(el => el.dataset.uri));
     const firstNotifTime = feedEl.querySelector('.notif')?.dataset?.time;
@@ -671,13 +697,13 @@ async function silentRefreshBsky(cid, type, feedUri) {
       const uri = it.post?.uri;
       return !uri || !existingUris.has(uri);
     });
-    if (!newItems.length) return;
+    if (!newItems.length) return { status: 'succeeded', detail: 'no-changes' };
 
     const html = newItems
       .filter(item => item._notif ? !isNgNotif(item._notif) : !isNgPost(item))
       .map(item => item._notif ? renderBskyNotif(item._notif) : renderBskyPost(item))
       .join('');
-    if (!html) return;
+    if (!html) return { status: 'succeeded', detail: 'filtered' };
 
     const prevScrollTop = feedEl.scrollTop;
     const atTop = prevScrollTop < 50;
@@ -716,7 +742,10 @@ async function silentRefreshBsky(cid, type, feedUri) {
       badge.style.display = '';
       setTimeout(() => { badge.style.display = 'none'; }, 5000);
     }
-  } catch (e) {}
+    return { status: 'succeeded', detail: 'new-items' };
+  } catch (error) {
+    throw error;
+  }
 }
 
 function addColBtnHTML() {
@@ -753,9 +782,10 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
         <div class="col-sub"><div class="ldot" style="background:#e7e9ea"></div>${cfg.sub}</div>
       </div>
       <div class="col-actions">
+        <span class="col-refresh-state" id="refresh-state-${cfg.id}"></span>
         <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
         <button class="cbtn" title="戻る" onclick="wvBack('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <button class="cbtn" id="rfr-${cfg.id}" title="更新" onclick="wvReload('${cfg.id}', { silent: true })"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn" id="rfr-${cfg.id}" title="更新" onclick="refreshColumn('${cfg.id}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
         <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cfg.id}','wv')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
         <button class="cbtn" title="削除" onclick="removeCol('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
@@ -1295,19 +1325,24 @@ async function refreshAfterCompose(target) {
 // ソフトリロード: 新着バナー、または「おすすめ」→「フォロー中」のタブ往復で
 // ページ全体を再読み込みせずにXへ新着取得を促す。
 async function softReloadX(id) {
+  const result = await executeXTimelineRefresh(id);
+  return result === 'clicked'
+    || result === 'tab-toggled'
+    || result === 'deferred'
+    || result === 'not-following'
+    || result === 'queued';
+}
+
+async function executeXTimelineRefresh(id) {
   const wv = document.getElementById(`wv-${id}`);
-  if (!wv || wv.style.display === 'none') return false;
-  if (xPostingNow) { wvReloadQueue.add(id); return true; }
+  if (!wv || wv.style.display === 'none') return 'unavailable';
+  if (xPostingNow) { wvReloadQueue.add(id); return 'queued'; }
 
   try {
     const script = window.SocialDeckXTimelineRefresh.createRefreshScript();
-    const result = await wv.executeJavaScript(script);
-    return result === 'clicked'
-      || result === 'tab-toggled'
-      || result === 'deferred'
-      || result === 'not-following';
+    return await wv.executeJavaScript(script);
   } catch {
-    return false;
+    return 'failed';
   }
 }
 
@@ -1337,7 +1372,8 @@ function insertBskyCol(cfg, before = null) {
       </div>
       <div class="col-actions">
         <span class="cbadge" id="badge-${cid}" style="display:none"></span>
-        <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshBskyCol('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <span class="col-refresh-state" id="refresh-state-${cid}"></span>
+        <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshColumn('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
         <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
         <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','bsky')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
         <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
@@ -1446,6 +1482,15 @@ function refreshBskyCol(cid, btn) {
 
 function removeCol(id) {
   columnLifecycle.remove(id);
+}
+
+async function refreshColumn(id, button) {
+  button?.classList.add('spin');
+  try {
+    await columnLifecycle.refreshNow(id);
+  } finally {
+    button?.classList.remove('spin');
+  }
 }
 
 // ─── BLUESKY POST RENDERING ──────────────────────

@@ -139,6 +139,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .ldot{width:5px;height:5px;border-radius:50%;background:var(--red);flex-shrink:0}
 .cbadge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;background:var(--accent-dim);color:var(--accent)}
 .cbadge.red{background:rgba(224,92,122,0.15);color:var(--red)}
+.col-refresh-state{display:none;font-size:9px;line-height:18px;white-space:nowrap;color:var(--text3)}
+.col-refresh-state.refreshing,.col-refresh-state.succeeded,.col-refresh-state.deferred,.col-refresh-state.failed,.col-refresh-state.paused,.col-refresh-state.disabled{display:inline-block}
+.col-refresh-state.refreshing{color:var(--accent)}
+.col-refresh-state.deferred,.col-refresh-state.paused,.col-refresh-state.disabled{color:var(--text2)}
+.col-refresh-state.failed{color:var(--red);font-weight:700}
 .col-actions{display:flex;align-items:center;gap:2px}
 .cbtn{width:24px;height:24px;border-radius:5px;border:none;background:transparent;color:var(--text3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s}
 .cbtn:hover{background:var(--bg3);color:var(--text1)}
