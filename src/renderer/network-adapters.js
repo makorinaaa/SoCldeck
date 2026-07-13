@@ -61,7 +61,7 @@
       definitionId: definition.id,
     };
 
-    if (definition.columnType === 'settings' || definition.columnType === 'profile') {
+    if (definition.columnType === 'settings' || definition.columnType === 'profile' || definition.columnType === 'post') {
       return {
         kind: 'wv',
         refresh: { networkId: 'b', kind: 'webview' },
@@ -315,6 +315,16 @@
               picker: false,
             }),
             createDefinition({
+              id: 'b-post',
+              network: 'b',
+              columnType: 'post',
+              label: 'Post',
+              description: 'Bluesky post page',
+              icon: icons.bsky,
+              requiresAccount: true,
+              picker: false,
+            }),
+            createDefinition({
               id: 'b-settings',
               network: 'b',
               columnType: 'settings',
@@ -393,6 +403,9 @@
           return definitions.find(definition => definition.columnType === 'settings') || null;
         }
         if (storedColumn.url?.includes('/profile/')) {
+          if (storedColumn.url.includes('/post/')) {
+            return definitions.find(definition => definition.columnType === 'post') || null;
+          }
           return definitions.find(definition => definition.columnType === 'profile') || null;
         }
         return null;

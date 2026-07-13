@@ -186,6 +186,25 @@ test('resolves a legacy Bluesky profile WebView to its Column Definition', () =>
   assert.equal(definition.id, 'b-profile');
 });
 
+test('creates and restores a hidden Bluesky post page Column', () => {
+  const registry = createRegistry();
+  const url = 'https://bsky.app/profile/alice.test/post/abc123';
+  const definition = registry.getColumnDefinition('b', 'b-post');
+  const plan = registry.createColumnPlan({
+    networkId: 'b',
+    definitionId: 'b-post',
+    id: 'b-post-1',
+    params: { url },
+  });
+
+  assert.equal(definition.picker, false);
+  assert.equal(plan.kind, 'wv');
+  assert.equal(plan.config.url, url);
+  assert.equal(registry.resolveColumnDefinition({
+    kind: 'wv', partition: 'persist:bsky', url,
+  }).id, 'b-post');
+});
+
 test('X Column refresh falls back to WebView reload when timeline refresh is unavailable', async () => {
   const registry = createRegistry();
   const calls = [];

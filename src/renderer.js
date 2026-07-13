@@ -690,6 +690,8 @@ async function silentRefreshBsky(cid, type, feedUri) {
     }
     if (!items.length) return { status: 'succeeded', detail: 'no-changes' };
 
+    window.SocialDeckBskyPostRuntime.syncPostMetrics(feedEl, items);
+
     const existingUris = new Set([...feedEl.querySelectorAll('.post[data-uri]')].map(el => el.dataset.uri));
     const firstNotifTime = feedEl.querySelector('.notif')?.dataset?.time;
     const newItems = items.filter(it => {
@@ -1524,14 +1526,14 @@ function renderBskyPost(item) {
   }
 
   const repostLabel = reposter ? '<div class="repost-label">' + SVG.rt + ' ' + esc(reposter.displayName || reposter.handle) + ' reposted</div>' : '';
-  return '<div class="post" data-uri="' + esc(uri) + '" data-cid="' + esc(cid) + '" data-likeuri="' + esc(likeUri) + '" data-reposturi="' + esc(repostUri) + '" oncontextmenu="showPostMenu(event,\'' + esc(author.handle) + '\')">' +
+  return '<div class="post" role="link" tabindex="0" data-uri="' + esc(uri) + '" data-cid="' + esc(cid) + '" data-likeuri="' + esc(likeUri) + '" data-reposturi="' + esc(repostUri) + '" onclick="openBskyPost(event,\'' + esc(uri) + '\',\'' + esc(author.handle) + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openBskyPost(event,\'' + esc(uri) + '\',\'' + esc(author.handle) + '\')" oncontextmenu="showPostMenu(event,\'' + esc(author.handle) + '\')">' +
     repostLabel +
     '<div class="post-top">' + renderAvatar(author) + '<div class="post-meta"><div class="meta-row"><span class="p-name" title="' + esc(author.displayName || author.handle) + '">' + esc(author.displayName || author.handle) + '</span><span class="p-handle">@' + esc(author.handle) + '</span><span class="p-time">' + time + '</span></div></div></div>' +
     '<div class="p-body">' + body + '</div>' + imgHtml +
     '<div class="p-acts">' +
-    '<button class="pa rep" onclick="openReply(\'' + esc(uri) + '\',\'' + esc(cid) + '\',\'' + esc(author.handle) + '\')">' + SVG.reply + ' ' + replies + '</button>' +
+    '<button class="pa rep" onclick="openReply(\'' + esc(uri) + '\',\'' + esc(cid) + '\',\'' + esc(author.handle) + '\')">' + SVG.reply + ' <span>' + replies + '</span></button>' +
     '<button class="pa rt ' + (reposted ? 'rted' : '') + '" onclick="showRtMenu(event,this,\'' + esc(uri) + '\',\'' + esc(cid) + '\',\'' + esc(author.handle) + '\')">' + SVG.rt + ' <span>' + rts + '</span></button>' +
-    '<button class="pa lk ' + (liked ? 'liked' : '') + '" onclick="toggleLike(this,\'' + esc(uri) + '\',\'' + esc(cid) + '\',' + likes + ')">' + SVG.heart.replace('none', liked ? 'currentColor' : 'none') + ' <span>' + likes + '</span></button>' +
+    '<button class="pa lk ' + (liked ? 'liked' : '') + '" onclick="toggleLike(this,\'' + esc(uri) + '\',\'' + esc(cid) + '\')">' + SVG.heart.replace('none', liked ? 'currentColor' : 'none') + ' <span>' + likes + '</span></button>' +
     '</div></div>';
 }
 
@@ -1646,7 +1648,7 @@ function _hoverCardPosition(card, target) {
 }
 
 // ─── INTERACTIONS ────────────────────────────────
-async function toggleLike(btn, uri, cid, baseLikes) {
+async function toggleLike(btn, uri, cid) {
   if (!state.b) return;
   const post = btn.closest('.post');
   const on = !btn.classList.contains('liked');
@@ -1655,7 +1657,8 @@ async function toggleLike(btn, uri, cid, baseLikes) {
   const svg = btn.querySelector('svg');
   if (svg) svg.setAttribute('fill', on ? 'currentColor' : 'none');
   const span = btn.querySelector('span');
-  if (span) span.textContent = on ? baseLikes + 1 : baseLikes;
+  const currentLikes = parseInt(span?.textContent || '0');
+  if (span) span.textContent = on ? currentLikes + 1 : Math.max(0, currentLikes - 1);
   try {
     if (on) {
       const res = await bsky.like(state.b.accessJwt, state.b.did, uri, cid);
@@ -1670,7 +1673,7 @@ async function toggleLike(btn, uri, cid, baseLikes) {
     // 失敗時はロールバック
     btn.classList.toggle('liked', !on);
     if (svg) svg.setAttribute('fill', !on ? 'currentColor' : 'none');
-    if (span) span.textContent = baseLikes;
+    if (span) span.textContent = currentLikes;
     toast(`エラー: ${e.message}`);
   }
 }
@@ -1900,6 +1903,42 @@ function openBskyProfileCol(handleOrDid) {
     if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'end' });
   }, 300);
   toast('プロフィールカラムを開きました');
+}
+
+function openBskyPost(event, uri, handle) {
+  if (event.target.closest('button,a,img,.p-imgs,input,textarea')) return;
+  if (window.getSelection()?.toString()) return;
+
+  const url = window.SocialDeckBskyPostRuntime.getPostPageUrl(uri, handle);
+  if (!url) return;
+  event.preventDefault();
+
+  const existing = Array.from(document.querySelectorAll('webview')).find(webview => webview.src === url);
+  if (existing) {
+    const column = existing.closest('.col');
+    const id = column?.id?.replace('col-', '');
+    if (id && collapsedCols.has(id)) toggleColCollapse(id);
+    column?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+    toast('既存のポストカラムを表示しました');
+    return;
+  }
+
+  extraColN += 1;
+  const id = `bsky-post-${extraColN}`;
+  const result = columnLifecycle.create({
+    networkId: 'b',
+    definitionId: 'b-post',
+    id,
+    params: { url, title: 'ポスト', sub: `Bluesky · @${handle}` },
+  });
+  if (result.status !== 'created') {
+    toast('ポストページを開けませんでした');
+    return;
+  }
+
+  setTimeout(() => {
+    document.getElementById(`col-${id}`)?.scrollIntoView({ behavior: 'smooth', inline: 'end' });
+  }, 300);
 }
 
 // ─── COMPOSE ────────────────────────────────────
