@@ -563,6 +563,13 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     </div>
     <!-- アカウント選択（複数時のみ表示） -->
     <div id="x-acc-select" style="display:none;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)"></div>
+    <div id="x-cross-post-controls" style="display:none;align-items:center;gap:9px;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:var(--text2)">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="x-cross-post-b" onchange="toggleXCrossPost()">
+        Blueskyにも投稿
+      </label>
+      <span id="x-cross-post-note" style="color:var(--text3)"></span>
+    </div>
     <div class="comp-wrap">
       <div class="comp-av" id="x-post-av"><span id="x-post-av-txt">X</span></div>
       <textarea class="comp-ta" id="x-cta" placeholder="いまどうしてる？" maxlength="280" oninput="updXCC()"></textarea>

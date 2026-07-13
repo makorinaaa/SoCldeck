@@ -1978,6 +1978,7 @@ function renderCompUI() {
 }
 
 function openComp() {
+  crossPostRuntime.reset();
   updateCrossPostControls();
   document.getElementById('compMod').classList.add('on');
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
@@ -1986,6 +1987,7 @@ function openComp() {
 let selectedXIdx = 0; // 投稿に使うXアカウントのindex
 
 function openXPost() {
+  crossPostRuntime.reset();
   const sel = document.getElementById('x-acc-select');
   const xs = state.xs || [];
 
@@ -2006,6 +2008,7 @@ function openXPost() {
 
   // アバターを選択中アカウントに更新
   updateXPostAv();
+  updateXCrossPostControls();
   document.getElementById('xPostMod').classList.add('on');
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
 }
@@ -2155,6 +2158,7 @@ function setXVideo(file) {
       <button onclick="removeXVideo()" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit;flex-shrink:0">削除</button>
     </div>`;
   }
+  updateXCrossPostControls();
   updXCC();
 }
 
@@ -2177,6 +2181,7 @@ function removeXVideo() {
   const preview = document.getElementById('x-img-preview');
   if (preview) preview.innerHTML = '';
   setFFmpegStatus('');
+  updateXCrossPostControls();
   updXCC();
 }
 
@@ -2270,9 +2275,139 @@ function updXCC() {
   document.getElementById('x-sndb').disabled = (n === 0 && xImgFiles.length === 0 && !xVideoFile) || n > 280;
 }
 
+function updateXCrossPostControls() {
+  const controls = document.getElementById('x-cross-post-controls');
+  const checkbox = document.getElementById('x-cross-post-b');
+  const note = document.getElementById('x-cross-post-note');
+  if (!controls || !checkbox || !note) return;
+
+  const available = Boolean(state.b);
+  controls.style.display = available ? 'flex' : 'none';
+  if (!available) {
+    checkbox.checked = false;
+    checkbox.disabled = false;
+    note.textContent = '';
+    return;
+  }
+
+  const videoUnsupported = Boolean(xVideoFile);
+  checkbox.disabled = videoUnsupported;
+  if (videoUnsupported) checkbox.checked = false;
+  note.textContent = videoUnsupported ? '動画の同時投稿は未対応です' : '';
+}
+
+function toggleXCrossPost() {
+  crossPostRuntime.reset();
+  updXCC();
+}
+
+function setXCrossPostDraftLocked(locked) {
+  const textarea = document.getElementById('x-cta');
+  const checkbox = document.getElementById('x-cross-post-b');
+  const imageArea = document.getElementById('x-img-area');
+  const accountSelect = document.getElementById('x-acc-select');
+  if (textarea) textarea.readOnly = locked;
+  if (checkbox) checkbox.disabled = locked || Boolean(xVideoFile);
+  if (imageArea) imageArea.style.pointerEvents = locked ? 'none' : '';
+  if (accountSelect) accountSelect.style.pointerEvents = locked ? 'none' : '';
+}
+
+async function doXOriginCrossPost(text) {
+  const account = state.xs?.[selectedXIdx];
+  if (!account) { toast('Xアカウントを選択してください'); return; }
+  if (!state.b) { toast('Bluesky にログインしていません'); return; }
+
+  const webview = findXComposeWebView(account);
+  if (!webview) {
+    toast(`${account.username} のホームカラムを追加してください`);
+    return;
+  }
+
+  const xRequest = composeRequests.createComposeRequest({
+    networkId: 'x',
+    accountId: account.username || account.partition,
+    text,
+    images: xImgFiles.map(file => ({ file })),
+    replyTo: null,
+  });
+  const bRequest = composeRequests.createComposeRequest({
+    networkId: 'b',
+    accountId: state.b.did,
+    text,
+    images: xImgFiles.map(file => ({ file, altText: '' })),
+    replyTo: null,
+  });
+  const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
+  const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
+  const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
+  const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
+
+  const snapshot = crossPostRuntime.getSnapshot();
+  const hasUnknown = snapshot.targets.some(target => target.status === 'unknown');
+  let retryUnknown = false;
+  if (hasUnknown) {
+    retryUnknown = confirm(
+      '投稿先で未投稿であることを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
+    );
+    if (!retryUnknown) return;
+  }
+
+  setComposeBusy('xPostMod', 'x-sndb', true, 'X + Blueskyへ送信中...');
+  const result = await crossPostRuntime.submit([
+    {
+      id: 'x',
+      request: xRequest,
+      deliver: async () => {
+        xPostingNow = true;
+        try {
+          return await _deliverXPost({
+            wv: webview,
+            postText: xDelivery.text,
+            postImgs: xDelivery.imageFiles,
+            postVideo: null,
+            postVideoPath: null,
+            postTrimIn: 0,
+            postTrimOut: 0,
+          });
+        } finally {
+          xPostingNow = false;
+          try {
+            await flushWvReloadQueue();
+          } catch (error) {
+            console.warn('Queued X refresh failed:', error);
+          }
+        }
+      },
+    },
+    { id: 'b', request: bRequest, deliver: () => _deliverBskyPost(bDelivery) },
+  ], { retryUnknown });
+  setComposeBusy('xPostMod', 'x-sndb', false);
+
+  if (result.status === 'succeeded') {
+    closeOv('xPostMod');
+    composeCompletion.complete(xCompletion);
+    composeCompletion.complete(bCompletion);
+    toast('XとBlueskyへ投稿しました');
+    return;
+  }
+
+  setXCrossPostDraftLocked(true);
+  setComposeButtonLabel('x-sndb', result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行');
+  const failed = result.results.filter(target => target.status !== 'succeeded')
+    .map(target => target.id === 'x' ? 'X' : 'Bluesky')
+    .join(' / ');
+  toast(result.status === 'unknown'
+    ? `${failed}の投稿結果を確認できませんでした`
+    : `${failed}への投稿に失敗しました`);
+}
+
 async function doXPost() {
-  if (xComposeAttempt.getSnapshot().status === 'sending') return;
-  if (xComposeAttempt.getSnapshot().status === 'unknown') {
+  const crossPosting = Boolean(document.getElementById('x-cross-post-b')?.checked && state.b && !xVideoFile);
+  if (crossPosting) {
+    if (crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending')) return;
+  } else if (xComposeAttempt.getSnapshot().status === 'sending') {
+    return;
+  } else if (xComposeAttempt.getSnapshot().status === 'unknown') {
     const confirmedMissing = confirm(
       'X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
     );
@@ -2280,6 +2415,10 @@ async function doXPost() {
   }
   const text = document.getElementById('x-cta').value.trim();
   if (!text && xImgFiles.length === 0 && !xVideoFile) return;
+  if (crossPosting) {
+    await doXOriginCrossPost(text);
+    return;
+  }
 
   const acc = state.xs?.[selectedXIdx];
   const targetPartition = acc?.partition || 'persist:x-0';
@@ -3500,7 +3639,10 @@ function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
 }
 
 function isComposeSending(modalId) {
-  if (modalId === 'xPostMod') return xComposeAttempt.getSnapshot().status === 'sending';
+  if (modalId === 'xPostMod') {
+    return xComposeAttempt.getSnapshot().status === 'sending'
+      || crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending');
+  }
   if (modalId === 'compMod') {
     return bskyComposeAttempt.getSnapshot().status === 'sending'
       || crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending');
@@ -3514,8 +3656,13 @@ function closeOv(id, e) {
     document.getElementById(id).classList.remove('on');
     if (id === 'xPostMod') {
       xComposeAttempt.reset();
+      crossPostRuntime.reset();
+      setXCrossPostDraftLocked(false);
       resetXImgUI();
       document.getElementById('x-cta').value = '';
+      const crossCheckbox = document.getElementById('x-cross-post-b');
+      if (crossCheckbox) crossCheckbox.checked = false;
+      updateXCrossPostControls();
       setComposeButtonLabel('x-sndb');
       updXCC();
     }
