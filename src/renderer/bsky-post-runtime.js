@@ -1,10 +1,4 @@
 (function (global) {
-  function getPostPageUrl(uri, handle) {
-    const recordKey = String(uri || '').split('/').pop();
-    if (!recordKey || !handle) return null;
-    return `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${encodeURIComponent(recordKey)}`;
-  }
-
   function setCount(element, selector, value) {
     const count = element.querySelector(selector);
     if (count) count.textContent = String(value || 0);
@@ -44,7 +38,6 @@
   }
 
   global.SocialDeckBskyPostRuntime = {
-    getPostPageUrl,
     syncPostMetrics,
     updatePostElement,
   };

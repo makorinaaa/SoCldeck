@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 function loadRuntime() {
-  const context = { window: {}, encodeURIComponent };
+  const context = { window: {} };
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'bsky-post-runtime.js'),
     'utf8',
@@ -60,11 +60,4 @@ test('updates counts and viewer state for an existing Bluesky post', () => {
   assert.equal(repost.classes.has('rted'), true);
   assert.equal(element.dataset.likeuri, 'at://like');
   assert.equal(element.dataset.reposturi, 'at://repost');
-});
-
-test('builds a Bluesky post page URL from an AT URI', () => {
-  assert.equal(
-    loadRuntime().getPostPageUrl('at://did:plc:alice/app.bsky.feed.post/abc123', 'alice.test'),
-    'https://bsky.app/profile/alice.test/post/abc123',
-  );
 });

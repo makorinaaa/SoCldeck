@@ -1905,40 +1905,47 @@ function openBskyProfileCol(handleOrDid) {
   toast('プロフィールカラムを開きました');
 }
 
-function openBskyPost(event, uri, handle) {
+async function openBskyPost(event, uri, handle) {
   if (event.target.closest('button,a,img,.p-imgs,input,textarea')) return;
   if (window.getSelection()?.toString()) return;
-
-  const url = window.SocialDeckBskyPostRuntime.getPostPageUrl(uri, handle);
-  if (!url) return;
   event.preventDefault();
 
-  const existing = Array.from(document.querySelectorAll('webview')).find(webview => webview.src === url);
-  if (existing) {
-    const column = existing.closest('.col');
-    const id = column?.id?.replace('col-', '');
-    if (id && collapsedCols.has(id)) toggleColCollapse(id);
-    column?.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-    toast('既存のポストカラムを表示しました');
-    return;
-  }
+  document.getElementById('bsky-post-detail')?.remove();
+  const overlay = document.createElement('div');
+  overlay.className = 'ov on';
+  overlay.id = 'bsky-post-detail';
+  overlay.onclick = detailEvent => {
+    if (detailEvent.target === overlay) overlay.remove();
+  };
+  overlay.innerHTML = `
+    <div class="bsky-post-detail-modal">
+      <div class="chead">
+        <h2>ポスト</h2>
+        <button class="cbtn" title="閉じる" onclick="document.getElementById('bsky-post-detail')?.remove()">&times;</button>
+      </div>
+      <div class="bsky-post-detail-body">
+        <div class="feed-loading"><div class="spinner"></div>読み込み中...</div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
 
-  extraColN += 1;
-  const id = `bsky-post-${extraColN}`;
-  const result = columnLifecycle.create({
-    networkId: 'b',
-    definitionId: 'b-post',
-    id,
-    params: { url, title: 'ポスト', sub: `Bluesky · @${handle}` },
-  });
-  if (result.status !== 'created') {
-    toast('ポストページを開けませんでした');
-    return;
-  }
+  try {
+    const data = await bskyCallWithRefresh(jwt => bsky.getThread(jwt, uri, 6));
+    const thread = data?.thread;
+    const body = overlay.querySelector('.bsky-post-detail-body');
+    if (!body || !thread?.post) throw new Error('ポストを取得できませんでした');
 
-  setTimeout(() => {
-    document.getElementById(`col-${id}`)?.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-  }, 300);
+    const replies = (thread.replies || [])
+      .filter(reply => reply?.post)
+      .map(reply => `<div class="bsky-thread-reply">${renderBskyPost({ post: reply.post })}</div>`)
+      .join('');
+    body.innerHTML = `
+      <div class="bsky-thread-main">${renderBskyPost({ post: thread.post })}</div>
+      ${replies ? `<div class="bsky-thread-label">返信</div>${replies}` : '<div class="feed-empty">返信はありません</div>'}`;
+  } catch (error) {
+    const body = overlay.querySelector('.bsky-post-detail-body');
+    if (body) body.innerHTML = `<div class="feed-err">${esc(error.message)}</div>`;
+  }
 }
 
 // ─── COMPOSE ────────────────────────────────────
