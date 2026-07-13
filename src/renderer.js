@@ -160,6 +160,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
 });
 const xComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
 const bskyComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
+const crossPostRuntime = window.SocialDeckCrossPostRuntime.createCrossPostRuntime();
 const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
   notify: toast,
   refresh: refreshAfterCompose,
@@ -1977,6 +1978,7 @@ function renderCompUI() {
 }
 
 function openComp() {
+  updateCrossPostControls();
   document.getElementById('compMod').classList.add('on');
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
 }
@@ -2366,6 +2368,47 @@ async function doXPost() {
   toast('X post error: ' + result.error.message);
 }
 
+function updateCrossPostControls() {
+  const controls = document.getElementById('cross-post-controls');
+  const checkbox = document.getElementById('cross-post-x');
+  const select = document.getElementById('cross-post-x-account');
+  const accounts = state.xs || [];
+  const available = !replyTarget && accounts.length > 0;
+  controls.style.display = available ? 'flex' : 'none';
+  if (!available) {
+    checkbox.checked = false;
+    select.style.display = 'none';
+    crossPostRuntime.reset();
+    updCC();
+    return;
+  }
+
+  select.innerHTML = accounts.map((account, index) => (
+    `<option value="${index}">${esc(account.username)}</option>`
+  )).join('');
+  select.style.display = checkbox.checked ? 'block' : 'none';
+  updCC();
+}
+
+function toggleCrossPost() {
+  crossPostRuntime.reset();
+  document.getElementById('cross-post-x-account').style.display = document.getElementById('cross-post-x').checked
+    ? 'block'
+    : 'none';
+  updCC();
+}
+
+function setCrossPostDraftLocked(locked) {
+  const textarea = document.getElementById('cta');
+  const checkbox = document.getElementById('cross-post-x');
+  const select = document.getElementById('cross-post-x-account');
+  const imageArea = document.getElementById('b-img-area');
+  if (textarea) textarea.readOnly = locked;
+  if (checkbox) checkbox.disabled = locked;
+  if (select) select.disabled = locked;
+  if (imageArea) imageArea.style.pointerEvents = locked ? 'none' : '';
+}
+
 async function _deliverXPost({
   wv,
   postText,
@@ -2560,9 +2603,12 @@ async function _deliverXPost({
 function updCC() {
   const n = document.getElementById('cta').value.length;
   const el = document.getElementById('cct');
-  el.textContent = `${n} / 300`;
-  el.className = 'cc' + (n > 260 ? ' w' : '') + (n > 300 ? ' over' : '');
-  document.getElementById('sndb').disabled = (n === 0 && bImgFiles.length === 0) || n > 300;
+  const crossPosting = !replyTarget && document.getElementById('cross-post-x')?.checked;
+  const limit = crossPosting ? 280 : 300;
+  document.getElementById('cta').maxLength = limit;
+  el.textContent = `${n} / ${limit}`;
+  el.className = 'cc' + (n > limit - 40 ? ' w' : '') + (n > limit ? ' over' : '');
+  document.getElementById('sndb').disabled = (n === 0 && bImgFiles.length === 0) || n > limit;
 }
 
 // ─── BLUESKY 画像添付 ────────────────────────────
@@ -2655,11 +2701,157 @@ async function resolveMentionDids(facets, jwt) {
   });
 }
 
+async function _deliverBskyPost(delivery) {
+  const replyRef = delivery.reply;
+  let embed = undefined;
+  if (delivery.images.length > 0) {
+    const images = await Promise.all(delivery.images.map(async image => {
+      const file = image.file;
+      const buf = await file.arrayBuffer();
+      const res = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type,
+          'Authorization': `Bearer ${state.b.accessJwt}`,
+        },
+        body: buf,
+      });
+      if (!res.ok) throw new Error('Image upload failed');
+      const data = await res.json();
+      return { alt: image.alt, image: data.blob };
+    }));
+    embed = { $type: 'app.bsky.embed.images', images };
+  }
+
+  const rawFacets = buildFacets(delivery.text);
+  const resolvedFacets = await resolveMentionDids(rawFacets, state.b.accessJwt);
+  const record = {
+    $type: 'app.bsky.feed.post',
+    text: delivery.text,
+    createdAt: new Date().toISOString(),
+  };
+  if (resolvedFacets.length) record.facets = resolvedFacets;
+  if (replyRef) record.reply = replyRef;
+  if (embed) record.embed = embed;
+
+  await bskyCallWithRefresh(jwt =>
+    apiPost('com.atproto.repo.createRecord', {
+      repo: delivery.repoDid,
+      collection: 'app.bsky.feed.post',
+      record,
+    }, jwt)
+  );
+}
+
+function findXComposeWebView(account) {
+  const partition = account?.partition || 'persist:x-0';
+  let home = null;
+  let fallback = null;
+  document.querySelectorAll('webview').forEach(webview => {
+    if (webview.partition !== partition) return;
+    const src = webview.src || '';
+    if (src.includes('x.com/home') || src.includes('twitter.com/home')) home = webview;
+    else if (!fallback) fallback = webview;
+  });
+  return home || fallback;
+}
+
+async function doCrossPost(text) {
+  const accountIndex = Number(document.getElementById('cross-post-x-account')?.value || 0);
+  const account = state.xs?.[accountIndex];
+  if (!account) { toast('Xアカウントを選択してください'); return; }
+
+  const webview = findXComposeWebView(account);
+  if (!webview) {
+    toast(`${account.username} のホームカラムを追加してください`);
+    return;
+  }
+
+  const bRequest = composeRequests.createComposeRequest({
+    networkId: 'b',
+    accountId: state.b.did,
+    text,
+    images: bImgFiles.map((file, index) => ({ file, altText: bImgAlts[index] || '' })),
+    replyTo: null,
+  });
+  const xRequest = composeRequests.createComposeRequest({
+    networkId: 'x',
+    accountId: account.username || account.partition,
+    text,
+    images: bImgFiles.map(file => ({ file })),
+    replyTo: null,
+  });
+  const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
+  const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
+  const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
+  const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
+
+  const snapshot = crossPostRuntime.getSnapshot();
+  const hasUnknown = snapshot.targets.some(target => target.status === 'unknown');
+  let retryUnknown = false;
+  if (hasUnknown) {
+    retryUnknown = confirm('X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。');
+    if (!retryUnknown) return;
+  }
+
+  setComposeBusy('compMod', 'sndb', true, 'X + Blueskyへ送信中...');
+  const result = await crossPostRuntime.submit([
+    {
+      id: 'x',
+      request: xRequest,
+      deliver: async () => {
+        xPostingNow = true;
+        try {
+          return await _deliverXPost({
+            wv: webview,
+            postText: xDelivery.text,
+            postImgs: xDelivery.imageFiles,
+            postVideo: null,
+            postVideoPath: null,
+            postTrimIn: 0,
+            postTrimOut: 0,
+          });
+        } finally {
+          xPostingNow = false;
+          try {
+            await flushWvReloadQueue();
+          } catch (error) {
+            console.warn('Queued X refresh failed:', error);
+          }
+        }
+      },
+    },
+    { id: 'b', request: bRequest, deliver: () => _deliverBskyPost(bDelivery) },
+  ], { retryUnknown });
+  setComposeBusy('compMod', 'sndb', false);
+
+  if (result.status === 'succeeded') {
+    closeOv('compMod');
+    composeCompletion.complete(xCompletion);
+    composeCompletion.complete(bCompletion);
+    toast('XとBlueskyへ投稿しました');
+    return;
+  }
+
+  setCrossPostDraftLocked(true);
+  setComposeButtonLabel('sndb', result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行');
+  const failed = result.results.filter(target => target.status !== 'succeeded')
+    .map(target => target.id === 'x' ? 'X' : 'Bluesky')
+    .join(' / ');
+  toast(result.status === 'unknown'
+    ? 'Xの投稿結果を確認できませんでした'
+    : `${failed}への投稿に失敗しました`);
+}
+
 async function doSend() {
   if (bskyComposeAttempt.getSnapshot().status === 'sending') return;
   const text = document.getElementById('cta').value.trim();
   if (!text && bImgFiles.length === 0) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
+  if (!replyTarget && document.getElementById('cross-post-x')?.checked) {
+    await doCrossPost(text);
+    return;
+  }
 
   const request = composeRequests.createComposeRequest({
     networkId: 'b',
@@ -2683,50 +2875,7 @@ async function doSend() {
   const completionPlan = networkAdapters.prepareComposeCompletion(request);
 
   setComposeBusy('compMod', 'sndb', true, '送信中…');
-  const result = await bskyComposeAttempt.submit(request, async () => {
-    const replyRef = delivery.reply;
-
-    let embed = undefined;
-    if (delivery.images.length > 0) {
-      const images = await Promise.all(delivery.images.map(async image => {
-        const file = image.file;
-        const buf = await file.arrayBuffer();
-        const res = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': file.type,
-            'Authorization': `Bearer ${state.b.accessJwt}`,
-          },
-          body: buf,
-        });
-        if (!res.ok) throw new Error('Image upload failed');
-        const data = await res.json();
-        return { alt: image.alt, image: data.blob };
-      }));
-      embed = { $type: 'app.bsky.embed.images', images };
-    }
-
-    // 投稿
-    const rawFacets = buildFacets(delivery.text);
-    const resolvedFacets = await resolveMentionDids(rawFacets, state.b.accessJwt);
-
-    const record = {
-      $type: 'app.bsky.feed.post',
-      text: delivery.text,
-      createdAt: new Date().toISOString(),
-    };
-    if (resolvedFacets.length) record.facets = resolvedFacets;
-    if (replyRef) record.reply = replyRef;
-    if (embed) record.embed = embed;
-
-    await bskyCallWithRefresh(jwt =>
-      apiPost('com.atproto.repo.createRecord', {
-        repo: delivery.repoDid,
-        collection: 'app.bsky.feed.post',
-        record,
-      }, jwt)
-    );
-  });
+  const result = await bskyComposeAttempt.submit(request, () => _deliverBskyPost(delivery));
 
   setComposeBusy('compMod', 'sndb', false);
   if (result.status === 'succeeded') {
@@ -3352,7 +3501,10 @@ function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
 
 function isComposeSending(modalId) {
   if (modalId === 'xPostMod') return xComposeAttempt.getSnapshot().status === 'sending';
-  if (modalId === 'compMod') return bskyComposeAttempt.getSnapshot().status === 'sending';
+  if (modalId === 'compMod') {
+    return bskyComposeAttempt.getSnapshot().status === 'sending'
+      || crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending');
+  }
   return false;
 }
 
@@ -3369,10 +3521,15 @@ function closeOv(id, e) {
     }
     if (id === 'compMod') {
       bskyComposeAttempt.reset();
+      crossPostRuntime.reset();
+      setCrossPostDraftLocked(false);
       resetBImgUI();
       const cta = document.getElementById('cta');
       if (cta) { cta.value = ''; updCC(); }
       replyTarget = null;
+      const crossCheckbox = document.getElementById('cross-post-x');
+      if (crossCheckbox) crossCheckbox.checked = false;
+      updateCrossPostControls();
       document.querySelector('.bsky-reply-preview')?.remove();
       setComposeButtonLabel('sndb');
     }
