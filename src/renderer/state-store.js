@@ -3,7 +3,15 @@
   const LEGACY_STATE_KEY = 'socialdeck_v3';
 
   function defaultState() {
-    return { xs: [], activeX: 0, b: null };
+    return {
+      xs: [],
+      activeX: 0,
+      b: null,
+      composePreferences: {
+        crossPostFromX: false,
+        crossPostFromBluesky: false,
+      },
+    };
   }
 
   function normalizeState(value) {
@@ -14,6 +22,12 @@
       xs: Array.isArray(value.xs) ? value.xs : [],
       activeX: Number.isInteger(value.activeX) ? value.activeX : 0,
       b: value.b || null,
+      composePreferences: {
+        ...defaultState().composePreferences,
+        ...(value.composePreferences || {}),
+        crossPostFromX: value.composePreferences?.crossPostFromX === true,
+        crossPostFromBluesky: value.composePreferences?.crossPostFromBluesky === true,
+      },
     };
   }
 
