@@ -1825,6 +1825,7 @@ async function toggleRepost(btn, uri, cid) {
 let replyTarget = null; // { uri, cid, rootUri, rootCid }
 
 async function openReply(uri, cid, handle) {
+  document.getElementById('bsky-post-detail')?.remove();
   replyTarget = { uri, cid, rootUri: uri, rootCid: cid };
 
   // 返信先プレビューを表示
