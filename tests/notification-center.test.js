@@ -83,6 +83,48 @@ test('builds a bounded X notification extraction script', () => {
   assert.match(script, /, 100\)/);
 });
 
+test('waits for delayed X notification avatars before completing extraction', async () => {
+  const center = loadModule();
+  let polls = 0;
+  const profileLink = { href: 'https://x.com/alice', innerText: 'Alice' };
+  const avatar = {
+    get currentSrc() {
+      return polls >= 3 ? 'https://pbs.twimg.com/profile_images/alice.jpg' : '';
+    },
+    src: '',
+    srcset: '',
+    getAttribute: () => '',
+  };
+  const cell = {
+    innerText: 'Alice liked your post',
+    querySelector: () => null,
+    querySelectorAll: selector => {
+      if (selector === 'a[href]') return [profileLink];
+      if (selector === 'img') return [avatar];
+      if (selector === '[style*="background-image"]') return [];
+      return [];
+    },
+  };
+  const documentLike = {
+    querySelectorAll: selector => {
+      if (selector !== '[data-testid="cellInnerDiv"]') return [];
+      polls += 1;
+      return [cell];
+    },
+  };
+  const script = center.buildXNotificationExtractionScript(40);
+  const items = await vm.runInNewContext(script, {
+    Date,
+    URL,
+    document: documentLike,
+    location: { origin: 'https://x.com' },
+    setTimeout: callback => setTimeout(callback, 0),
+  });
+
+  assert.equal(items[0].avatar, 'https://pbs.twimg.com/profile_images/alice.jpg');
+  assert.ok(polls >= 3);
+});
+
 test('extracts a visible X notification cell', () => {
   const center = loadModule();
   const profileLink = {

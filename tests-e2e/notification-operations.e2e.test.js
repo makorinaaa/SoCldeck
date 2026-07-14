@@ -8,8 +8,10 @@ const { _electron: electron } = require('playwright-core');
 const APP_ROOT = path.join(__dirname, '..');
 const NOTIFICATIONS_URL = 'https://x.com/notifications';
 const LIKED_POST_URL = 'https://x.com/socialdeck/status/123';
+const X_AVATAR_URL = 'https://pbs.twimg.com/profile_images/alice.jpg';
 
 const X_FIXTURES = {
+  useNotificationReaders: true,
   state: {
     xs: [
       { username: '@first', initials: 'F', bg: '#334455', partition: 'persist:x-0' },
@@ -19,15 +21,6 @@ const X_FIXTURES = {
     b: null,
     composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
   },
-  xNotifications: [{
-    accountIndex: 1,
-    sourceIndex: 0,
-    text: 'Alice liked your post',
-    targetUrl: 'https://x.com/alice',
-    profileUrl: 'https://x.com/alice',
-    actorName: 'Alice',
-    indexedAt: '2026-07-15T00:00:00Z',
-  }],
 };
 
 const BLUESKY_FIXTURES = {
@@ -65,12 +58,13 @@ function xFixture(url) {
   if (pathname === '/notifications') {
     return `<!doctype html><html><body>
       <div data-testid="cellInnerDiv">
-        <a href="https://x.com/alice">Alice</a>
+        <a href="https://x.com/alice">Alice<img id="alice-avatar" alt="Alice"></a>
         <time datetime="2026-07-15T00:00:00Z"></time>
-        <a role="link" href="${LIKED_POST_URL}">
+        <div role="link" onclick="location.href='${LIKED_POST_URL}'">
           <div data-testid="tweetText">Alice liked your post</div>
-        </a>
+        </div>
       </div>
+      <script>setTimeout(() => { document.getElementById('alice-avatar').src = '${X_AVATAR_URL}'; }, 100);</script>
     </body></html>`;
   }
   return `<!doctype html><html><body data-e2e-path="${pathname}">Post ${pathname}</body></html>`;
@@ -97,11 +91,17 @@ async function launchApp(t, fixtures) {
       targetSession.protocol.interceptBufferProtocol('https', (request, callback) => {
         const url = new URL(request.url);
         const allowed = network === 'x'
-          ? url.hostname === 'x.com'
+          ? ['x.com', 'pbs.twimg.com'].includes(url.hostname)
           : network === 'b'
             ? url.hostname === 'bsky.app'
-            : url.hostname === 'bsky.social';
+            : network === 'api'
+              ? url.hostname === 'bsky.social'
+              : url.hostname === 'pbs.twimg.com';
         if (!allowed) return callback({ error: -3 });
+        if (url.hostname === 'pbs.twimg.com') {
+          callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') });
+          return;
+        }
         if (network === 'api') {
           const body = url.pathname.endsWith('getUnreadCount')
             ? '{"count":0}'
@@ -111,13 +111,17 @@ async function launchApp(t, fixtures) {
           callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(body) });
           return;
         }
-        const body = network === 'x' && url.pathname === '/notifications'
+        const notificationsHtml = partition === 'persist:x-1'
           ? fixture.notificationsHtml
+          : fixture.notificationsHtml.replaceAll('Alice', 'Other');
+        const body = network === 'x' && url.pathname === '/notifications'
+          ? notificationsHtml
           : fixture.pageHtml.replaceAll('__PATH__', url.pathname);
         callback({ mimeType: 'text/html', charset: 'utf-8', data: Buffer.from(body) });
       }, error => error ? reject(error) : resolve());
     });
     const tasks = fixture.xPartitions.map(partition => intercept(partition, 'x'));
+    if (fixture.hasXAvatar) tasks.push(intercept('', 'avatar'));
     if (fixture.hasBluesky) {
       tasks.push(intercept('persist:bsky', 'b'));
       tasks.push(intercept('', 'api'));
@@ -127,7 +131,9 @@ async function launchApp(t, fixtures) {
     notificationsHtml: xFixture(NOTIFICATIONS_URL),
     pageHtml: '<!doctype html><html><body data-e2e-path="__PATH__">Page __PATH__</body></html>',
     xPartitions: fixtures.state.xs.map(account => account.partition),
+    hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
+    avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   });
   const page = await electronApp.firstWindow();
   await page.evaluate(() => {
@@ -161,7 +167,9 @@ async function expectWebviewUrl(page, selector, expectedUrl) {
 async function openXLikeNotification(page) {
   await page.locator('#sb-notif-b').click();
   await page.locator('.notif-center-tab[data-network="x"]').click();
-  await page.locator('.notif-center-item').first().click();
+  const item = page.locator('.notif-center-item').filter({ hasText: 'Alice' }).first();
+  await item.locator(`.av img[src="${X_AVATAR_URL}"]`).waitFor({ state: 'attached' });
+  await item.click();
 }
 
 test('X notification journey reuses the account column and returns to notifications', async t => {

@@ -108,11 +108,26 @@
     const safeLimit = Math.max(1, Math.min(100, Number(limit) || 40));
     return `(() => new Promise(resolve => {
       const startedAt = Date.now();
+      let firstItemsAt = 0;
+      let bestItems = [];
+      let bestAvatarCount = 0;
       const extract = ${extractXNotificationsFromDocument.toString()};
       const poll = () => {
         const items = extract(document, location, ${safeLimit});
-        if (items.length > 0 || Date.now() - startedAt > 8000) resolve(items);
-        else setTimeout(poll, 250);
+        const avatarCount = items.filter(item => item.avatar).length;
+        if (items.length > 0 && !firstItemsAt) firstItemsAt = Date.now();
+        if (items.length > bestItems.length || avatarCount > bestAvatarCount) {
+          bestItems = items;
+          bestAvatarCount = avatarCount;
+        }
+        const allAvatarsReady = items.length > 0 && avatarCount === items.length;
+        const avatarGraceExpired = firstItemsAt && Date.now() - firstItemsAt >= 2000;
+        const extractionTimedOut = Date.now() - startedAt > 8000;
+        if (allAvatarsReady || avatarGraceExpired || extractionTimedOut) {
+          resolve(bestItems.length ? bestItems : items);
+        } else {
+          setTimeout(poll, 250);
+        }
       };
       poll();
     }))()`;

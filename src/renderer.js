@@ -3345,7 +3345,7 @@ function setNotificationNetwork(networkId) {
 async function loadNotificationCenter() {
   const list = document.getElementById('notif-center-list');
   if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
-  if (E2E_FIXTURES) {
+  if (E2E_FIXTURES && E2E_FIXTURES.useNotificationReaders !== true) {
     notificationCenterItems = (E2E_FIXTURES.blueskyNotifications || [])
       .map(notificationCenter.normalizeBskyNotification);
     xNotificationCenterItems = (E2E_FIXTURES.xNotifications || []).map(raw => {
