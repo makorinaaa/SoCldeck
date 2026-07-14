@@ -9,6 +9,17 @@ function toFiniteNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function getE2EFixtures() {
+  if (process.env.SOCIALDECK_E2E !== '1') return null;
+  try {
+    return JSON.parse(process.env.SOCIALDECK_E2E_FIXTURES || '{}');
+  } catch {
+    return {};
+  }
+}
+
+const e2eFixtures = getE2EFixtures();
+
 contextBridge.exposeInMainWorld('electronAPI', {
   // 設定
   getConfig: () => ipcRenderer.invoke('get-config'),
@@ -71,4 +82,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Electron環境かどうかの判定
   isElectron: true,
+  ...(e2eFixtures ? { e2eFixtures } : {}),
 });

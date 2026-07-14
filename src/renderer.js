@@ -8,6 +8,7 @@ const composeRequests = window.SocialDeckComposeRequest;
 const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
 const notificationCenter = window.SocialDeckNotificationCenter;
+const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -1068,6 +1069,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
     // dom-ready: スピナーを消してwebviewを表示
     let _domReadyOnce = false;
     wv.addEventListener('dom-ready', () => {
+      wv.dataset.ready = 'true';
       document.getElementById(`wvload-${cfg.id}`).style.display = 'none';
       wv.style.display = 'flex';
       wv.style.flex = '1';
@@ -3343,6 +3345,20 @@ function setNotificationNetwork(networkId) {
 async function loadNotificationCenter() {
   const list = document.getElementById('notif-center-list');
   if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
+  if (E2E_FIXTURES) {
+    notificationCenterItems = (E2E_FIXTURES.blueskyNotifications || [])
+      .map(notificationCenter.normalizeBskyNotification);
+    xNotificationCenterItems = (E2E_FIXTURES.xNotifications || []).map(raw => {
+      const accountIndex = Number(raw.accountIndex) || 0;
+      return notificationCenter.normalizeXNotification(raw, {
+        accountIndex,
+        account: state.xs?.[accountIndex] || {},
+      });
+    });
+    xNotificationCenterErrors = [];
+    renderNotificationCenter();
+    return;
+  }
   const blueskyTask = state.b
     ? bskyCallWithRefresh(jwt => bsky.notifications(jwt, 80))
       .then(data => { notificationCenterItems = (data.notifications || []).map(notificationCenter.normalizeBskyNotification); })
@@ -3546,7 +3562,10 @@ async function openXNotificationCenterItem(item) {
   }
 
   try {
-    await webview.loadURL('https://x.com/notifications');
+    await waitForXColumnWebViewReady(webview);
+    if (webview.getURL?.() !== 'https://x.com/notifications') {
+      await webview.loadURL('https://x.com/notifications');
+    }
     const activated = await webview.executeJavaScript(
       notificationCenter.buildXNotificationActivationScript(item.raw)
     );
@@ -3555,6 +3574,29 @@ async function openXNotificationCenterItem(item) {
     console.warn('X notification target could not be opened:', error);
     toast('対象のポストを開けませんでした');
   }
+}
+
+function waitForXColumnWebViewReady(webview) {
+  if (webview.dataset.ready === 'true') return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('X通知カラムの読み込みがタイムアウトしました'));
+    }, 15000);
+    const ready = () => { cleanup(); resolve(); };
+    const failed = event => {
+      if (event.errorCode === -3) return;
+      cleanup();
+      reject(new Error('X通知カラムを読み込めませんでした'));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      webview.removeEventListener('dom-ready', ready);
+      webview.removeEventListener('did-fail-load', failed);
+    };
+    webview.addEventListener('dom-ready', ready, { once: true });
+    webview.addEventListener('did-fail-load', failed);
+  });
 }
 
 async function markNotificationCenterRead() {
@@ -4217,7 +4259,7 @@ function addResizeHandle(col) {
 }
 
 // ─── INIT ───────────────────────────────────────
-state = stateStore.load();
+state = E2E_FIXTURES?.state || stateStore.load();
 if (state.x && !(state.xs && state.xs.length > 0)) {
   state.xs = [{ ...state.x, partition: 'persist:x-0' }];
   state.activeX = 0;

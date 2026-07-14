@@ -505,16 +505,18 @@ app.whenReady().then(async () => {
 
   // ── アドブロック初期化 ──
   // 初期化後にXの全セッションへネットワークブロックを適用
-  initAdBlocker().then(() => {
-    if (!blocker) return;
-    // persist:x（メイン）と persist:x-0〜9（マルチアカウント）に適用
-    applyAdBlockToSession(xSession);
-    for (let i = 0; i < 100; i++) {
-      try {
-        applyAdBlockToSession(session.fromPartition(`persist:x-${i}`));
-      } catch {}
-    }
-  });
+  if (process.env.SOCIALDECK_E2E !== '1') {
+    initAdBlocker().then(() => {
+      if (!blocker) return;
+      // persist:x（メイン）と persist:x-0〜9（マルチアカウント）に適用
+      applyAdBlockToSession(xSession);
+      for (let i = 0; i < 100; i++) {
+        try {
+          applyAdBlockToSession(session.fromPartition(`persist:x-${i}`));
+        } catch {}
+      }
+    });
+  }
 
   createWindow();
 
