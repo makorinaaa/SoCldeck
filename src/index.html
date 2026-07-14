@@ -251,6 +251,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .notif-center-item .notif-handle{font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .notif-center-item .notif-time{font-size:10px;color:var(--text3);white-space:nowrap}
 .notif-center-state{height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px;padding:30px;text-align:center}
+.notif-center-x-readers{position:fixed;left:-10000px;top:0;width:360px;height:640px;opacity:0;pointer-events:none;overflow:hidden}
+.notif-center-x-readers webview{width:360px;height:640px}
 
 /* ── ADD COL ── */
 .add-col-btn{width:70px;min-width:70px;background:var(--bg1);border:none;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;color:var(--text3);font-size:10px;font-family:inherit;transition:all .12s}
@@ -623,6 +625,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     <div class="notif-center-list" id="notif-center-list"><div class="notif-center-state">通知を読み込んでいます…</div></div>
   </div>
 </div>
+<div class="notif-center-x-readers" id="notif-center-x-readers" aria-hidden="true"></div>
 
 <!-- X POST MODAL -->
 <div class="ov" id="xPostMod" onclick="closeOv('xPostMod',event)">

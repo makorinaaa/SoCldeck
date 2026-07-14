@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 function loadModule() {
-  const context = { window: {} };
+  const context = { URL, window: {} };
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'notification-center.js'),
     'utf8',
@@ -46,10 +46,76 @@ test('filters notifications by reason and unread state', () => {
     { reason: 'like', isRead: false },
     { reason: 'like', isRead: true },
     { reason: 'reply', isRead: false },
+    { reason: 'like', isRead: null },
   ];
 
   assert.deepEqual(
     center.filterNotifications(notifications, { reason: 'like', unreadOnly: true }),
     [notifications[0]],
   );
+});
+
+test('normalizes Japanese X notifications with their account context', () => {
+  const center = loadModule();
+  const notification = center.normalizeXNotification({
+    text: 'Aliceさんがあなたのポストをいいねしました',
+    targetUrl: 'https://x.com/me/status/123',
+    profileUrl: 'https://x.com/alice',
+    actorName: 'Alice',
+    indexedAt: '2026-07-15T00:00:00Z',
+  }, {
+    accountIndex: 1,
+    account: { username: '@me' },
+  });
+
+  assert.equal(notification.reason, 'like');
+  assert.equal(notification.author.handle, 'alice');
+  assert.equal(notification.accountIndex, 1);
+  assert.equal(notification.targetUrl, 'https://x.com/me/status/123');
+  assert.equal(notification.isRead, null);
+});
+
+test('builds a bounded X notification extraction script', () => {
+  const center = loadModule();
+  const script = center.buildXNotificationExtractionScript(500);
+
+  assert.match(script, /cellInnerDiv/);
+  assert.match(script, /, 100\)/);
+});
+
+test('extracts a visible X notification cell', () => {
+  const center = loadModule();
+  const profileLink = {
+    href: 'https://x.com/alice',
+    innerText: 'Alice\n@alice',
+  };
+  const statusLink = { href: 'https://x.com/me/status/123', innerText: '' };
+  const cell = {
+    innerText: 'Aliceさんがあなたのポストをいいねしました',
+    querySelector: selector => {
+      if (selector === '[data-testid="promotedIndicator"]') return null;
+      if (selector === 'time') return { dateTime: '2026-07-15T00:00:00Z' };
+      return null;
+    },
+    querySelectorAll: selector => {
+      if (selector === 'a[href]') return [profileLink, statusLink];
+      if (selector === 'img[src]') return [{ src: 'https://pbs.twimg.com/profile_images/alice.jpg' }];
+      return [];
+    },
+  };
+  const documentLike = {
+    querySelectorAll: selector => selector === '[data-testid="cellInnerDiv"]' ? [cell] : [],
+  };
+
+  const items = center.extractXNotificationsFromDocument(
+    documentLike,
+    { origin: 'https://x.com' },
+    40,
+  );
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].profileUrl, 'https://x.com/alice');
+  assert.equal(items[0].targetUrl, 'https://x.com/me/status/123');
+  assert.equal(items[0].actorName, 'Alice');
+  assert.equal(items[0].indexedAt, '2026-07-15T00:00:00Z');
 });

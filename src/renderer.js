@@ -589,6 +589,9 @@ async function logoutAll() {
   }
   // 全カラムの自動更新を停止
   columnLifecycle.clear();
+  document.getElementById('notif-center-x-readers')?.replaceChildren();
+  notificationCenterItems = [];
+  xNotificationCenterItems = [];
   const composePreferences = state.composePreferences;
   state = {
     ...window.SocialDeckStateStore.defaultState(),
@@ -3292,6 +3295,9 @@ function renderNotifIcons() {
 }
 
 let notificationCenterItems = [];
+let xNotificationCenterItems = [];
+let visibleNotificationCenterItems = [];
+let xNotificationCenterErrors = [];
 let notificationCenterNetwork = 'all';
 
 function openNotificationCenter() {
@@ -3315,21 +3321,88 @@ function setNotificationNetwork(networkId) {
 async function loadNotificationCenter() {
   const list = document.getElementById('notif-center-list');
   if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
-  if (!state.b) {
-    notificationCenterItems = [];
-    renderNotificationCenter();
+  const blueskyTask = state.b
+    ? bskyCallWithRefresh(jwt => bsky.notifications(jwt, 80))
+      .then(data => { notificationCenterItems = (data.notifications || []).map(notificationCenter.normalizeBskyNotification); })
+    : Promise.resolve().then(() => { notificationCenterItems = []; });
+  const xTask = loadXNotificationCenter();
+  const [blueskyResult] = await Promise.allSettled([blueskyTask, xTask]);
+  renderNotificationCenter();
+  if (blueskyResult.status === 'rejected' && notificationCenterNetwork === 'b' && list) {
+    list.innerHTML = `<div class="notif-center-state">Bluesky通知を取得できませんでした<br>${esc(blueskyResult.reason?.message || '')}</div>`;
+  }
+}
+
+function getXNotificationReader(account, accountIndex) {
+  const host = document.getElementById('notif-center-x-readers');
+  if (!host || !IS_ELECTRON) return null;
+  const id = `x-notif-reader-${accountIndex}`;
+  let webview = document.getElementById(id);
+  if (webview && webview.partition !== account.partition) {
+    webview.remove();
+    webview = null;
+  }
+  if (webview) return webview;
+
+  webview = document.createElement('webview');
+  webview.id = id;
+  webview.setAttribute('partition', account.partition || `persist:x-${accountIndex}`);
+  webview.setAttribute('webpreferences', 'backgroundThrottling=false');
+  webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
+  webview.src = 'https://x.com/notifications';
+  host.appendChild(webview);
+  return webview;
+}
+
+function waitForXNotificationReader(webview) {
+  if (webview.dataset.ready === 'true') return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('X通知ページの読み込みがタイムアウトしました'));
+    }, 15000);
+    const ready = () => { cleanup(); resolve(); };
+    const failed = event => {
+      if (event.errorCode === -3) return;
+      cleanup();
+      reject(new Error('X通知ページを読み込めませんでした'));
+    };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      webview.removeEventListener('dom-ready', ready);
+      webview.removeEventListener('did-fail-load', failed);
+    };
+    webview.addEventListener('dom-ready', ready, { once: true });
+    webview.addEventListener('did-fail-load', failed);
+  });
+}
+
+async function loadXNotificationsForAccount(account, accountIndex) {
+  const webview = getXNotificationReader(account, accountIndex);
+  if (!webview) return [];
+  await waitForXNotificationReader(webview);
+  const rawItems = await webview.executeJavaScript(
+    notificationCenter.buildXNotificationExtractionScript(40)
+  );
+  return (rawItems || []).map(raw => notificationCenter.normalizeXNotification(raw, {
+    account,
+    accountIndex,
+  }));
+}
+
+async function loadXNotificationCenter() {
+  if (!IS_ELECTRON || !(state.xs || []).length) {
+    xNotificationCenterItems = [];
+    xNotificationCenterErrors = [];
     return;
   }
-
-  try {
-    const data = await bskyCallWithRefresh(jwt => bsky.notifications(jwt, 80));
-    notificationCenterItems = (data.notifications || []).map(notificationCenter.normalizeBskyNotification);
-    renderNotificationCenter();
-  } catch (error) {
-    if (list) {
-      list.innerHTML = `<div class="notif-center-state">通知を取得できませんでした<br>${esc(error.message)}</div>`;
-    }
-  }
+  const results = await Promise.allSettled(
+    state.xs.map((account, index) => loadXNotificationsForAccount(account, index))
+  );
+  xNotificationCenterItems = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+  xNotificationCenterErrors = results.flatMap((result, index) => result.status === 'rejected'
+    ? [{ accountIndex: index, message: result.reason?.message || '取得できませんでした' }]
+    : []);
 }
 
 function renderNotificationCenter() {
@@ -3343,7 +3416,7 @@ function renderNotificationCenter() {
     ? (state.xs || []).map((account, index) => `
       <button class="notif-x-account" data-x-index="${index}">
         <span style="background:${account.bg || 'var(--text2)'}">${esc(account.initials || 'X')}</span>
-        ${esc(account.username)} の通知を開く
+        ${esc(account.username)} の通知カラム
       </button>`).join('')
     : '';
   xArea.querySelectorAll('[data-x-index]').forEach(button => {
@@ -3355,26 +3428,37 @@ function renderNotificationCenter() {
 
   const reasonSelect = document.getElementById('notif-center-reason');
   const unreadInput = document.getElementById('notif-center-unread');
-  const bskyControlsDisabled = notificationCenterNetwork === 'x' || !state.b;
-  if (reasonSelect) reasonSelect.disabled = bskyControlsDisabled;
-  if (unreadInput) unreadInput.disabled = bskyControlsDisabled;
-  document.querySelector('.notif-center-tools .mark-read').disabled = bskyControlsDisabled;
-
-  if (notificationCenterNetwork === 'x') {
-    list.innerHTML = '<div class="notif-center-state">上のアカウントからXの通知カラムを開けます</div>';
-    return;
+  if (reasonSelect) reasonSelect.disabled = false;
+  if (unreadInput) {
+    unreadInput.disabled = notificationCenterNetwork === 'x' || !state.b;
+    if (notificationCenterNetwork === 'x') unreadInput.checked = false;
   }
-  if (!state.b) {
+  document.querySelector('.notif-center-tools .mark-read').disabled = notificationCenterNetwork === 'x' || !state.b;
+
+  if (notificationCenterNetwork === 'b' && !state.b) {
     list.innerHTML = '<div class="notif-center-state">Blueskyにログインすると通知がここに表示されます</div>';
     return;
   }
 
-  const filtered = notificationCenter.filterNotifications(notificationCenterItems, {
+  const sourceItems = notificationCenterNetwork === 'x'
+    ? xNotificationCenterItems
+    : notificationCenterNetwork === 'b'
+      ? notificationCenterItems
+      : [...xNotificationCenterItems, ...notificationCenterItems].sort((left, right) => {
+          const leftTime = Date.parse(left.indexedAt) || 0;
+          const rightTime = Date.parse(right.indexedAt) || 0;
+          return rightTime - leftTime;
+        });
+  const filtered = notificationCenter.filterNotifications(sourceItems, {
     reason: reasonSelect?.value || 'all',
     unreadOnly: Boolean(unreadInput?.checked),
   });
+  visibleNotificationCenterItems = filtered;
   if (!filtered.length) {
-    list.innerHTML = '<div class="notif-center-state">条件に一致する通知はありません</div>';
+    const xFailed = ['all', 'x'].includes(notificationCenterNetwork) && xNotificationCenterErrors.length > 0;
+    list.innerHTML = xFailed
+      ? '<div class="notif-center-state">X通知を取得できませんでした。上のボタンから通知カラムを開いて確認できます</div>'
+      : '<div class="notif-center-state">条件に一致する通知はありません</div>';
     return;
   }
 
@@ -3386,14 +3470,18 @@ function renderNotificationCenter() {
     mention: 'さんがあなたをメンションしました',
     quote: 'さんがあなたの投稿を引用しました',
   };
-  list.innerHTML = filtered.map(item => {
-    const index = notificationCenterItems.indexOf(item);
+  list.innerHTML = filtered.map((item, index) => {
     const actor = item.author || {};
-    const excerpt = item.raw?.record?.text ? `<div class="notif-handle">${esc(item.raw.record.text)}</div>` : `<div class="notif-handle">@${esc(actor.handle || '')}</div>`;
-    return `<div class="notif-center-item ${item.isRead ? '' : 'unread'}" data-notification-index="${index}" role="button" tabindex="0">
-      ${renderAvatar(actor, 32)}
+    const excerptText = item.networkId === 'x' ? item.text : item.raw?.record?.text;
+    const excerpt = excerptText ? `<div class="notif-handle">${esc(excerptText)}</div>` : `<div class="notif-handle">@${esc(actor.handle || '')}</div>`;
+    const avatar = item.networkId === 'x'
+      ? `<div class="av" style="width:32px;height:32px;background:${item.account?.bg || avBgFor(actor.handle)};font-size:9px">${actor.avatar ? `<img src="${esc(actor.avatar)}" loading="lazy">` : esc((actor.displayName || actor.handle || 'X').slice(0, 2).toUpperCase())}</div>`
+      : renderAvatar(actor, 32);
+    const timeLabel = item.indexedAt ? relTime(item.indexedAt) : (item.account?.username || 'X');
+    return `<div class="notif-center-item ${item.isRead === false ? 'unread' : ''}" data-notification-index="${index}" role="button" tabindex="0">
+      ${avatar}
       <div class="notif-copy"><div class="notif-title"><strong>${esc(actor.displayName || actor.handle || 'ユーザー')}</strong>${esc(labels[item.reason] || 'さんから通知があります')}</div>${excerpt}</div>
-      <div class="notif-time">${relTime(item.indexedAt)}</div>
+      <div class="notif-time">${esc(timeLabel)}</div>
     </div>`;
   }).join('');
   list.querySelectorAll('[data-notification-index]').forEach(element => {
@@ -3406,15 +3494,33 @@ function renderNotificationCenter() {
 }
 
 function openNotificationCenterItem(index) {
-  const item = notificationCenterItems[index];
+  const item = visibleNotificationCenterItems[index];
   if (!item) return;
   closeOv('notifCenterMod');
+  if (item.networkId === 'x') {
+    openXNotificationCenterItem(item);
+    return;
+  }
   if (item.targetUri) {
     const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
     openBskyPost({ target: document.body, preventDefault() {} }, item.targetUri, handle || state.b?.handle || 'post');
     return;
   }
   if (item.author?.did) showProfile(item.author.did);
+}
+
+function openXNotificationCenterItem(item) {
+  const account = state.xs?.[item.accountIndex];
+  if (!account) return;
+  goToNotifCol('x', item.accountIndex);
+  if (!item.targetUrl || /\/notifications\/?(?:\?|$)/.test(item.targetUrl)) return;
+  setTimeout(() => {
+    const partition = account.partition || `persist:x-${item.accountIndex}`;
+    const webview = Array.from(document.querySelectorAll('#cols webview')).find(candidate => (
+      candidate.partition === partition && candidate.src?.includes('/notifications')
+    ));
+    if (webview?.loadURL) webview.loadURL(item.targetUrl);
+  }, 500);
 }
 
 async function markNotificationCenterRead() {
