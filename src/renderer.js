@@ -3509,12 +3509,30 @@ function openNotificationCenterItem(index) {
   if (item.author?.did) showProfile(item.author.did);
 }
 
-function openXNotificationCenterItem(item) {
+async function openXNotificationCenterItem(item) {
   const account = state.xs?.[item.accountIndex];
   if (!account) return;
   const targetCol = goToNotifCol('x', item.accountIndex);
   const webview = targetCol?.querySelector('webview');
-  if (webview?.loadURL) webview.loadURL(item.targetUrl || 'https://x.com/notifications');
+  if (!webview?.loadURL) return;
+  const targetUrl = item.targetUrl || 'https://x.com/notifications';
+  const requiresNotificationActivation = ['like', 'repost', 'reply', 'mention', 'quote'].includes(item.reason)
+    && !/\/status\/\d+/.test(targetUrl);
+  if (!requiresNotificationActivation) {
+    webview.loadURL(targetUrl);
+    return;
+  }
+
+  try {
+    await webview.loadURL('https://x.com/notifications');
+    const activated = await webview.executeJavaScript(
+      notificationCenter.buildXNotificationActivationScript(item.raw)
+    );
+    if (!activated) toast('対象のポストを通知ページで見つけられませんでした');
+  } catch (error) {
+    console.warn('X notification target could not be opened:', error);
+    toast('対象のポストを開けませんでした');
+  }
 }
 
 async function markNotificationCenterRead() {

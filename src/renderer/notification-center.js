@@ -65,7 +65,7 @@
 
   function extractXNotificationsFromDocument(documentLike, locationLike, limit = 40) {
     const cells = Array.from(documentLike.querySelectorAll('[data-testid="cellInnerDiv"]'));
-    return cells.map(cell => {
+    return cells.map((cell, sourceIndex) => {
       const text = String(cell.innerText || '').trim();
       if (!text || cell.querySelector('[data-testid="promotedIndicator"]')) return null;
       const links = Array.from(cell.querySelectorAll('a[href]'));
@@ -93,6 +93,7 @@
       });
       const avatarUrl = avatarCandidates.filter(url => /profile_images/.test(url)).at(-1) || '';
       return {
+        sourceIndex,
         text: text.slice(0, 800),
         targetUrl: statusLink?.href || profileLink?.href || '',
         profileUrl: profileLink?.href || '',
@@ -117,6 +118,37 @@
     }))()`;
   }
 
+  function buildXNotificationActivationScript(raw = {}) {
+    const sourceIndex = Number.isInteger(raw.sourceIndex) ? raw.sourceIndex : -1;
+    const expectedText = JSON.stringify(String(raw.text || '').trim().slice(0, 800));
+    const expectedTime = JSON.stringify(String(raw.indexedAt || ''));
+    return `(() => new Promise(resolve => {
+      const startedAt = Date.now();
+      const activate = () => {
+        const cells = Array.from(document.querySelectorAll('[data-testid="cellInnerDiv"]'));
+        const matchingCell = cells.find(cell => {
+          const textMatches = String(cell.innerText || '').trim().slice(0, 800) === ${expectedText};
+          const time = cell.querySelector('time');
+          const indexedAt = time?.dateTime || time?.getAttribute?.('datetime') || '';
+          return textMatches && (!${expectedTime} || indexedAt === ${expectedTime});
+        });
+        const cell = matchingCell || cells[${sourceIndex}];
+        if (!cell) {
+          if (Date.now() - startedAt > 8000) resolve(false);
+          else setTimeout(activate, 250);
+          return;
+        }
+        const statusLink = Array.from(cell.querySelectorAll('a[href]'))
+          .find(link => /\\/status\\/\\d+/.test(link.href || ''));
+        const postText = cell.querySelector('[data-testid="tweetText"]');
+        const target = statusLink || postText?.closest?.('[role="link"]') || postText || cell;
+        target.click();
+        resolve(true);
+      };
+      activate();
+    }))()`;
+  }
+
   function findXNotificationColumn(columns, partition) {
     return Array.from(columns || []).find(column => {
       const webview = column?.querySelector?.('webview');
@@ -127,6 +159,7 @@
   }
 
   global.SocialDeckNotificationCenter = {
+    buildXNotificationActivationScript,
     buildXNotificationExtractionScript,
     classifyXNotification,
     extractXNotificationsFromDocument,

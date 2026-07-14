@@ -115,6 +115,7 @@ test('extracts a visible X notification cell', () => {
   );
 
   assert.equal(items.length, 1);
+  assert.equal(items[0].sourceIndex, 0);
   assert.equal(items[0].profileUrl, 'https://x.com/alice');
   assert.equal(items[0].targetUrl, 'https://x.com/me/status/123');
   assert.equal(items[0].actorName, 'Alice');
@@ -151,6 +152,21 @@ test('extracts an X avatar from srcset when src is unavailable', () => {
   );
 
   assert.equal(item.avatar, 'https://pbs.twimg.com/profile_images/alice_200x200.jpg');
+});
+
+test('builds an X notification activation script for a post without a direct link', () => {
+  const center = loadModule();
+  const script = center.buildXNotificationActivationScript({
+    sourceIndex: 3,
+    text: 'Alice liked your post',
+    indexedAt: '2026-07-15T00:00:00Z',
+  });
+
+  assert.match(script, /cells\[3\]/);
+  assert.match(script, /Alice liked your post/);
+  assert.match(script, /tweetText/);
+  assert.match(script, /target\.click\(\)/);
+  assert.doesNotThrow(() => new Function(script));
 });
 
 test('finds an X notification column after it navigates to a post', () => {
