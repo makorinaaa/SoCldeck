@@ -7,6 +7,7 @@ const composeMedia = window.SocialDeckComposeMedia;
 const composeRequests = window.SocialDeckComposeRequest;
 const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
+const notificationCenter = window.SocialDeckNotificationCenter;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -1989,6 +1990,7 @@ function renderCompUI() {
 function openComp() {
   crossPostRuntime.reset();
   updateCrossPostControls();
+  renderComposePreview('b');
   document.getElementById('compMod').classList.add('on');
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
 }
@@ -2018,6 +2020,7 @@ function openXPost() {
   // アバターを選択中アカウントに更新
   updateXPostAv();
   updateXCrossPostControls();
+  renderComposePreview('x');
   document.getElementById('xPostMod').classList.add('on');
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
 }
@@ -2045,10 +2048,12 @@ function updateXPostAv() {
     avEl.style.background = acc.bg;
     avEl.innerHTML = `<span id="x-post-av-txt">${acc.initials}</span>`;
   }
+  renderComposePreview('x');
 }
 
 // ─── X投稿 画像・動画管理 ────────────────────────
 let xImgFiles = [];
+let xImgAlts = [];
 let xVideoFile = null;
 let xVideoPath = null;
 let xTrimIn = 0;
@@ -2090,7 +2095,9 @@ function addXImgFiles(files) {
   const imageFiles = composeMedia.imageFiles(arr);
   const remaining = composeMedia.availableImageSlots(xImgFiles.length);
   if (remaining <= 0) { toast('Up to 4 images can be attached'); return; }
-  xImgFiles.push(...imageFiles.slice(0, remaining));
+  const newImages = imageFiles.slice(0, remaining);
+  xImgFiles.push(...newImages);
+  newImages.forEach(() => xImgAlts.push(''));
   renderXImgPreviews();
   const drop = document.getElementById('x-img-drop');
   if (drop) drop.style.opacity = xImgFiles.length >= 4 ? '0.4' : '1';
@@ -2101,6 +2108,7 @@ function addXImgFiles(files) {
 
 function removeXImg(idx) {
   xImgFiles.splice(idx, 1);
+  xImgAlts.splice(idx, 1);
   renderXImgPreviews();
   const drop = document.getElementById('x-img-drop');
   if (drop) drop.style.opacity = '1';
@@ -2115,10 +2123,14 @@ function renderXImgPreviews() {
   });
   container.innerHTML = xImgFiles.map((f, i) => {
     const url = URL.createObjectURL(f);
-    return `<div style="position:relative;width:72px;height:72px;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg3)">
-      <img src="${url}" style="width:100%;height:100%;object-fit:cover;display:block">
+    return `<div style="display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3)">
+      <img src="${url}" style="width:52px;height:52px;object-fit:cover;display:block;border-radius:4px;flex-shrink:0">
+      <input type="text" placeholder="画像の説明（Bluesky同時投稿に使用）" maxlength="1000"
+        value="${esc(xImgAlts[i] || '')}" id="x-alt-${i}"
+        oninput="xImgAlts[${i}]=this.value;renderComposePreview('x')"
+        style="flex:1;min-width:0;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:11px;outline:none">
       <button onclick="removeXImg(${i})"
-        style="position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(0,0,0,0.75);color:#fff;cursor:pointer;font-size:11px;line-height:1;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center">x</button>
+        style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:11px;line-height:1;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">x</button>
     </div>`;
   }).join('');
 }
@@ -2268,6 +2280,7 @@ function resetXImgUI() {
     container.innerHTML = '';
   }
   xImgFiles = [];
+  xImgAlts = [];
   const drop = document.getElementById('x-img-drop');
   if (drop) { drop.style.opacity = '1'; drop.style.pointerEvents = ''; }
   const fi = document.getElementById('x-img-file');
@@ -2282,6 +2295,55 @@ function updXCC() {
   el.className = 'cc' + (n > 250 ? ' w' : '') + (n > 280 ? ' over' : '');
   // テキストが空でも画像か動画があれば投稿可能
   document.getElementById('x-sndb').disabled = (n === 0 && xImgFiles.length === 0 && !xVideoFile) || n > 280;
+  renderComposePreview('x');
+}
+
+function toggleComposePreview(networkId) {
+  const preview = document.getElementById(networkId === 'x' ? 'x-compose-preview' : 'b-compose-preview');
+  if (!preview) return;
+  preview.classList.toggle('on');
+  renderComposePreview(networkId);
+}
+
+function renderComposePreview(networkId) {
+  const isX = networkId === 'x';
+  const preview = document.getElementById(isX ? 'x-compose-preview' : 'b-compose-preview');
+  if (!preview) return;
+
+  const text = document.getElementById(isX ? 'x-cta' : 'cta')?.value || '';
+  const account = isX ? state.xs?.[selectedXIdx] : state.b;
+  const crossPosting = isX
+    ? Boolean(document.getElementById('x-cross-post-b')?.checked && !xVideoFile)
+    : Boolean(!replyTarget && document.getElementById('cross-post-x')?.checked);
+  const targets = isX
+    ? ['X', ...(crossPosting ? ['Bluesky'] : [])]
+    : ['Bluesky', ...(crossPosting ? ['X'] : [])];
+  const imageCount = isX ? xImgFiles.length : bImgFiles.length;
+  const altCount = isX
+    ? xImgAlts.filter(Boolean).length
+    : bImgAlts.filter(Boolean).length;
+  const hasVideo = isX && Boolean(xVideoFile);
+  const accountName = isX
+    ? (account?.username || 'Xアカウント')
+    : (account?.displayName || account?.handle || 'Blueskyアカウント');
+  const initials = account?.initials || (isX ? 'X' : 'B');
+  const avatar = !isX && account?.avatar
+    ? `<img src="${esc(account.avatar)}" alt="">`
+    : esc(initials);
+  const attachmentText = hasVideo
+    ? '動画 1本'
+    : imageCount > 0
+      ? `画像 ${imageCount}枚 / ALT入力 ${altCount}枚`
+      : '添付なし';
+
+  preview.innerHTML = `
+    <div class="compose-preview-head">
+      <div class="compose-preview-avatar" style="background:${account?.bg || 'var(--bg3)'}">${avatar}</div>
+      <div class="compose-preview-account">${esc(accountName)}</div>
+      <div class="compose-preview-targets">${targets.map(target => `<span class="compose-preview-target">${target}</span>`).join('')}</div>
+    </div>
+    <div class="compose-preview-text">${text ? esc(text) : '<span style="color:var(--text3)">本文なし</span>'}</div>
+    <div class="compose-preview-attachments">${attachmentText}</div>`;
 }
 
 function updateXCrossPostControls() {
@@ -2347,7 +2409,7 @@ async function doXOriginCrossPost(text) {
     networkId: 'b',
     accountId: state.b.did,
     text,
-    images: xImgFiles.map(file => ({ file, altText: '' })),
+    images: xImgFiles.map((file, index) => ({ file, altText: xImgAlts[index] || '' })),
     replyTo: null,
   });
   const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
@@ -2765,6 +2827,7 @@ function updCC() {
   el.textContent = `${n} / ${limit}`;
   el.className = 'cc' + (n > limit - 40 ? ' w' : '') + (n > limit ? ' over' : '');
   document.getElementById('sndb').disabled = (n === 0 && bImgFiles.length === 0) || n > limit;
+  renderComposePreview('b');
 }
 
 // ─── BLUESKY 画像添付 ────────────────────────────
@@ -2812,7 +2875,7 @@ function renderBImgPreviews() {
           id="b-alt-${i}"
           style="flex:1;background:transparent;border:none;color:var(--text2);font-size:11px;font-family:inherit;outline:none;min-width:0"
           value="${esc(bImgAlts[i] || '')}"
-          oninput="bImgAlts[${i}]=this.value">
+          oninput="bImgAlts[${i}]=this.value;renderComposePreview('b')">
         <button onclick="removeBImg(${i})"
           style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:10px;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
       </div>
@@ -3210,38 +3273,160 @@ function renderNotifIcons() {
   const el = document.getElementById('sb-notif-icons');
   if (!el) return;
   el.innerHTML = '';
+  if (!(state.xs || []).length && !state.b) return;
 
-  // Xアカウントごとの通知アイコン
-  (state.xs || []).forEach((acc, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'si';
-    btn.title = `${acc.username} の通知`;
-    btn.setAttribute('id', `sb-notif-x-${i}`);
-    btn.innerHTML = `
-      <span style="position:relative;display:flex;align-items:center;justify-content:center">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        <span style="position:absolute;top:-6px;right:-6px;min-width:14px;height:14px;border-radius:7px;background:${acc.bg};color:#000;font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1">${acc.initials}</span>
-      </span>`;
-    btn.onclick = () => scrollToNotifCol(`x-notif`, i, acc);
-    el.appendChild(btn);
+  const unreadCount = state.b ? notificationRuntime.getUnreadCount() : 0;
+  const btn = document.createElement('button');
+  btn.className = 'si';
+  btn.title = '通知センター';
+  btn.id = 'sb-notif-b';
+  btn.innerHTML = `
+    <span style="position:relative;display:flex;align-items:center;justify-content:center">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span id="bsky-notif-badge" style="position:absolute;top:-6px;right:-7px;min-width:14px;height:14px;border-radius:7px;background:var(--red);color:#fff;font-size:8px;font-weight:700;display:${unreadCount > 0 ? 'flex' : 'none'};align-items:center;justify-content:center;padding:0 2px;line-height:1">${unreadCount > 99 ? '99+' : unreadCount}</span>
+    </span>`;
+  btn.onclick = openNotificationCenter;
+  el.appendChild(btn);
+
+  if (state.b) startNotifPoll();
+}
+
+let notificationCenterItems = [];
+let notificationCenterNetwork = 'all';
+
+function openNotificationCenter() {
+  notificationCenterNetwork = 'all';
+  document.querySelectorAll('.notif-center-tab').forEach(button => {
+    button.classList.toggle('on', button.dataset.network === 'all');
+  });
+  document.getElementById('notifCenterMod').classList.add('on');
+  renderNotificationCenter();
+  loadNotificationCenter();
+}
+
+function setNotificationNetwork(networkId) {
+  notificationCenterNetwork = networkId;
+  document.querySelectorAll('.notif-center-tab').forEach(button => {
+    button.classList.toggle('on', button.dataset.network === networkId);
+  });
+  renderNotificationCenter();
+}
+
+async function loadNotificationCenter() {
+  const list = document.getElementById('notif-center-list');
+  if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
+  if (!state.b) {
+    notificationCenterItems = [];
+    renderNotificationCenter();
+    return;
+  }
+
+  try {
+    const data = await bskyCallWithRefresh(jwt => bsky.notifications(jwt, 80));
+    notificationCenterItems = (data.notifications || []).map(notificationCenter.normalizeBskyNotification);
+    renderNotificationCenter();
+  } catch (error) {
+    if (list) {
+      list.innerHTML = `<div class="notif-center-state">通知を取得できませんでした<br>${esc(error.message)}</div>`;
+    }
+  }
+}
+
+function renderNotificationCenter() {
+  const xArea = document.getElementById('notif-center-x');
+  const list = document.getElementById('notif-center-list');
+  if (!xArea || !list) return;
+
+  const showX = ['all', 'x'].includes(notificationCenterNetwork) && (state.xs || []).length > 0;
+  xArea.classList.toggle('show', showX);
+  xArea.innerHTML = showX
+    ? (state.xs || []).map((account, index) => `
+      <button class="notif-x-account" data-x-index="${index}">
+        <span style="background:${account.bg || 'var(--text2)'}">${esc(account.initials || 'X')}</span>
+        ${esc(account.username)} の通知を開く
+      </button>`).join('')
+    : '';
+  xArea.querySelectorAll('[data-x-index]').forEach(button => {
+    button.addEventListener('click', () => {
+      closeOv('notifCenterMod');
+      goToNotifCol('x', Number(button.dataset.xIndex));
+    });
   });
 
-  // Bluesky通知アイコン
-  if (state.b) {
-    const unreadCount = notificationRuntime.getUnreadCount();
-    const btn = document.createElement('button');
-    btn.className = 'si';
-    btn.title = 'Bluesky の通知';
-    btn.id = 'sb-notif-b';
-    btn.innerHTML = `
-      <span style="position:relative;display:flex;align-items:center;justify-content:center">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-        <span id="bsky-notif-badge" style="position:absolute;top:-6px;right:-7px;min-width:14px;height:14px;border-radius:7px;background:var(--red);color:#fff;font-size:8px;font-weight:700;display:${unreadCount > 0 ? 'flex' : 'none'};align-items:center;justify-content:center;padding:0 2px;line-height:1">${unreadCount > 99 ? '99+' : unreadCount}</span>
-      </span>`;
-    btn.onclick = () => scrollToNotifCol('b-notif', -1, null);
-    el.appendChild(btn);
+  const reasonSelect = document.getElementById('notif-center-reason');
+  const unreadInput = document.getElementById('notif-center-unread');
+  const bskyControlsDisabled = notificationCenterNetwork === 'x' || !state.b;
+  if (reasonSelect) reasonSelect.disabled = bskyControlsDisabled;
+  if (unreadInput) unreadInput.disabled = bskyControlsDisabled;
+  document.querySelector('.notif-center-tools .mark-read').disabled = bskyControlsDisabled;
 
-    startNotifPoll();
+  if (notificationCenterNetwork === 'x') {
+    list.innerHTML = '<div class="notif-center-state">上のアカウントからXの通知カラムを開けます</div>';
+    return;
+  }
+  if (!state.b) {
+    list.innerHTML = '<div class="notif-center-state">Blueskyにログインすると通知がここに表示されます</div>';
+    return;
+  }
+
+  const filtered = notificationCenter.filterNotifications(notificationCenterItems, {
+    reason: reasonSelect?.value || 'all',
+    unreadOnly: Boolean(unreadInput?.checked),
+  });
+  if (!filtered.length) {
+    list.innerHTML = '<div class="notif-center-state">条件に一致する通知はありません</div>';
+    return;
+  }
+
+  const labels = {
+    like: 'さんがあなたの投稿をいいねしました',
+    repost: 'さんがあなたの投稿をリポストしました',
+    follow: 'さんがあなたをフォローしました',
+    reply: 'さんがあなたに返信しました',
+    mention: 'さんがあなたをメンションしました',
+    quote: 'さんがあなたの投稿を引用しました',
+  };
+  list.innerHTML = filtered.map(item => {
+    const index = notificationCenterItems.indexOf(item);
+    const actor = item.author || {};
+    const excerpt = item.raw?.record?.text ? `<div class="notif-handle">${esc(item.raw.record.text)}</div>` : `<div class="notif-handle">@${esc(actor.handle || '')}</div>`;
+    return `<div class="notif-center-item ${item.isRead ? '' : 'unread'}" data-notification-index="${index}" role="button" tabindex="0">
+      ${renderAvatar(actor, 32)}
+      <div class="notif-copy"><div class="notif-title"><strong>${esc(actor.displayName || actor.handle || 'ユーザー')}</strong>${esc(labels[item.reason] || 'さんから通知があります')}</div>${excerpt}</div>
+      <div class="notif-time">${relTime(item.indexedAt)}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-notification-index]').forEach(element => {
+    const activate = () => openNotificationCenterItem(Number(element.dataset.notificationIndex));
+    element.addEventListener('click', activate);
+    element.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); }
+    });
+  });
+}
+
+function openNotificationCenterItem(index) {
+  const item = notificationCenterItems[index];
+  if (!item) return;
+  closeOv('notifCenterMod');
+  if (item.targetUri) {
+    const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
+    openBskyPost({ target: document.body, preventDefault() {} }, item.targetUri, handle || state.b?.handle || 'post');
+    return;
+  }
+  if (item.author?.did) showProfile(item.author.did);
+}
+
+async function markNotificationCenterRead() {
+  if (!state.b) return;
+  try {
+    await bskyCallWithRefresh(jwt => bsky.updateSeen(jwt, new Date().toISOString()));
+    notificationCenterItems = notificationCenterItems.map(item => ({ ...item, isRead: true }));
+    notificationRuntime.clearUnread();
+    renderNotificationCenter();
+    toast('Bluesky通知をすべて既読にしました');
+  } catch (error) {
+    toast('既読にできませんでした: ' + error.message);
   }
 }
 

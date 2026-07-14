@@ -223,6 +223,34 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .nwho{font-size:12px;font-weight:600}
 .nex{font-size:11px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nago{font-size:10px;color:var(--text3);margin-top:2px}
+.notif-center-modal{width:620px;max-width:calc(100vw - 24px);height:min(720px,calc(100vh - 24px));background:var(--bg1);border:1px solid var(--border2);border-radius:8px;display:flex;flex-direction:column;overflow:hidden}
+.notif-center-head{height:50px;padding:0 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.notif-center-head h2{font-size:14px;flex:1}
+.notif-center-head button{width:30px;height:30px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.notif-center-head button:hover{background:var(--bg3);color:var(--text1)}
+.notif-center-head svg{width:14px;height:14px}
+.notif-center-tabs{display:flex;gap:4px;padding:9px 12px 0;flex-shrink:0}
+.notif-center-tab{padding:6px 12px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text3);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer}
+.notif-center-tab.on{border-color:var(--border2);background:var(--bg3);color:var(--text1)}
+.notif-center-tools{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.notif-center-tools select{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;color:var(--text1);font-family:inherit;font-size:11px;padding:6px 8px}
+.notif-center-tools label{display:flex;align-items:center;gap:5px;color:var(--text2);font-size:11px}
+.notif-center-tools .mark-read{margin-left:auto;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font-family:inherit;font-size:11px;padding:6px 9px;cursor:pointer}
+.notif-center-tools .mark-read:hover{border-color:var(--accent);color:var(--accent)}
+.notif-center-x{display:none;padding:10px 12px;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.notif-center-x.show{display:flex}
+.notif-x-account{display:flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text2);font-family:inherit;font-size:11px;cursor:pointer}
+.notif-x-account:hover{border-color:var(--accent);color:var(--text1)}
+.notif-x-account span{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#000;font-size:8px;font-weight:700}
+.notif-center-list{overflow-y:auto;min-height:0;flex:1}
+.notif-center-item{padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:grid;grid-template-columns:32px 1fr auto;gap:9px;align-items:start}
+.notif-center-item:hover{background:rgba(255,255,255,.025)}
+.notif-center-item.unread{box-shadow:inset 3px 0 var(--accent);background:rgba(78,154,240,.035)}
+.notif-center-item .notif-copy{min-width:0}
+.notif-center-item .notif-title{font-size:12px;color:var(--text1);line-height:1.4}
+.notif-center-item .notif-handle{font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notif-center-item .notif-time{font-size:10px;color:var(--text3);white-space:nowrap}
+.notif-center-state{height:100%;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px;padding:30px;text-align:center}
 
 /* ── ADD COL ── */
 .add-col-btn{width:70px;min-width:70px;background:var(--bg1);border:none;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;cursor:pointer;color:var(--text3);font-size:10px;font-family:inherit;transition:all .12s}
@@ -296,7 +324,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .btn-cancel:hover{background:var(--bg3);color:var(--text1)}
 
 /* Compose Modal */
-.cmodal{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:20px;width:500px;max-width:calc(100vw - 32px)}
+.cmodal{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:20px;width:500px;max-width:calc(100vw - 32px);max-height:calc(100vh - 24px);overflow-y:auto}
 .bsky-post-detail-modal{background:var(--bg1);border:1px solid var(--border2);border-radius:8px;width:560px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);padding:14px;display:flex;flex-direction:column}
 .bsky-post-detail-body{min-height:0;overflow-y:auto;border:1px solid var(--border);border-radius:7px}
 .bsky-thread-main>.post{background:var(--bg2)}
@@ -309,6 +337,19 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .ptb.on.ptx{border-color:rgba(220,225,230,.4);color:#e7e9ea;background:rgba(220,225,230,.07)}
 .ptb.on.ptb2{border-color:#0085ff;color:#4d9ef0;background:rgba(0,133,255,.1)}
 .ptb:disabled{opacity:.35;cursor:not-allowed}
+.compose-preview-toggle{width:100%;padding:7px 9px;margin:0 0 8px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text2);font:11px inherit;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between}
+.compose-preview-toggle:hover{background:var(--bg3);color:var(--text1)}
+.compose-preview{display:none;margin:0 0 10px;padding:11px;border:1px solid var(--border2);border-radius:7px;background:var(--bg1)}
+.compose-preview.on{display:block}
+.compose-preview-head{display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.compose-preview-avatar{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#000;font-size:9px;font-weight:700;overflow:hidden;flex-shrink:0}
+.compose-preview-avatar img{width:100%;height:100%;object-fit:cover}
+.compose-preview-account{font-size:11px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.compose-preview-targets{margin-left:auto;display:flex;gap:4px}
+.compose-preview-target{padding:2px 6px;border:1px solid var(--border);border-radius:10px;color:var(--text3);font-size:9px}
+.compose-preview-text{font-size:12px;color:var(--text1);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;min-height:18px}
+.compose-preview-attachments{font-size:10px;color:var(--text3);margin-top:7px}
+.compose-shortcut{font-size:9px;color:var(--text3);margin-right:8px}
 .comp-wrap{display:flex;gap:11px;margin-bottom:12px}
 .comp-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;overflow:hidden;position:relative;background:var(--bg3)}
 .comp-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -552,6 +593,37 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
   </div>
 </div>
 
+<!-- UNIFIED NOTIFICATION CENTER -->
+<div class="ov" id="notifCenterMod" onclick="closeOv('notifCenterMod',event)">
+  <div class="notif-center-modal">
+    <div class="notif-center-head">
+      <h2>通知センター</h2>
+      <button title="更新" onclick="loadNotificationCenter()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+      <button title="閉じる" onclick="closeOv('notifCenterMod')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="notif-center-tabs">
+      <button class="notif-center-tab on" data-network="all" onclick="setNotificationNetwork('all')">すべて</button>
+      <button class="notif-center-tab" data-network="x" onclick="setNotificationNetwork('x')">X</button>
+      <button class="notif-center-tab" data-network="b" onclick="setNotificationNetwork('b')">Bluesky</button>
+    </div>
+    <div class="notif-center-tools">
+      <select id="notif-center-reason" onchange="renderNotificationCenter()">
+        <option value="all">すべての種類</option>
+        <option value="reply">返信</option>
+        <option value="mention">メンション</option>
+        <option value="like">いいね</option>
+        <option value="repost">リポスト</option>
+        <option value="follow">フォロー</option>
+        <option value="quote">引用</option>
+      </select>
+      <label><input type="checkbox" id="notif-center-unread" onchange="renderNotificationCenter()">未読のみ</label>
+      <button class="mark-read" onclick="markNotificationCenterRead()">Blueskyをすべて既読</button>
+    </div>
+    <div class="notif-center-x" id="notif-center-x"></div>
+    <div class="notif-center-list" id="notif-center-list"><div class="notif-center-state">通知を読み込んでいます…</div></div>
+  </div>
+</div>
+
 <!-- X POST MODAL -->
 <div class="ov" id="xPostMod" onclick="closeOv('xPostMod',event)">
   <div class="cmodal">
@@ -621,7 +693,10 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         </div>
       </div>
     </div>
+    <button class="compose-preview-toggle" onclick="toggleComposePreview('x')"><span>投稿プレビュー</span><span>表示／非表示</span></button>
+    <div class="compose-preview" id="x-compose-preview"></div>
     <div class="comp-foot">
+      <span class="compose-shortcut">Ctrl+Enterで投稿</span>
       <span class="cc" id="x-cct">0 / 280</span>
       <button class="send-btn" id="x-sndb" onclick="doXPost()" disabled>ポスト</button>
     </div>
@@ -677,7 +752,10 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         onchange="addBImgFiles(this.files)">
       <div id="b-img-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px"></div>
     </div>
+    <button class="compose-preview-toggle" onclick="toggleComposePreview('b')"><span>投稿プレビュー</span><span>表示／非表示</span></button>
+    <div class="compose-preview" id="b-compose-preview"></div>
     <div class="comp-foot">
+      <span class="compose-shortcut">Ctrl+Enterで投稿</span>
       <span class="cc" id="cct">0 / 300</span>
       <button class="send-btn" id="sndb" onclick="doSend()" disabled>投稿</button>
     </div>
@@ -707,6 +785,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/lightbox-runtime.js"></script>
 <script src="renderer/memory-cleaner.js"></script>
 <script src="renderer/file-drag-shield.js"></script>
+<script src="renderer/notification-center.js"></script>
 <script src="renderer/notification-runtime.js"></script>
 <script src="renderer/network-adapters.js"></script>
 <script src="renderer/compose-request.js"></script>

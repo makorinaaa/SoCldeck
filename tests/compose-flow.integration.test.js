@@ -132,6 +132,24 @@ test('Bluesky reply compose preserves alt text through timeline refresh', async 
   ]);
 });
 
+test('X-origin cross-post preserves image descriptions for Bluesky', () => {
+  const flow = loadComposeFlow();
+  const request = flow.createRequest({
+    networkId: 'b',
+    accountId: 'did:plc:alice',
+    text: 'Shared from the X composer',
+    images: [{
+      file: { name: 'diagram.png', type: 'image/png' },
+      altText: 'Architecture diagram with three columns',
+    }],
+  });
+
+  assert.deepEqual(plain(flow.prepareDelivery(request).images), [{
+    file: { name: 'diagram.png', type: 'image/png' },
+    alt: 'Architecture diagram with three columns',
+  }]);
+});
+
 test('invalid X attachments stop before completion is emitted', () => {
   const flow = loadComposeFlow();
   const completion = createCompletionRecorder(flow);
