@@ -3501,35 +3501,20 @@ function openNotificationCenterItem(index) {
     openXNotificationCenterItem(item);
     return;
   }
-  const url = notificationCenter.buildBskyNotificationUrl(item, state.b?.handle || '');
-  openNotificationDetailWindow({
-    networkId: 'b',
-    url,
-    title: `${item.author?.displayName || item.author?.handle || 'Bluesky'} - 通知`,
-  });
+  if (item.targetUri) {
+    const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
+    openBskyPost({ target: document.body, preventDefault() {} }, item.targetUri, handle || state.b?.handle || 'post');
+    return;
+  }
+  if (item.author?.did) showProfile(item.author.did);
 }
 
 function openXNotificationCenterItem(item) {
   const account = state.xs?.[item.accountIndex];
   if (!account) return;
-  openNotificationDetailWindow({
-    networkId: 'x',
-    url: item.targetUrl || 'https://x.com/notifications',
-    partition: account.partition || `persist:x-${item.accountIndex}`,
-    title: `${item.author?.displayName || item.author?.handle || account.username} - X通知`,
-  });
-}
-
-async function openNotificationDetailWindow(request) {
-  try {
-    if (IS_ELECTRON && window.electronAPI?.openNotificationWindow) {
-      const opened = await window.electronAPI.openNotificationWindow(request);
-      if (opened) return;
-    }
-  } catch (error) {
-    console.warn('Notification window could not be opened:', error);
-  }
-  window.open(request.url, '_blank', 'noopener');
+  const targetCol = goToNotifCol('x', item.accountIndex);
+  const webview = targetCol?.querySelector('webview');
+  if (webview?.loadURL) webview.loadURL(item.targetUrl || 'https://x.com/notifications');
 }
 
 async function markNotificationCenterRead() {
@@ -3550,12 +3535,11 @@ function scrollToNotifCol(baseId, xIdx, acc) {
 
   let targetCol = null;
   if (xIdx >= 0 && acc) {
-    cols.querySelectorAll('.col').forEach(col => {
-      const wv = col.querySelector('webview');
-      if (wv && wv.partition === acc.partition && wv.src?.includes('/notifications')) {
-        targetCol = col;
-      }
-    });
+    const partition = acc.partition || `persist:x-${xIdx}`;
+    targetCol = notificationCenter.findXNotificationColumn(
+      cols.querySelectorAll('.col'),
+      partition
+    );
   } else {
     // Bluesky通知
     targetCol = document.getElementById(`col-${baseId}`);
@@ -3642,12 +3626,10 @@ function goToNotifCol(plat, xIdx) {
     const acc = state.xs?.[xIdx];
     if (!acc) return;
     const xPart = acc.partition || `persist:x-${xIdx}`;
-    document.querySelectorAll('.col').forEach(col => {
-      const wv = col.querySelector('webview');
-      if (wv && wv.partition === xPart && wv.src && wv.src.includes('notifications')) {
-        targetCol = col;
-      }
-    });
+    targetCol = notificationCenter.findXNotificationColumn(
+      document.querySelectorAll('.col'),
+      xPart
+    );
     if (!targetCol) {
       const id = `x${xIdx}-notif-auto`;
       const result = columnLifecycle.create({
@@ -3688,6 +3670,7 @@ function goToNotifCol(plat, xIdx) {
     targetCol.style.outline = '2px solid var(--accent)';
     setTimeout(() => { targetCol.style.outline = ''; }, 1200);
   }
+  return targetCol;
 }
 
 // Bluesky未読通知数を取得してバッジ更新

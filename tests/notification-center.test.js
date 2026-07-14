@@ -153,24 +153,30 @@ test('extracts an X avatar from srcset when src is unavailable', () => {
   assert.equal(item.avatar, 'https://pbs.twimg.com/profile_images/alice_200x200.jpg');
 });
 
-test('builds a Bluesky post page URL from a notification target', () => {
+test('finds an X notification column after it navigates to a post', () => {
   const center = loadModule();
-  const url = center.buildBskyNotificationUrl({
-    reason: 'reply',
-    targetUri: 'at://did:plc:alice/app.bsky.feed.post/3kabc',
-    author: { handle: 'alice.test' },
-  }, 'me.test');
+  const webview = {
+    partition: 'persist:x-1',
+    src: 'https://x.com/alice/status/123',
+  };
+  const column = {
+    dataset: { definitionId: 'x-notif-new' },
+    querySelector: selector => selector === 'webview' ? webview : null,
+  };
 
-  assert.equal(url, 'https://bsky.app/profile/alice.test/post/3kabc');
+  assert.equal(center.findXNotificationColumn([column], 'persist:x-1'), column);
+  assert.equal(center.findXNotificationColumn([column], 'persist:x-2'), null);
 });
 
-test('opens the current user post for a Bluesky reaction', () => {
+test('finds a legacy X notification column from its current URL', () => {
   const center = loadModule();
-  const url = center.buildBskyNotificationUrl({
-    reason: 'like',
-    targetUri: 'at://did:plc:me/app.bsky.feed.post/3kown',
-    author: { handle: 'alice.test' },
-  }, 'me.test');
+  const column = {
+    dataset: {},
+    querySelector: () => ({
+      partition: 'persist:x-0',
+      src: 'https://x.com/notifications',
+    }),
+  };
 
-  assert.equal(url, 'https://bsky.app/profile/me.test/post/3kown');
+  assert.equal(center.findXNotificationColumn([column], 'persist:x-0'), column);
 });
