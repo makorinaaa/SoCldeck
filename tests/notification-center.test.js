@@ -99,7 +99,8 @@ test('extracts a visible X notification cell', () => {
     },
     querySelectorAll: selector => {
       if (selector === 'a[href]') return [profileLink, statusLink];
-      if (selector === 'img[src]') return [{ src: 'https://pbs.twimg.com/profile_images/alice.jpg' }];
+      if (selector === 'img') return [{ src: 'https://pbs.twimg.com/profile_images/alice.jpg' }];
+      if (selector === '[style*="background-image"]') return [];
       return [];
     },
   };
@@ -118,4 +119,36 @@ test('extracts a visible X notification cell', () => {
   assert.equal(items[0].targetUrl, 'https://x.com/me/status/123');
   assert.equal(items[0].actorName, 'Alice');
   assert.equal(items[0].indexedAt, '2026-07-15T00:00:00Z');
+});
+
+test('extracts an X avatar from srcset when src is unavailable', () => {
+  const center = loadModule();
+  const profileLink = { href: 'https://x.com/alice', innerText: 'Alice' };
+  const avatar = {
+    src: '',
+    srcset: 'https://pbs.twimg.com/profile_images/alice_normal.jpg 1x, https://pbs.twimg.com/profile_images/alice_200x200.jpg 2x',
+    getAttribute: name => name === 'srcset'
+      ? 'https://pbs.twimg.com/profile_images/alice_normal.jpg 1x, https://pbs.twimg.com/profile_images/alice_200x200.jpg 2x'
+      : '',
+  };
+  const cell = {
+    innerText: 'Alice liked your post',
+    querySelector: () => null,
+    querySelectorAll: selector => {
+      if (selector === 'a[href]') return [profileLink];
+      if (selector === 'img') return [avatar];
+      if (selector === '[style*="background-image"]') return [];
+      return [];
+    },
+  };
+  const documentLike = {
+    querySelectorAll: selector => selector === '[data-testid="cellInnerDiv"]' ? [cell] : [],
+  };
+
+  const [item] = center.extractXNotificationsFromDocument(
+    documentLike,
+    { origin: 'https://x.com' },
+  );
+
+  assert.equal(item.avatar, 'https://pbs.twimg.com/profile_images/alice_200x200.jpg');
 });

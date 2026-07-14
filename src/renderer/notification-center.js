@@ -81,14 +81,23 @@
       const profileLink = profileLinks.find(link => String(link.innerText || '').trim()) || profileLinks[0];
       if (!profileLink && !statusLink) return null;
       const time = cell.querySelector('time');
-      const avatar = Array.from(cell.querySelectorAll('img[src]'))
-        .find(image => /profile_images|profile_banners/.test(image.src || ''));
+      const avatarCandidates = Array.from(cell.querySelectorAll('img')).flatMap(image => {
+        const srcset = String(image.srcset || image.getAttribute?.('srcset') || '');
+        const srcsetUrls = srcset.split(',').map(candidate => candidate.trim().split(/\s+/)[0]).filter(Boolean);
+        return [image.currentSrc, image.src, ...srcsetUrls].filter(Boolean);
+      });
+      Array.from(cell.querySelectorAll('[style*="background-image"]')).forEach(element => {
+        const background = String(element.style?.backgroundImage || element.getAttribute?.('style') || '');
+        const match = background.match(/url\(["']?([^"')]+)["']?\)/i);
+        if (match?.[1]) avatarCandidates.push(match[1]);
+      });
+      const avatarUrl = avatarCandidates.filter(url => /profile_images/.test(url)).at(-1) || '';
       return {
         text: text.slice(0, 800),
         targetUrl: statusLink?.href || profileLink?.href || '',
         profileUrl: profileLink?.href || '',
         actorName: String(profileLink?.innerText || '').trim().split('\n')[0] || '',
-        avatar: avatar?.src || '',
+        avatar: avatarUrl,
         indexedAt: time?.dateTime || time?.getAttribute?.('datetime') || '',
       };
     }).filter(Boolean).slice(0, limit);
