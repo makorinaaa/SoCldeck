@@ -14,6 +14,15 @@ function loadModule() {
   return context.window.SocialDeckNotificationCenter;
 }
 
+test('keeps hidden X notification readers inside the viewport for lazy avatars', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+  const rule = html.match(/\.notif-center-x-readers\s*\{([^}]+)\}/)?.[1] || '';
+
+  assert.doesNotMatch(rule, /left\s*:\s*-\d/);
+  assert.match(rule, /opacity\s*:\s*0/);
+  assert.match(rule, /pointer-events\s*:\s*none/);
+});
+
 test('normalizes a Bluesky reaction to its subject post', () => {
   const center = loadModule();
   const notification = center.normalizeBskyNotification({

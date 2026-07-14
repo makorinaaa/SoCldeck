@@ -58,13 +58,12 @@ function xFixture(url) {
   if (pathname === '/notifications') {
     return `<!doctype html><html><body>
       <div data-testid="cellInnerDiv">
-        <a href="https://x.com/alice">Alice<img id="alice-avatar" alt="Alice"></a>
+        <a href="https://x.com/alice">Alice<img id="alice-avatar" alt="Alice" loading="lazy" src="${X_AVATAR_URL}"></a>
         <time datetime="2026-07-15T00:00:00Z"></time>
         <div role="link" onclick="location.href='${LIKED_POST_URL}'">
           <div data-testid="tweetText">Alice liked your post</div>
         </div>
       </div>
-      <script>setTimeout(() => { document.getElementById('alice-avatar').src = '${X_AVATAR_URL}'; }, 100);</script>
     </body></html>`;
   }
   return `<!doctype html><html><body data-e2e-path="${pathname}">Post ${pathname}</body></html>`;
