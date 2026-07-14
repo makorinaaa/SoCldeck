@@ -35,7 +35,12 @@
       : definition.defaultParams.url || storedColumn?.url;
     return {
       kind: 'wv',
-      refresh: { networkId: 'x', kind: 'webview' },
+      refresh: {
+        networkId: 'x',
+        kind: 'webview',
+        definitionId: definition.id,
+        canonicalUrl: definition.defaultParams.url || null,
+      },
       partition: getStoredValue(storedColumn, 'partition', account?.partition || `persist:x-${accountIndex}`),
       config: {
         id,
@@ -156,7 +161,11 @@
     };
   }
 
-  async function refreshXColumn({ id, operations }) {
+  async function refreshXColumn({ id, plan, operations }) {
+    if (plan.definitionId === 'x-notif-new' && plan.canonicalUrl) {
+      await operations.loadWebViewUrl(id, plan.canonicalUrl);
+      return { status: 'succeeded', detail: 'canonical-url' };
+    }
     const result = await operations.refreshXTimeline(id);
     if (result === 'deferred' || result === 'queued' || result === 'not-following') {
       return { status: 'deferred', detail: result };

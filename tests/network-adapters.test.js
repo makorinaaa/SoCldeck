@@ -220,6 +220,28 @@ test('X Column refresh falls back to WebView reload when timeline refresh is una
   assert.deepEqual(calls, [['timeline', 'x-home'], ['reload', 'x-home']]);
 });
 
+test('X notifications refresh returns to its canonical page', async () => {
+  const registry = createRegistry();
+  const calls = [];
+  const plan = registry.createColumnPlan({
+    networkId: 'x',
+    definitionId: 'x-notif-new',
+    id: 'x-notifications',
+    account: { index: 0, partition: 'persist:x-0' },
+  });
+
+  assert.equal(plan.refresh.definitionId, 'x-notif-new');
+  assert.equal(plan.refresh.canonicalUrl, 'https://x.com/notifications');
+
+  await registry.executeColumnRefresh('x-notifications', plan.refresh, {
+    loadWebViewUrl: (...args) => calls.push(['load', ...args]),
+    refreshXTimeline: async () => calls.push(['timeline']),
+    reloadWebView: () => calls.push(['reload']),
+  });
+
+  assert.deepEqual(calls, [['load', 'x-notifications', 'https://x.com/notifications']]);
+});
+
 test('Bluesky Column refresh delegates feed parameters to its adapter operation', () => {
   const registry = createRegistry();
   const calls = [];

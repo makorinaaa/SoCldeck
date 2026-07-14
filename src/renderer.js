@@ -136,6 +136,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   executeRefresh: (id, plan) => networkAdapters.executeColumnRefresh(id, plan, {
     refreshXTimeline: executeXTimelineRefresh,
     reloadWebView: id => wvReload(id, { silent: true }),
+    loadWebViewUrl: (id, url) => document.getElementById(`wv-${id}`)?.loadURL(url),
     refreshBlueskyFeed: silentRefreshBsky,
   }),
   applyWidth: (id, width) => {
@@ -1131,7 +1132,23 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   }
 }
 
-function wvBack(id) { const wv = document.getElementById(`wv-${id}`); if (wv?.canGoBack()) wv.goBack(); }
+function getXNotificationColumnUrl(id) {
+  const column = document.getElementById(`col-${id}`);
+  if (column?.dataset.definitionId !== 'x-notif-new') return null;
+  return networkAdapters.getColumnDefinition('x', 'x-notif-new')?.defaultParams?.url
+    || 'https://x.com/notifications';
+}
+
+function wvBack(id) {
+  const wv = document.getElementById(`wv-${id}`);
+  if (!wv) return;
+  const notificationUrl = getXNotificationColumnUrl(id);
+  if (notificationUrl) {
+    wv.loadURL(notificationUrl);
+    return;
+  }
+  if (wv.canGoBack()) wv.goBack();
+}
 
 // ─── COLUMN COLLAPSE ─────────────────────────────
 const collapsedCols = new Set();
@@ -1210,7 +1227,7 @@ function wvScrollTop(id) {
 
   const layout = loadColLayout();
   const saved = layout.find(c => c.id === id);
-  const originalUrl = saved?.url || wv.src;
+  const originalUrl = getXNotificationColumnUrl(id) || saved?.url || wv.src;
 
   if (wv.src === originalUrl) {
     wvReload(id);
@@ -1281,7 +1298,9 @@ async function wvReload(id, opts = {}) {
     }
   }
 
-  wv.reload();
+  const notificationUrl = getXNotificationColumnUrl(id);
+  if (notificationUrl) wv.loadURL(notificationUrl);
+  else wv.reload();
   if (silent) {
     setTimeout(() => {
       if (wvSilentReloading.has(id)) {
@@ -1296,6 +1315,11 @@ async function wvReload(id, opts = {}) {
 
 async function refreshXColumnIds(ids) {
   await Promise.all(ids.map(async id => {
+    const notificationUrl = getXNotificationColumnUrl(id);
+    if (notificationUrl) {
+      await document.getElementById(`wv-${id}`)?.loadURL(notificationUrl);
+      return;
+    }
     const refreshed = await softReloadX(id);
     if (!refreshed) wvReload(id, { silent: true });
   }));
