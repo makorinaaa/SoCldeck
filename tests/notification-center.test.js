@@ -196,3 +196,27 @@ test('finds a legacy X notification column from its current URL', () => {
 
   assert.equal(center.findXNotificationColumn([column], 'persist:x-0'), column);
 });
+
+test('finds a reusable Bluesky profile column after its URL changes', () => {
+  const center = loadModule();
+  const column = {
+    dataset: { definitionId: 'b-profile' },
+    querySelector: () => ({ src: 'https://bsky.app/profile/alice.test' }),
+  };
+
+  assert.equal(center.findBlueskyProfileColumn([column]), column);
+});
+
+test('finds a legacy Bluesky profile column from its URL', () => {
+  const center = loadModule();
+  const profileColumn = {
+    dataset: {},
+    querySelector: () => ({ src: 'https://bsky.app/profile/alice.test' }),
+  };
+  const postColumn = {
+    dataset: {},
+    querySelector: () => ({ src: 'https://bsky.app/profile/alice.test/post/123' }),
+  };
+
+  assert.equal(center.findBlueskyProfileColumn([postColumn, profileColumn]), profileColumn);
+});

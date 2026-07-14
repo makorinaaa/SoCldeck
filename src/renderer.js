@@ -1887,22 +1887,20 @@ function showProfile(did) {
 function openBskyProfileCol(handleOrDid) {
   const url = `https://bsky.app/profile/${handleOrDid}`;
 
-  // 既に同じプロフィールのカラムがあればそこへスクロール
-  const existing = Array.from(document.querySelectorAll('webview')).find(w => w.src === url);
-  if (existing) {
-    const col = existing.closest('.col');
-    if (col) {
-      // 折りたたみ中なら展開
-      const cid = col.id?.replace('col-', '');
-      if (cid && collapsedCols.has(cid)) toggleColCollapse(cid);
-      col.scrollIntoView({ behavior: 'smooth', inline: 'center' });
-      toast('既存のプロフィールカラムを表示しました');
-      return;
-    }
+  const existingCol = notificationCenter.findBlueskyProfileColumn(
+    document.querySelectorAll('.col')
+  );
+  if (existingCol) {
+    const webview = existingCol.querySelector('webview');
+    const cid = existingCol.id?.replace('col-', '');
+    if (cid && collapsedCols.has(cid)) toggleColCollapse(cid);
+    if (webview?.loadURL) webview.loadURL(url);
+    existingCol.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+    toast('プロフィールカラムを切り替えました');
+    return;
   }
 
-  extraColN++;
-  const id = `bsky-prof-${extraColN}`;
+  const id = 'bsky-profile';
   const result = columnLifecycle.create({
     networkId: 'b',
     definitionId: 'b-profile',

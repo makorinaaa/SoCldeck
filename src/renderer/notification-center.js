@@ -158,11 +158,26 @@
     }) || null;
   }
 
+  function findBlueskyProfileColumn(columns) {
+    return Array.from(columns || []).find(column => {
+      const webview = column?.querySelector?.('webview');
+      if (!webview) return false;
+      if (column.dataset?.definitionId === 'b-profile') return true;
+      try {
+        const url = new URL(webview.src);
+        return url.hostname === 'bsky.app' && /^\/profile\/[^/]+\/?$/.test(url.pathname);
+      } catch {
+        return false;
+      }
+    }) || null;
+  }
+
   global.SocialDeckNotificationCenter = {
     buildXNotificationActivationScript,
     buildXNotificationExtractionScript,
     classifyXNotification,
     extractXNotificationsFromDocument,
+    findBlueskyProfileColumn,
     findXNotificationColumn,
     normalizeBskyNotification,
     normalizeXNotification,
