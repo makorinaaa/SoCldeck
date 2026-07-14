@@ -117,7 +117,23 @@
     }))()`;
   }
 
+  function buildBskyNotificationUrl(notification, selfHandle = '') {
+    const authorHandle = notification?.author?.handle || '';
+    const profileHandle = ['like', 'repost'].includes(notification?.reason)
+      ? selfHandle
+      : authorHandle;
+    const targetUri = String(notification?.targetUri || '');
+    const postMatch = targetUri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/?#]+)/);
+    if (postMatch) {
+      const actor = profileHandle || postMatch[1];
+      return `https://bsky.app/profile/${encodeURIComponent(actor)}/post/${encodeURIComponent(postMatch[2])}`;
+    }
+    if (authorHandle) return `https://bsky.app/profile/${encodeURIComponent(authorHandle)}`;
+    return 'https://bsky.app/';
+  }
+
   global.SocialDeckNotificationCenter = {
+    buildBskyNotificationUrl,
     buildXNotificationExtractionScript,
     classifyXNotification,
     extractXNotificationsFromDocument,

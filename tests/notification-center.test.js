@@ -152,3 +152,25 @@ test('extracts an X avatar from srcset when src is unavailable', () => {
 
   assert.equal(item.avatar, 'https://pbs.twimg.com/profile_images/alice_200x200.jpg');
 });
+
+test('builds a Bluesky post page URL from a notification target', () => {
+  const center = loadModule();
+  const url = center.buildBskyNotificationUrl({
+    reason: 'reply',
+    targetUri: 'at://did:plc:alice/app.bsky.feed.post/3kabc',
+    author: { handle: 'alice.test' },
+  }, 'me.test');
+
+  assert.equal(url, 'https://bsky.app/profile/alice.test/post/3kabc');
+});
+
+test('opens the current user post for a Bluesky reaction', () => {
+  const center = loadModule();
+  const url = center.buildBskyNotificationUrl({
+    reason: 'like',
+    targetUri: 'at://did:plc:me/app.bsky.feed.post/3kown',
+    author: { handle: 'alice.test' },
+  }, 'me.test');
+
+  assert.equal(url, 'https://bsky.app/profile/me.test/post/3kown');
+});

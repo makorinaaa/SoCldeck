@@ -3501,26 +3501,35 @@ function openNotificationCenterItem(index) {
     openXNotificationCenterItem(item);
     return;
   }
-  if (item.targetUri) {
-    const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
-    openBskyPost({ target: document.body, preventDefault() {} }, item.targetUri, handle || state.b?.handle || 'post');
-    return;
-  }
-  if (item.author?.did) showProfile(item.author.did);
+  const url = notificationCenter.buildBskyNotificationUrl(item, state.b?.handle || '');
+  openNotificationDetailWindow({
+    networkId: 'b',
+    url,
+    title: `${item.author?.displayName || item.author?.handle || 'Bluesky'} - 通知`,
+  });
 }
 
 function openXNotificationCenterItem(item) {
   const account = state.xs?.[item.accountIndex];
   if (!account) return;
-  goToNotifCol('x', item.accountIndex);
-  if (!item.targetUrl || /\/notifications\/?(?:\?|$)/.test(item.targetUrl)) return;
-  setTimeout(() => {
-    const partition = account.partition || `persist:x-${item.accountIndex}`;
-    const webview = Array.from(document.querySelectorAll('#cols webview')).find(candidate => (
-      candidate.partition === partition && candidate.src?.includes('/notifications')
-    ));
-    if (webview?.loadURL) webview.loadURL(item.targetUrl);
-  }, 500);
+  openNotificationDetailWindow({
+    networkId: 'x',
+    url: item.targetUrl || 'https://x.com/notifications',
+    partition: account.partition || `persist:x-${item.accountIndex}`,
+    title: `${item.author?.displayName || item.author?.handle || account.username} - X通知`,
+  });
+}
+
+async function openNotificationDetailWindow(request) {
+  try {
+    if (IS_ELECTRON && window.electronAPI?.openNotificationWindow) {
+      const opened = await window.electronAPI.openNotificationWindow(request);
+      if (opened) return;
+    }
+  } catch (error) {
+    console.warn('Notification window could not be opened:', error);
+  }
+  window.open(request.url, '_blank', 'noopener');
 }
 
 async function markNotificationCenterRead() {

@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const { normalizeNotificationWindowRequest } = require('./notification-window');
 
 function isXPartition(partition) {
   return typeof partition === 'string' && /^persist:x(?:-\d+)?$/.test(partition);
@@ -23,6 +24,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zoomReset: () => ipcRenderer.invoke('zoom-reset'),
   toggleFullscreen: () => ipcRenderer.invoke('toggle-fullscreen'),
   openDevTools: () => ipcRenderer.invoke('open-dev-tools'),
+  openNotificationWindow: (value) => {
+    const request = normalizeNotificationWindowRequest(value);
+    return request
+      ? ipcRenderer.invoke('open-notification-window', request)
+      : Promise.resolve(false);
+  },
 
   // UA
   getUserAgent: () => ipcRenderer.invoke('get-useragent'),

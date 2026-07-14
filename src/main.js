@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain, session, Menu, shell } = require('electron'
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const {
+  normalizeNotificationWindowRequest,
+} = require('./notification-window');
 
 // ── ffmpeg（メインプロセスで実行）──
 const ffmpeg = require('fluent-ffmpeg');
@@ -134,6 +137,67 @@ function saveConfig(data) {
 // ── メインウィンドウ ──
 let mainWindow;
 let widgetWindow = null;
+const notificationWindows = new Map();
+
+function openNotificationWindow(value, ownerWindow = mainWindow) {
+  const target = normalizeNotificationWindowRequest(value);
+  if (!target) return false;
+  const key = target.networkId === 'x' ? `x:${target.partition}` : 'b';
+  let detailWindow = notificationWindows.get(key);
+  let created = false;
+
+  if (!detailWindow || detailWindow.isDestroyed()) {
+    created = true;
+    detailWindow = new BrowserWindow({
+      width: 760,
+      height: 860,
+      minWidth: 420,
+      minHeight: 500,
+      parent: ownerWindow && !ownerWindow.isDestroyed() ? ownerWindow : undefined,
+      backgroundColor: '#0d0d0d',
+      title: target.title,
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        ...(target.partition ? { partition: target.partition } : {}),
+      },
+      show: false,
+    });
+    if (target.networkId === 'x') detailWindow.webContents.setUserAgent(X_USER_AGENT);
+    notificationWindows.set(key, detailWindow);
+    const canNavigateInWindow = url => Boolean(normalizeNotificationWindowRequest({
+      networkId: target.networkId,
+      url,
+      partition: target.partition,
+    }));
+    detailWindow.once('ready-to-show', () => {
+      detailWindow.show();
+      detailWindow.focus();
+    });
+    detailWindow.on('closed', () => notificationWindows.delete(key));
+    detailWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (canNavigateInWindow(url)) detailWindow.loadURL(url);
+      else openExternalUrl(url);
+      return { action: 'deny' };
+    });
+    detailWindow.webContents.on('will-navigate', (event, url) => {
+      if (canNavigateInWindow(url)) return;
+      event.preventDefault();
+      openExternalUrl(url);
+    });
+  }
+
+  detailWindow.setTitle(target.title);
+  detailWindow.loadURL(target.url);
+  if (detailWindow.isMinimized()) detailWindow.restore();
+  if (!created) {
+    detailWindow.show();
+    detailWindow.focus();
+  }
+  return true;
+}
 
 // ── ウィジェットウィンドウ（デスクトップTL表示） ──
 function createWidgetWindow() {
@@ -271,6 +335,11 @@ ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
 ipcMain.handle('get-webview-preload-path', () =>
   `file://${path.join(app.getAppPath(), 'src', 'webview-preload.js')}`
 );
+
+ipcMain.handle('open-notification-window', (event, value) => {
+  const ownerWindow = BrowserWindow.fromWebContents(event.sender) || mainWindow;
+  return openNotificationWindow(value, ownerWindow);
+});
 
 ipcMain.handle('clear-x-session', async (_, partition) => {
   try {
