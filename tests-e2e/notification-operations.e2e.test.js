@@ -205,6 +205,11 @@ test('Bluesky follow notifications reuse one profile column and switch its URL',
   const { page } = await launchApp(t, BLUESKY_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
+  await page.evaluate(() => openAbout());
+  await page.locator('#aboutMod.on').waitFor();
+  assert.equal(await page.locator('#about-version').textContent(), 'Version 2.0.0');
+  await page.locator('#aboutMod .ptb').click();
+
   await page.locator('#sb-notif-b').click();
   await page.locator('.notif-center-tab[data-network="b"]').click();
   await page.locator('.notif-center-item').nth(0).click();

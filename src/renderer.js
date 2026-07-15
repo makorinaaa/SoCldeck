@@ -3342,6 +3342,19 @@ function setNotificationNetwork(networkId) {
   renderNotificationCenter();
 }
 
+async function openAbout() {
+  const modal = document.getElementById('aboutMod');
+  const version = document.getElementById('about-version');
+  if (!modal || !version) return;
+  try {
+    const appVersion = await window.electronAPI?.getAppVersion?.();
+    version.textContent = `Version ${appVersion || '開発版'}`;
+  } catch {
+    version.textContent = 'Version 開発版';
+  }
+  modal.classList.add('on');
+}
+
 async function loadNotificationCenter() {
   const list = document.getElementById('notif-center-list');
   if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
@@ -4130,6 +4143,7 @@ if (IS_ELECTRON) {
   window.electronAPI.on('refresh-all', () => refreshAll());
   window.electronAPI.on('scroll-left', () => { document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }); });
   window.electronAPI.on('scroll-right', () => { document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }); });
+  window.electronAPI.on('show-about', () => openAbout());
 
   window.addEventListener('resize', () => {
     const btn = document.getElementById('win-max-btn');

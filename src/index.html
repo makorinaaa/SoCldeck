@@ -501,6 +501,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
       <div class="am-item" tabindex="0" onclick="toggleAmDrop('am-app',event)">アプリ
         <div class="am-drop" id="am-app">
           <div class="am-opt" onclick="openLoginScreen()">アカウント設定</div>
+          <div class="am-opt" onclick="openAbout()">SocialDeckについて</div>
           <div class="am-sep"></div>
           <div class="am-opt danger" onclick="window.electronAPI?.close()">終了</div>
         </div>
@@ -626,6 +627,19 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
   </div>
 </div>
 <div class="notif-center-x-readers" id="notif-center-x-readers" aria-hidden="true"></div>
+
+<!-- ABOUT MODAL -->
+<div class="ov" id="aboutMod" onclick="closeOv('aboutMod',event)">
+  <div class="modal" style="width:360px;text-align:center">
+    <div class="llogo-icon" style="margin:0 auto 12px">
+      <svg viewBox="0 0 24 24"><rect x="2" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="16" rx="1.5"/><rect x="17" y="4" width="5" height="16" rx="1.5"/></svg>
+    </div>
+    <h2 style="font-size:18px;margin-bottom:5px">SocialDeck</h2>
+    <div id="about-version" style="font-size:11px;color:var(--text2);margin-bottom:14px">Version -</div>
+    <p style="font-size:12px;line-height:1.7;color:var(--text2)">XとBlueskyを一つのワークスペースで操作する<br>マルチアカウント・マルチカラムクライアント</p>
+    <button class="ptb" style="margin-top:18px" onclick="closeOv('aboutMod')">閉じる</button>
+  </div>
+</div>
 
 <!-- X POST MODAL -->
 <div class="ov" id="xPostMod" onclick="closeOv('xPostMod',event)">

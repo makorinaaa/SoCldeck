@@ -266,6 +266,7 @@ app.on('web-contents-created', (_, contents) => {
 
 ipcMain.handle('get-config', () => loadConfig());
 ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
+ipcMain.handle('get-app-version', () => app.getVersion());
 
 // webview-preloadのパスを返す（X画像ライトボックス用）
 ipcMain.handle('get-webview-preload-path', () =>

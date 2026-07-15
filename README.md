@@ -64,6 +64,21 @@ npm run build-linux
 
 ビルド成果物は `dist/` フォルダに生成されます。
 
+### テスト・リリース確認
+
+```bash
+# ユニットテストとElectron E2E
+npm run test:all
+
+# テスト後にWindows unpackedビルドまで確認
+npm run release:check
+
+# テスト後にWindowsインストーラーを作成
+npm run release:win
+```
+
+詳細な公開手順は [RELEASE.md](RELEASE.md) を参照してください。
+
 ---
 
 ## 📖 使い方
@@ -104,9 +119,10 @@ npm run build-linux
 
 ## 🔐 セキュリティ
 
-- Bluesky のアプリパスワードは `localStorage` に保存されます
+- Bluesky のアプリパスワードとセッショントークンは `localStorage` に保存されます
 - X のセッションは Electron の永続パーティション (`persist:x`) に保存されます
-- アプリパスワードはブラウザ外に送信されることはありません
+- アプリパスワードはBlueskyの認証APIにのみ送信されます
+- OSアカウントを共有する端末では、第三者がアプリデータを閲覧できないよう注意してください
 
 ---
 

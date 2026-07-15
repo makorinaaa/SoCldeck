@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 設定
   getConfig: () => ipcRenderer.invoke('get-config'),
   setConfig: (data) => ipcRenderer.invoke('set-config', data),
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
   // ウィンドウ
   minimize: () => ipcRenderer.invoke('minimize'),
