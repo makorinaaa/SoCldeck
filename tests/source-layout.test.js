@@ -15,3 +15,13 @@ test('uses the Bluesky client module without a shadow implementation', () => {
   assert.match(renderer, /SocialDeckBskyClient\.createBskyClient\(\)/);
   assert.doesNotMatch(renderer, /\blegacyBsky\b/);
 });
+
+test('loads Mute Rules before the renderer entry point', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const muteRulesIndex = index.indexOf('<script src="renderer/mute-rules.js"></script>');
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(muteRulesIndex, -1);
+  assert.notEqual(rendererIndex, -1);
+  assert.ok(muteRulesIndex < rendererIndex);
+});

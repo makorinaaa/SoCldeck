@@ -63,3 +63,7 @@ _Avoid_: Runtime state, localStorage blob, session
 **Runtime State**:
 The temporary state that only exists while SocialDeck is running, such as timers, queues, hover cards, in-progress posting, and DOM coordination.
 _Avoid_: Workspace state, saved state, preferences
+
+**Mute Rules**:
+User-managed words and Network Account handles that suppress matching posts and notifications. Mute Rules own persistence and matching across original posts, repost attribution, quoted posts, and notification authors; their settings UI only edits the rules through this interface.
+_Avoid_: NG data, filter arrays, renderer globals

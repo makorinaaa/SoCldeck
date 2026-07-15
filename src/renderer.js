@@ -215,55 +215,10 @@ function restoreColLayout() {
 }
 
 // ─── NG WORD / MUTE ──────────────────────────────
-const NG_KEY = 'socialdeck_ng';
-function loadNg() {
-  try { return JSON.parse(localStorage.getItem(NG_KEY)) || { words: [], users: [] }; } catch { return { words: [], users: [] }; }
-}
-function saveNg(ng) { localStorage.setItem(NG_KEY, JSON.stringify(ng)); }
-let ngData = loadNg();
-
-function isNgPost(item) {
-  const post = item.post || item;
-  const texts = [post.record?.text || ''];
-  const authors = [
-    { handle: post.author?.handle, displayName: post.author?.displayName },
-  ];
-
-  const reasonBy = item.reason?.by;
-  if (reasonBy) authors.push({ handle: reasonBy.handle, displayName: reasonBy.displayName });
-
-  const embed = post.embed;
-  if (embed) {
-    const qrec = embed.record?.value ? embed.record : embed.record?.record;
-    if (qrec?.value?.text) texts.push(qrec.value.text);
-    if (qrec?.author) authors.push({ handle: qrec.author.handle, displayName: qrec.author.displayName });
-  }
-
-  for (const w of ngData.words) {
-    if (!w) continue;
-    const lw = w.toLowerCase();
-    if (texts.some(t => t.toLowerCase().includes(lw))) return true;
-  }
-  for (const u of ngData.users) {
-    if (!u) continue;
-    const lu = u.toLowerCase();
-    if (authors.some(a =>
-      (a.handle || '').toLowerCase().includes(lu) ||
-      (a.displayName || '').toLowerCase().includes(lu)
-    )) return true;
-  }
-  return false;
-}
-
-function isNgNotif(n) {
-  const handle = (n.author?.handle || '').toLowerCase();
-  for (const u of ngData.users) {
-    if (u && handle.includes(u.toLowerCase())) return true;
-  }
-  return false;
-}
+const muteRules = window.SocialDeckMuteRules.createMuteRules();
 
 function openNgSettings() {
+  const ngData = muteRules.getRules();
   document.getElementById('ng-modal-ov')?.remove();
   const ov = document.createElement('div');
   ov.className = 'ov on'; ov.id = 'ng-modal-ov';
@@ -308,23 +263,15 @@ function openNgSettings() {
 function addNg(type) {
   const inputId = type === 'word' ? 'ng-word-input' : 'ng-user-input';
   const input = document.getElementById(inputId);
-  const val = input?.value.trim().replace(/^@/, '');
+  const { value: val } = muteRules.add(type, input?.value);
   if (!val) return;
-  if (type === 'word') {
-    if (!ngData.words.includes(val)) ngData.words.push(val);
-  } else if (!ngData.users.includes(val)) {
-    ngData.users.push(val);
-  }
-  saveNg(ngData);
   openNgSettings();
   refilterBskyCols();
   toast('NG ' + type + ': ' + val + ' added');
 }
 
 function removeNg(type, idx) {
-  if (type === 'word') ngData.words.splice(idx, 1);
-  else ngData.users.splice(idx, 1);
-  saveNg(ngData);
+  muteRules.remove(type, idx);
   openNgSettings();
   refilterBskyCols();
 }
@@ -704,7 +651,9 @@ async function silentRefreshBsky(cid, type, feedUri) {
     if (!newItems.length) return { status: 'succeeded', detail: 'no-changes' };
 
     const html = newItems
-      .filter(item => item._notif ? !isNgNotif(item._notif) : !isNgPost(item))
+      .filter(item => item._notif
+        ? !muteRules.blocksNotification(item._notif)
+        : !muteRules.blocksPost(item))
       .map(item => item._notif ? renderBskyNotif(item._notif) : renderBskyPost(item))
       .join('');
     if (!html) return { status: 'succeeded', detail: 'filtered' };
@@ -1510,7 +1459,9 @@ async function loadBskyFeed(cid, type, feedUri = null, append = false) {
 
     colCursors[cid] = newCursor;
     const html = items
-      .filter(item => item._notif ? !isNgNotif(item._notif) : !isNgPost(item))
+      .filter(item => item._notif
+        ? !muteRules.blocksNotification(item._notif)
+        : !muteRules.blocksPost(item))
       .map(item => item._notif ? renderBskyNotif(item._notif) : renderBskyPost(item)).join('');
 
     if (append) {
@@ -3330,8 +3281,8 @@ function showPostMenu(e, handle) {
   setTimeout(() => document.addEventListener('click', closeMenu), 50);
 }
 function addNgUser(handle) {
-  const clean = handle.replace(/^@/, '');
-  if (!ngData.users.includes(clean)) { ngData.users.push(clean); saveNg(ngData); }
+  const { value: clean } = muteRules.add('user', handle);
+  if (!clean) return;
   toast(`@${clean} をミュートしました`);
   document.getElementById('post-ctx-menu')?.remove();
   refilterBskyCols(); // 即時反映
