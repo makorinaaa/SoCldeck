@@ -55,6 +55,7 @@ const BLUESKY_FIXTURES = {
 
 const NEW_X_ACCOUNT_FIXTURES = {
   xPartitions: ['persist:x-0'],
+  simulateXLogin: true,
   state: {
     xs: [],
     activeX: 0,
@@ -123,9 +124,11 @@ async function launchApp(t, fixtures) {
         const notificationsHtml = partition === 'persist:x-1'
           ? fixture.notificationsHtml
           : fixture.notificationsHtml.replaceAll('Alice', 'Other');
-        const body = network === 'x' && url.pathname === '/notifications'
-          ? notificationsHtml
-          : fixture.pageHtml.replaceAll('__PATH__', url.pathname);
+        const body = network === 'x' && fixture.simulateXLogin && url.pathname !== '/i/flow/login'
+          ? '<!doctype html><html><body><script>location.replace("https://x.com/i/flow/login")</script></body></html>'
+          : network === 'x' && url.pathname === '/notifications'
+            ? notificationsHtml
+            : fixture.pageHtml.replaceAll('__PATH__', url.pathname);
         callback({ mimeType: 'text/html', charset: 'utf-8', data: Buffer.from(body) });
       }, error => error ? reject(error) : resolve());
     });
@@ -142,6 +145,7 @@ async function launchApp(t, fixtures) {
     xPartitions: fixtures.xPartitions || fixtures.state.xs.map(account => account.partition),
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
+    simulateXLogin: Boolean(fixtures.simulateXLogin),
     avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   });
   const page = await electronApp.firstWindow();
@@ -211,14 +215,37 @@ test('X notification journey reuses the account column and returns to notificati
   assert.equal(await column.count(), 1);
 });
 
-test('new X accounts default to the black theme', async t => {
+test('new X accounts use one login WebView and default to the black theme', async t => {
   const { electronApp, page } = await launchApp(t, NEW_X_ACCOUNT_FIXTURES);
   await page.locator('#login-screen').waitFor({ state: 'visible' });
   await page.waitForFunction(() => typeof window.loginX === 'function');
+  await page.evaluate(() => {
+    localStorage.setItem('socialdeck_cols', JSON.stringify([
+      { kind: 'wv', network: 'x', definitionId: 'x-home-new', id: 'login-home', url: 'https://x.com/home', partition: 'persist:x-0' },
+      { kind: 'wv', network: 'x', definitionId: 'x-notif-new', id: 'login-notifications', url: 'https://x.com/notifications', partition: 'persist:x-0' },
+      { kind: 'wv', network: 'x', definitionId: 'x-search-new', id: 'login-search', url: 'https://x.com/search', partition: 'persist:x-0' },
+    ]));
+  });
 
   await page.locator('#x-user').fill('new-account');
   await page.evaluate(() => window.loginX());
   await page.locator('#app').waitFor({ state: 'visible' });
+  await page.waitForFunction(() =>
+    document.querySelectorAll('webview[data-sd-login-parked="true"]').length === 2
+  );
+  await page.waitForFunction(() =>
+    Array.from(document.querySelectorAll('.col[data-network="x"] webview'))
+      .some(webview => webview.getURL().includes('/i/flow/login'))
+  );
+
+  const loginWebViews = await page.locator('.col[data-network="x"] webview').evaluateAll(webviews =>
+    webviews.map(webview => ({
+      parked: webview.dataset.sdLoginParked,
+      url: webview.getURL(),
+    }))
+  );
+  assert.equal(loginWebViews.filter(webview => webview.parked === 'true').length, 2);
+  assert.equal(loginWebViews.filter(webview => webview.url.includes('/i/flow/login')).length, 1);
 
   const cookies = await electronApp.evaluate(({ session }) =>
     session.fromPartition('persist:x-0').cookies.get({

@@ -407,6 +407,7 @@ const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
   getIsColumnDragging: () => Boolean(dragSrc),
 });
 const notificationRuntime = window.SocialDeckNotificationRuntime.createNotificationRuntime();
+const xLoginGate = window.SocialDeckXLoginGate.createXLoginGate();
 
 
 function loadState() {
@@ -497,7 +498,7 @@ async function loginX() {
     if (loginButton) loginButton.disabled = false;
   }
   if (!state.xs) state.xs = [];
-  state.xs.push({ username, initials: clean.slice(0, 2).toUpperCase(), bg, partition });
+  state.xs.push({ username, initials: clean.slice(0, 2).toUpperCase(), bg, partition, loginPending: true });
   state.activeX = idx;
   saveState();
   document.getElementById('x-user').value = '';
@@ -793,10 +794,53 @@ function renderDefaultCols() {
   }
 }
 
+async function initializeXLoginStates() {
+  if (!IS_ELECTRON || !window.electronAPI?.isXSessionAuthenticated) return;
+  let changed = false;
+  await Promise.all((state.xs || []).map(async (account, index) => {
+    const partition = account.partition || `persist:x-${index}`;
+    const authenticated = await window.electronAPI.isXSessionAuthenticated(partition);
+    if (authenticated && account.loginPending) {
+      delete account.loginPending;
+      changed = true;
+    } else if (!authenticated && account.loginPending !== true) {
+      account.loginPending = true;
+      changed = true;
+    }
+  }));
+  if (changed) saveState();
+}
+
+function getXAccountByPartition(partition) {
+  return (state.xs || []).find((account, index) =>
+    (account.partition || `persist:x-${index}`) === partition
+  );
+}
+
+function completeXLogin(partition, parkedIds) {
+  const account = getXAccountByPartition(partition);
+  if (account?.loginPending) {
+    delete account.loginPending;
+    saveState();
+  }
+  parkedIds.forEach(id => {
+    const webview = document.getElementById(`wv-${id}`);
+    if (!webview || webview.dataset.sdLoginParked !== 'true') return;
+    webview.dataset.sdLoginParked = 'false';
+    const loading = document.getElementById(`wvload-${id}`);
+    if (loading) loading.innerHTML = '<div class="spinner"></div>読み込み中…';
+    webview.src = webview.dataset.sdLoginTarget;
+  });
+}
+
 // ─── WEBVIEW COLUMN (X) ─────────────────────────
 function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   const cols = document.getElementById('cols');
   const addbtn = before || cols.querySelector('.add-col-btn');
+  const loginPending = getXAccountByPartition(partition)?.loginPending === true;
+  const parkedForLogin = xLoginGate.register(partition, cfg.id, loginPending);
+  const initialUrl = parkedForLogin ? 'about:blank' : cfg.url;
+  const loadingLabel = parkedForLogin ? 'Xのログイン完了を待っています…' : '読み込み中…';
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cfg.id}`;
@@ -819,10 +863,10 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       </div>
     </div>
     <div class="col-webview" style="position:relative">
-      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>読み込み中…</div>
+      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>${loadingLabel}</div>
       <webview
         id="wv-${cfg.id}"
-        src="${cfg.url}"
+        src="${initialUrl}"
         style="flex:1;display:none"
         partition="${partition}"
         webpreferences="backgroundThrottling=false"
@@ -837,6 +881,19 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   // webview イベント
   const wv = div.querySelector('webview');
   if (wv) {
+    wv.dataset.sdLoginParked = String(parkedForLogin);
+    wv.dataset.sdLoginTarget = cfg.url;
+
+    const observeXLogin = url => {
+      const wasActive = xLoginGate.isActive(partition);
+      const parkedIds = xLoginGate.observe(partition, cfg.id, url);
+      if (wasActive && !xLoginGate.isActive(partition)) {
+        completeXLogin(partition, parkedIds);
+      }
+    };
+    wv.addEventListener('did-navigate', event => observeXLogin(event.url));
+    wv.addEventListener('did-navigate-in-page', event => observeXLogin(event.url));
+
     // 全ページ共通スタイル（サイドバー・ヘッダー非表示・スクロールバー等）
     const XSTYLES_BASE = `
       [data-testid="sidebarColumn"]{display:none!important}
@@ -1079,6 +1136,7 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
     // dom-ready: スピナーを消してwebviewを表示
     let _domReadyOnce = false;
     wv.addEventListener('dom-ready', () => {
+      if (wv.dataset.sdLoginParked === 'true') return;
       wv.dataset.ready = 'true';
       document.getElementById(`wvload-${cfg.id}`).style.display = 'none';
       wv.style.display = 'flex';
@@ -1098,6 +1156,8 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
 
     // did-finish-load: スタイル再注入・広告除去・オーバーレイフェードアウト
     wv.addEventListener('did-finish-load', () => {
+      observeXLogin(wv.getURL());
+      if (wv.dataset.sdLoginParked === 'true') return;
       wvSilentReloading.delete(cfg.id);
       setWvRefreshBusy(cfg.id, false);
       wv.style.opacity = wv.dataset.sdPrevOpacity || '';
@@ -4298,7 +4358,7 @@ if ((state.xs && state.xs.length > 0) || state.b) {
   if (state.b?.refreshJwt) {
     refreshBskyToken().catch(() => {});
   }
-  initWvPreloadPath().finally(() => {
+  Promise.all([initWvPreloadPath(), initializeXLoginStates()]).finally(() => {
     enterApp();
     if (state.b) {
       setTimeout(() => fetchBskyUnreadCount(), 3000);

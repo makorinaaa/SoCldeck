@@ -21,4 +21,12 @@ async function ensureDefaultXDarkTheme(targetSession, nowSeconds = () => Date.no
   return true;
 }
 
-module.exports = { ensureDefaultXDarkTheme };
+async function isXSessionAuthenticated(targetSession) {
+  const cookies = await targetSession.cookies.get({
+    url: X_THEME_URL,
+    name: 'auth_token',
+  });
+  return cookies.length > 0;
+}
+
+module.exports = { ensureDefaultXDarkTheme, isXSessionAuthenticated };

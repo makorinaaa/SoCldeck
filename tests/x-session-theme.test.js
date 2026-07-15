@@ -1,7 +1,10 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { ensureDefaultXDarkTheme } = require('../src/main/x-session-theme');
+const {
+  ensureDefaultXDarkTheme,
+  isXSessionAuthenticated,
+} = require('../src/main/x-session-theme');
 
 test('sets the black X theme when a session has no theme preference', async () => {
   const writes = [];
@@ -34,4 +37,16 @@ test('preserves an existing X theme preference', async () => {
 
   assert.equal(changed, false);
   assert.equal(writes, 0);
+});
+
+test('detects whether an X session has an authentication token', async () => {
+  const authenticatedSession = {
+    cookies: { get: async () => [{ name: 'auth_token', value: 'token' }] },
+  };
+  const anonymousSession = {
+    cookies: { get: async () => [] },
+  };
+
+  assert.equal(await isXSessionAuthenticated(authenticatedSession), true);
+  assert.equal(await isXSessionAuthenticated(anonymousSession), false);
 });
