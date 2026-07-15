@@ -1,5 +1,20 @@
 # Release Checklist
 
+## Automatic updates
+
+Installed builds check GitHub Releases shortly after launch and every four hours. When an update finishes downloading, the About dialog offers to restart and apply it.
+
+To publish a Windows update:
+
+1. Update the version in `package.json` and `package-lock.json`.
+2. Commit the release changes.
+3. Create and push a matching tag such as `v2.1.0`.
+4. GitHub Actions publishes the installer, blockmap, and `latest.yml` to a public GitHub Release.
+
+Do not upload `latest.yml` separately from its installer. They must come from the same build. Draft releases are not visible to installed applications.
+
+Version 2.1.0 is the first auto-update capable build, so it must be installed manually once. Later releases can update it automatically.
+
 SocialDeckのWindowsリリースは、次の手順で作成します。
 
 ## 1. リリース前確認

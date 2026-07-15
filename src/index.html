@@ -636,8 +636,13 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     </div>
     <h2 style="font-size:18px;margin-bottom:5px">SocialDeck</h2>
     <div id="about-version" style="font-size:11px;color:var(--text2);margin-bottom:14px">Version -</div>
+    <div id="update-status" role="status" style="min-height:18px;font-size:11px;color:var(--text2);margin-top:12px"></div>
+    <div style="display:flex;justify-content:center;gap:8px;margin-top:8px">
+      <button class="ptb" id="check-update-btn" onclick="checkForUpdates()">更新を確認</button>
+      <button class="ptb" id="install-update-btn" style="display:none" onclick="installUpdate()">再起動して更新</button>
+    </div>
     <p style="font-size:12px;line-height:1.7;color:var(--text2)">XとBlueskyを一つのワークスペースで操作する<br>マルチアカウント・マルチカラムクライアント</p>
-    <button class="ptb" style="margin-top:18px" onclick="closeOv('aboutMod')">閉じる</button>
+    <button class="ptb" id="about-close-btn" style="margin-top:18px" onclick="closeOv('aboutMod')">閉じる</button>
   </div>
 </div>
 

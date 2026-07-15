@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { _electron: electron } = require('playwright-core');
+const { version: appVersion } = require('../package.json');
 
 const APP_ROOT = path.join(__dirname, '..');
 const NOTIFICATIONS_URL = 'https://x.com/notifications';
@@ -84,7 +85,7 @@ async function launchApp(t, fixtures) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'socialdeck-e2e-'));
   const electronApp = await electron.launch({
     executablePath: require('electron'),
-    args: [APP_ROOT, `--user-data-dir=${userDataDir}`],
+    args: [APP_ROOT, '--disable-gpu', `--user-data-dir=${userDataDir}`],
     env: {
       ...process.env,
       SOCIALDECK_E2E: '1',
@@ -262,8 +263,8 @@ test('Bluesky follow notifications reuse one profile column and switch its URL',
 
   await page.evaluate(() => openAbout());
   await page.locator('#aboutMod.on').waitFor();
-  assert.equal(await page.locator('#about-version').textContent(), 'Version 2.0.0');
-  await page.locator('#aboutMod .ptb').click();
+  assert.equal(await page.locator('#about-version').textContent(), `Version ${appVersion}`);
+  await page.locator('#about-close-btn').click();
 
   await page.locator('#sb-notif-b').click();
   await page.locator('.notif-center-tab[data-network="b"]').click();

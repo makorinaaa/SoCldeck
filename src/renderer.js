@@ -3425,6 +3425,39 @@ async function openAbout() {
   modal.classList.add('on');
 }
 
+function checkForUpdates() {
+  const button = document.getElementById('check-update-btn');
+  const status = document.getElementById('update-status');
+  if (button) button.disabled = true;
+  if (status) status.textContent = '更新を確認しています…';
+  window.electronAPI?.checkForUpdates?.();
+}
+
+function installUpdate() {
+  window.electronAPI?.installUpdate?.();
+}
+
+function renderUpdateStatus(update) {
+  const status = document.getElementById('update-status');
+  const checkButton = document.getElementById('check-update-btn');
+  const installButton = document.getElementById('install-update-btn');
+  if (!status || !checkButton || !installButton || !update) return;
+
+  checkButton.disabled = update.status === 'checking' || update.status === 'downloading';
+  installButton.style.display = update.status === 'downloaded' ? '' : 'none';
+
+  const messages = {
+    checking: '更新を確認しています…',
+    available: `Version ${update.version} を取得しています…`,
+    downloading: `更新をダウンロードしています… ${update.percent ?? 0}%`,
+    downloaded: `Version ${update.version} を適用できます。`,
+    'not-available': '最新バージョンです。',
+    development: '更新確認はインストール版で利用できます。',
+    error: update.message || '更新を確認できませんでした。',
+  };
+  status.textContent = messages[update.status] || '';
+}
+
 async function loadNotificationCenter() {
   const list = document.getElementById('notif-center-list');
   if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
@@ -4214,6 +4247,7 @@ if (IS_ELECTRON) {
   window.electronAPI.on('scroll-left', () => { document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }); });
   window.electronAPI.on('scroll-right', () => { document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }); });
   window.electronAPI.on('show-about', () => openAbout());
+  window.electronAPI.onUpdateStatus?.(renderUpdateStatus);
 
   window.addEventListener('resize', () => {
     const btn = document.getElementById('win-max-btn');

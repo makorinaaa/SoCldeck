@@ -3,6 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-session-theme');
+const { createAppUpdater } = require('./main/app-updater');
+const { autoUpdater } = require('electron-updater');
 
 // ── ffmpeg（メインプロセスで実行）──
 const ffmpeg = require('fluent-ffmpeg');
@@ -135,6 +137,7 @@ function saveConfig(data) {
 // ── メインウィンドウ ──
 let mainWindow;
 let widgetWindow = null;
+let appUpdaterController = null;
 
 // ── ウィジェットウィンドウ（デスクトップTL表示） ──
 function createWidgetWindow() {
@@ -268,6 +271,8 @@ app.on('web-contents-created', (_, contents) => {
 ipcMain.handle('get-config', () => loadConfig());
 ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('check-for-updates', () => appUpdaterController?.check({ manual: true }) ?? false);
+ipcMain.handle('install-update', () => appUpdaterController?.install() ?? false);
 ipcMain.handle('initialize-x-session-theme', async (_, partition) => {
   if (!isAllowedXPartition(partition)) return false;
   return ensureDefaultXDarkTheme(session.fromPartition(partition));
@@ -529,6 +534,13 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+
+  appUpdaterController = createAppUpdater({
+    autoUpdater,
+    app,
+    getWindow: () => mainWindow,
+  });
+  appUpdaterController.start();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

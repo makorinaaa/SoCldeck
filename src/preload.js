@@ -25,6 +25,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   setConfig: (data) => ipcRenderer.invoke('set-config', data),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onUpdateStatus: (fn) => {
+    if (typeof fn !== 'function') return () => {};
+    const listener = (_, status) => fn(status);
+    ipcRenderer.on('update-status', listener);
+    return () => ipcRenderer.removeListener('update-status', listener);
+  },
 
   // ウィンドウ
   minimize: () => ipcRenderer.invoke('minimize'),
