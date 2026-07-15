@@ -25,3 +25,13 @@ test('loads Mute Rules before the renderer entry point', () => {
   assert.notEqual(rendererIndex, -1);
   assert.ok(muteRulesIndex < rendererIndex);
 });
+
+test('keeps Compose Experience media Runtime State out of renderer globals', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+
+  assert.match(renderer, /composeMedia\.createMediaDraft\(/);
+  assert.doesNotMatch(
+    renderer,
+    /\blet (?:xImgFiles|xImgAlts|xVideoFile|xVideoPath|xTrimIn|xTrimOut|bImgFiles|bImgAlts)\b/,
+  );
+});

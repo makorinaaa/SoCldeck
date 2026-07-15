@@ -17,7 +17,7 @@ An operating identity on a supported social network. A Network Account owns post
 _Avoid_: Session, profile, login
 
 **Compose Experience**:
-The shared user-facing flow for preparing a post: choosing a Network Account, writing text, attaching media, and sending. The Compose Experience is common across networks, while delivery rules and payloads remain network-specific.
+The shared user-facing flow for preparing a post: choosing a Network Account, writing text, attaching media, and sending. Media selections, alt text, and video trim settings are Runtime State owned by the Compose Experience. The Compose Experience is common across networks, while delivery rules and payloads remain network-specific.
 _Avoid_: Universal post model, X post modal, Bluesky post modal
 
 **Compose Request**:

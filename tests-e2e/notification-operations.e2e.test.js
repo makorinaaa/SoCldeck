@@ -54,6 +54,24 @@ const BLUESKY_FIXTURES = {
   ],
 };
 
+const COMPOSE_FIXTURES = {
+  state: {
+    xs: [
+      { username: '@compose', initials: 'C', bg: '#445566', partition: 'persist:x-0' },
+    ],
+    activeX: 0,
+    b: {
+      did: 'did:plc:compose',
+      handle: 'compose.test',
+      accessJwt: 'e2e-token',
+      refreshJwt: '',
+      initials: 'CB',
+      bg: '#336699',
+    },
+    composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
+  },
+};
+
 const NEW_X_ACCOUNT_FIXTURES = {
   xPartitions: ['persist:x-0'],
   simulateXLogin: true,
@@ -282,4 +300,29 @@ test('Bluesky follow notifications reuse one profile column and switch its URL',
 
   await expectWebviewUrl(page, webviewSelector, 'https://bsky.app/profile/did:plc:bob');
   assert.equal(await column.count(), 1);
+});
+
+test('Compose Experience retains media and alt text until each modal closes', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  await page.evaluate(() => openXPost());
+  await page.evaluate(() => {
+    addXImgFiles([new File(['x-image'], 'x-image.png', { type: 'image/png' })]);
+  });
+  await page.locator('#x-alt-0').fill('X image description');
+  assert.equal(await page.locator('#x-sndb').isEnabled(), true);
+  assert.match(await page.locator('#x-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
+  await page.evaluate(() => closeOv('xPostMod'));
+  assert.equal(await page.locator('#x-img-preview').textContent(), '');
+
+  await page.evaluate(() => openComp());
+  await page.evaluate(() => {
+    addBImgFiles([new File(['b-image'], 'b-image.png', { type: 'image/png' })]);
+  });
+  await page.locator('#b-alt-0').fill('Bluesky image description');
+  assert.equal(await page.locator('#sndb').isEnabled(), true);
+  assert.match(await page.locator('#b-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
+  await page.evaluate(() => closeOv('compMod'));
+  assert.equal(await page.locator('#b-img-preview').textContent(), '');
 });

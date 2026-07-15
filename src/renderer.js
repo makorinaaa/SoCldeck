@@ -4,6 +4,11 @@
 // ═══════════════════════════════════════════════
 const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
+const xComposeMediaDraft = composeMedia.createMediaDraft({
+  supportsVideo: true,
+  resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
+});
+const bskyComposeMediaDraft = composeMedia.createMediaDraft();
 const composeRequests = window.SocialDeckComposeRequest;
 const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
@@ -2075,12 +2080,6 @@ function updateXPostAv() {
 }
 
 // ─── X投稿 画像・動画管理 ────────────────────────
-let xImgFiles = [];
-let xImgAlts = [];
-let xVideoFile = null;
-let xVideoPath = null;
-let xTrimIn = 0;
-let xTrimOut = 0;
 function setFFmpegStatus(msg) {
   const el = document.getElementById('x-ffmpeg-status');
   if (el) el.textContent = msg;
@@ -2102,36 +2101,30 @@ function handleXImgDrop(e) {
 }
 
 function addXImgFiles(files) {
-  const arr = composeMedia.toFiles(files);
-
-  const videoFile = composeMedia.firstVideo(arr);
-  if (videoFile) {
-    if (xImgFiles.length > 0) { toast('Cannot attach images and video together'); return; }
-    setXVideo(videoFile);
+  const result = xComposeMediaDraft.addFiles(files);
+  if (result.status === 'rejected') {
+    toast(result.reason === 'mixed-media'
+      ? 'Cannot attach images and video together'
+      : 'Up to 4 images can be attached');
+    return;
+  }
+  if (result.status === 'video-added') {
+    setXVideo(result.file);
     const fi = document.getElementById('x-img-file');
     if (fi) fi.value = '';
     return;
   }
-
-  if (xVideoFile) { toast('Cannot attach images and video together'); return; }
-
-  const imageFiles = composeMedia.imageFiles(arr);
-  const remaining = composeMedia.availableImageSlots(xImgFiles.length);
-  if (remaining <= 0) { toast('Up to 4 images can be attached'); return; }
-  const newImages = imageFiles.slice(0, remaining);
-  xImgFiles.push(...newImages);
-  newImages.forEach(() => xImgAlts.push(''));
+  if (result.status !== 'images-added') return;
   renderXImgPreviews();
   const drop = document.getElementById('x-img-drop');
-  if (drop) drop.style.opacity = xImgFiles.length >= 4 ? '0.4' : '1';
+  if (drop) drop.style.opacity = result.limitReached ? '0.4' : '1';
   const fi = document.getElementById('x-img-file');
   if (fi) fi.value = '';
   updXCC();
 }
 
 function removeXImg(idx) {
-  xImgFiles.splice(idx, 1);
-  xImgAlts.splice(idx, 1);
+  xComposeMediaDraft.removeImage(idx);
   renderXImgPreviews();
   const drop = document.getElementById('x-img-drop');
   if (drop) drop.style.opacity = '1';
@@ -2144,13 +2137,14 @@ function renderXImgPreviews() {
   container.querySelectorAll('img').forEach(img => {
     if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
   });
-  container.innerHTML = xImgFiles.map((f, i) => {
-    const url = URL.createObjectURL(f);
+  const { images } = xComposeMediaDraft.getSnapshot();
+  container.innerHTML = images.map((image, i) => {
+    const url = URL.createObjectURL(image.file);
     return `<div style="display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3)">
       <img src="${url}" style="width:52px;height:52px;object-fit:cover;display:block;border-radius:4px;flex-shrink:0">
       <input type="text" placeholder="画像の説明（Bluesky同時投稿に使用）" maxlength="1000"
-        value="${esc(xImgAlts[i] || '')}" id="x-alt-${i}"
-        oninput="xImgAlts[${i}]=this.value;renderComposePreview('x')"
+        value="${esc(image.altText)}" id="x-alt-${i}"
+        oninput="updateXImgAlt(${i},this.value)"
         style="flex:1;min-width:0;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:11px;outline:none">
       <button onclick="removeXImg(${i})"
         style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:11px;line-height:1;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">x</button>
@@ -2158,12 +2152,13 @@ function renderXImgPreviews() {
   }).join('');
 }
 
+function updateXImgAlt(index, value) {
+  xComposeMediaDraft.updateAlt(index, value);
+  renderComposePreview('x');
+}
+
 // ── 動画追加・UI ──
 function setXVideo(file) {
-  xVideoFile = file;
-  // Electron環境ではFileオブジェクトからローカルパスを取得できる
-  xVideoPath = IS_ELECTRON && file.path ? file.path : null;
-
   const wrap = document.getElementById('x-video-wrap');
   const vid  = document.getElementById('x-video-preview');
   if (!wrap || !vid) return;
@@ -2173,8 +2168,7 @@ function setXVideo(file) {
 
   vid.onloadedmetadata = () => {
     const dur = vid.duration;
-    xTrimIn = 0;
-    xTrimOut = dur;
+    xComposeMediaDraft.setVideoDuration(dur);
     const inEl  = document.getElementById('x-trim-in');
     const outEl = document.getElementById('x-trim-out');
     if (inEl)  inEl.value  = 0;
@@ -2207,6 +2201,13 @@ function setXVideo(file) {
 }
 
 function removeXVideo() {
+  xComposeMediaDraft.removeVideo();
+  clearXVideoUI();
+  updateXCrossPostControls();
+  updXCC();
+}
+
+function clearXVideoUI() {
   const vid = document.getElementById('x-video-preview');
   if (vid) {
     vid.pause();
@@ -2215,9 +2216,6 @@ function removeXVideo() {
     vid.src = '';
     vid.load();
   }
-  xVideoFile = null;
-  xVideoPath = null;
-  xTrimIn = 0; xTrimOut = 0;
   const wrap = document.getElementById('x-video-wrap');
   if (wrap) wrap.style.display = 'none';
   const drop = document.getElementById('x-img-drop');
@@ -2225,22 +2223,17 @@ function removeXVideo() {
   const preview = document.getElementById('x-img-preview');
   if (preview) preview.innerHTML = '';
   setFFmpegStatus('');
-  updateXCrossPostControls();
-  updXCC();
 }
 
 function onTrimIn(val) {
   const vid = document.getElementById('x-video-preview');
   if (!vid?.duration) return;
-  const outEl = document.getElementById('x-trim-out');
-  const outVal = parseFloat(outEl.value);
-  const nextVal = composeMedia.clampTrimPercent({ value: val, otherValue: outVal, direction: 'in' });
-  if (nextVal !== parseFloat(val)) {
-    val = nextVal;
-    document.getElementById('x-trim-in').value = val;
+  const result = xComposeMediaDraft.setTrimPercent('start', val);
+  if (!result) return;
+  if (result.percent !== parseFloat(val)) {
+    document.getElementById('x-trim-in').value = result.percent;
   }
-  xTrimIn = (parseFloat(val) / 100) * vid.duration;
-  vid.currentTime = xTrimIn;
+  vid.currentTime = result.trim.startSeconds;
   updateTrimLabels();
   updateTrimHighlight();
 }
@@ -2248,18 +2241,15 @@ function onTrimIn(val) {
 function onTrimOut(val) {
   const vid = document.getElementById('x-video-preview');
   if (!vid?.duration) return;
-  const inEl = document.getElementById('x-trim-in');
-  const inVal = parseFloat(inEl.value);
-  const nextVal = composeMedia.clampTrimPercent({ value: val, otherValue: inVal, direction: 'out' });
-  if (nextVal !== parseFloat(val)) {
-    val = nextVal;
-    document.getElementById('x-trim-out').value = val;
+  const result = xComposeMediaDraft.setTrimPercent('end', val);
+  if (!result) return;
+  if (result.percent !== parseFloat(val)) {
+    document.getElementById('x-trim-out').value = result.percent;
   }
-  xTrimOut = (parseFloat(val) / 100) * vid.duration;
-  vid.currentTime = xTrimOut;
+  vid.currentTime = result.trim.endSeconds;
   updateTrimLabels();
   updateTrimHighlight();
-  const trimDur = xTrimOut - xTrimIn;
+  const trimDur = result.trimDurationSeconds;
   if (trimDur > composeMedia.MAX_VIDEO_SECONDS) {
     setFFmpegStatus(`⚠ トリム後の長さが ${fmtSec(trimDur)} です。2分20秒（140秒）以内にしてください`);
   } else {
@@ -2270,12 +2260,15 @@ function onTrimOut(val) {
 function updateTrimLabels() {
   const vid = document.getElementById('x-video-preview');
   const dur = vid?.duration || 0;
-  const trimDur = xTrimOut - xTrimIn;
+  const video = xComposeMediaDraft.getSnapshot().video;
+  const trimStart = video?.trim.startSeconds || 0;
+  const trimEnd = video?.trim.endSeconds || dur;
+  const trimDur = video?.trimDurationSeconds || dur;
   const startEl = document.getElementById('x-trim-start-label');
   const endEl   = document.getElementById('x-trim-end-label');
   const durEl   = document.getElementById('x-trim-dur-label');
-  if (startEl) startEl.textContent = fmtSec(xTrimIn);
-  if (endEl)   endEl.textContent   = fmtSec(xTrimOut || dur);
+  if (startEl) startEl.textContent = fmtSec(trimStart);
+  if (endEl)   endEl.textContent   = fmtSec(trimEnd);
   if (durEl) {
     durEl.textContent = fmtSec(trimDur || dur);
     durEl.style.color = (trimDur || dur) > 140 ? 'var(--red)' : 'inherit';
@@ -2302,22 +2295,24 @@ function resetXImgUI() {
     });
     container.innerHTML = '';
   }
-  xImgFiles = [];
-  xImgAlts = [];
+  xComposeMediaDraft.clear();
   const drop = document.getElementById('x-img-drop');
   if (drop) { drop.style.opacity = '1'; drop.style.pointerEvents = ''; }
   const fi = document.getElementById('x-img-file');
   if (fi) fi.value = '';
-  removeXVideo(); // 動画もリセット
+  clearXVideoUI();
+  updateXCrossPostControls();
+  updXCC();
 }
 
 function updXCC() {
+  const media = xComposeMediaDraft.getSnapshot();
   const n = document.getElementById('x-cta').value.length;
   const el = document.getElementById('x-cct');
   el.textContent = n + ' / 280';
   el.className = 'cc' + (n > 250 ? ' w' : '') + (n > 280 ? ' over' : '');
   // テキストが空でも画像か動画があれば投稿可能
-  document.getElementById('x-sndb').disabled = (n === 0 && xImgFiles.length === 0 && !xVideoFile) || n > 280;
+  document.getElementById('x-sndb').disabled = (n === 0 && media.images.length === 0 && !media.video) || n > 280;
   renderComposePreview('x');
 }
 
@@ -2330,22 +2325,23 @@ function toggleComposePreview(networkId) {
 
 function renderComposePreview(networkId) {
   const isX = networkId === 'x';
+  const media = isX
+    ? xComposeMediaDraft.getSnapshot()
+    : bskyComposeMediaDraft.getSnapshot();
   const preview = document.getElementById(isX ? 'x-compose-preview' : 'b-compose-preview');
   if (!preview) return;
 
   const text = document.getElementById(isX ? 'x-cta' : 'cta')?.value || '';
   const account = isX ? state.xs?.[selectedXIdx] : state.b;
   const crossPosting = isX
-    ? Boolean(document.getElementById('x-cross-post-b')?.checked && !xVideoFile)
+    ? Boolean(document.getElementById('x-cross-post-b')?.checked && !media.video)
     : Boolean(!replyTarget && document.getElementById('cross-post-x')?.checked);
   const targets = isX
     ? ['X', ...(crossPosting ? ['Bluesky'] : [])]
     : ['Bluesky', ...(crossPosting ? ['X'] : [])];
-  const imageCount = isX ? xImgFiles.length : bImgFiles.length;
-  const altCount = isX
-    ? xImgAlts.filter(Boolean).length
-    : bImgAlts.filter(Boolean).length;
-  const hasVideo = isX && Boolean(xVideoFile);
+  const imageCount = media.images.length;
+  const altCount = media.images.filter(image => image.altText).length;
+  const hasVideo = isX && Boolean(media.video);
   const accountName = isX
     ? (account?.username || 'Xアカウント')
     : (account?.displayName || account?.handle || 'Blueskyアカウント');
@@ -2384,7 +2380,7 @@ function updateXCrossPostControls() {
     return;
   }
 
-  const videoUnsupported = Boolean(xVideoFile);
+  const videoUnsupported = Boolean(xComposeMediaDraft.getSnapshot().video);
   checkbox.disabled = videoUnsupported;
   checkbox.checked = videoUnsupported
     ? false
@@ -2405,12 +2401,13 @@ function setXCrossPostDraftLocked(locked) {
   const imageArea = document.getElementById('x-img-area');
   const accountSelect = document.getElementById('x-acc-select');
   if (textarea) textarea.readOnly = locked;
-  if (checkbox) checkbox.disabled = locked || Boolean(xVideoFile);
+  if (checkbox) checkbox.disabled = locked || Boolean(xComposeMediaDraft.getSnapshot().video);
   if (imageArea) imageArea.style.pointerEvents = locked ? 'none' : '';
   if (accountSelect) accountSelect.style.pointerEvents = locked ? 'none' : '';
 }
 
 async function doXOriginCrossPost(text) {
+  const media = xComposeMediaDraft.getSnapshot();
   const account = state.xs?.[selectedXIdx];
   if (!account) { toast('Xアカウントを選択してください'); return; }
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
@@ -2425,14 +2422,14 @@ async function doXOriginCrossPost(text) {
     networkId: 'x',
     accountId: account.username || account.partition,
     text,
-    images: xImgFiles.map(file => ({ file })),
+    images: media.images.map(image => ({ file: image.file })),
     replyTo: null,
   });
   const bRequest = composeRequests.createComposeRequest({
     networkId: 'b',
     accountId: state.b.did,
     text,
-    images: xImgFiles.map((file, index) => ({ file, altText: xImgAlts[index] || '' })),
+    images: media.images,
     replyTo: null,
   });
   const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
@@ -2500,7 +2497,8 @@ async function doXOriginCrossPost(text) {
 }
 
 async function doXPost() {
-  const crossPosting = Boolean(document.getElementById('x-cross-post-b')?.checked && state.b && !xVideoFile);
+  const media = xComposeMediaDraft.getSnapshot();
+  const crossPosting = Boolean(document.getElementById('x-cross-post-b')?.checked && state.b && !media.video);
   if (crossPosting) {
     if (crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending')) return;
   } else if (xComposeAttempt.getSnapshot().status === 'sending') {
@@ -2512,7 +2510,7 @@ async function doXPost() {
     if (!confirmedMissing) return;
   }
   const text = document.getElementById('x-cta').value.trim();
-  if (!text && xImgFiles.length === 0 && !xVideoFile) return;
+  if (!text && media.images.length === 0 && !media.video) return;
   if (crossPosting) {
     await doXOriginCrossPost(text);
     return;
@@ -2537,11 +2535,8 @@ async function doXPost() {
   }
 
   // 動画の長さチェック
-  if (xVideoFile) {
-    const vid = document.getElementById('x-video-preview');
-    const duration = vid?.duration || 0;
-    const trimEnd = xTrimOut || duration;
-    const trimDur = trimEnd - xTrimIn;
+  if (media.video) {
+    const trimDur = media.video.trimDurationSeconds;
     if (trimDur > 140) {
       toast(`動画が長すぎます（${fmtSec(trimDur)}）。2分20秒以内にトリミングしてください`);
       return;
@@ -2552,11 +2547,11 @@ async function doXPost() {
     networkId: 'x',
     accountId: acc?.username || targetPartition,
     text,
-    images: xImgFiles.map(file => ({ file })),
-    video: xVideoFile
+    images: media.images.map(image => ({ file: image.file })),
+    video: media.video
       ? {
-          file: xVideoFile,
-          trim: { startSeconds: xTrimIn, endSeconds: xTrimOut },
+          file: media.video.file,
+          trim: media.video.trim,
         }
       : null,
   });
@@ -2565,7 +2560,7 @@ async function doXPost() {
   const postText = delivery.text;
   const postImgs = delivery.imageFiles;
   const postVideo = delivery.video?.file || null;
-  const postVideoPath = xVideoPath;
+  const postVideoPath = media.video?.path || null;
   const postTrimIn = delivery.video?.trim.startSeconds || 0;
   const postTrimOut = delivery.video?.trim.endSeconds || 0;
 
@@ -2842,6 +2837,7 @@ async function _deliverXPost({
 }
 
 function updCC() {
+  const media = bskyComposeMediaDraft.getSnapshot();
   const n = document.getElementById('cta').value.length;
   const el = document.getElementById('cct');
   const crossPosting = !replyTarget && document.getElementById('cross-post-x')?.checked;
@@ -2849,14 +2845,11 @@ function updCC() {
   document.getElementById('cta').maxLength = limit;
   el.textContent = `${n} / ${limit}`;
   el.className = 'cc' + (n > limit - 40 ? ' w' : '') + (n > limit ? ' over' : '');
-  document.getElementById('sndb').disabled = (n === 0 && bImgFiles.length === 0) || n > limit;
+  document.getElementById('sndb').disabled = (n === 0 && media.images.length === 0) || n > limit;
   renderComposePreview('b');
 }
 
 // ─── BLUESKY 画像添付 ────────────────────────────
-let bImgFiles = [];
-let bImgAlts = [];
-
 function handleBImgDrop(e) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-on');
@@ -2865,11 +2858,9 @@ function handleBImgDrop(e) {
 }
 
 function addBImgFiles(files) {
-  const remaining = 4 - bImgFiles.length;
-  if (remaining <= 0) { toast('画像は最大4枚まで'); return; }
-  const newFiles = [...files].filter(f => f.type.startsWith('image/')).slice(0, remaining);
-  bImgFiles.push(...newFiles);
-  newFiles.forEach(() => bImgAlts.push(''));
+  const result = bskyComposeMediaDraft.addFiles(files);
+  if (result.status === 'rejected') { toast('画像は最大4枚まで'); return; }
+  if (result.status !== 'images-added') return;
   renderBImgPreviews();
   const fi = document.getElementById('b-img-file');
   if (fi) fi.value = '';
@@ -2877,8 +2868,7 @@ function addBImgFiles(files) {
 }
 
 function removeBImg(idx) {
-  bImgFiles.splice(idx, 1);
-  bImgAlts.splice(idx, 1);
+  bskyComposeMediaDraft.removeImage(idx);
   renderBImgPreviews();
   updCC();
 }
@@ -2889,23 +2879,29 @@ function renderBImgPreviews() {
   container.querySelectorAll('img').forEach(img => {
     if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
   });
-  container.innerHTML = bImgFiles.map((f, i) => {
-    const url = URL.createObjectURL(f);
+  const { images } = bskyComposeMediaDraft.getSnapshot();
+  container.innerHTML = images.map((image, i) => {
+    const url = URL.createObjectURL(image.file);
     return `<div style="position:relative;width:100%;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg3);margin-bottom:5px;border:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px;padding:5px 8px">
         <img src="${url}" style="width:52px;height:52px;object-fit:cover;border-radius:4px;flex-shrink:0">
         <input type="text" placeholder="Alt テキスト（画像の説明）" maxlength="1000"
           id="b-alt-${i}"
           style="flex:1;background:transparent;border:none;color:var(--text2);font-size:11px;font-family:inherit;outline:none;min-width:0"
-          value="${esc(bImgAlts[i] || '')}"
-          oninput="bImgAlts[${i}]=this.value;renderComposePreview('b')">
+          value="${esc(image.altText)}"
+          oninput="updateBImgAlt(${i},this.value)">
         <button onclick="removeBImg(${i})"
           style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:10px;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
       </div>
     </div>`;
   }).join('');
   const drop = document.getElementById('b-img-drop');
-  if (drop) drop.style.opacity = bImgFiles.length >= 4 ? '0.4' : '1';
+  if (drop) drop.style.opacity = images.length >= composeMedia.MAX_IMAGE_COUNT ? '0.4' : '1';
+}
+
+function updateBImgAlt(index, value) {
+  bskyComposeMediaDraft.updateAlt(index, value);
+  renderComposePreview('b');
 }
 
 function resetBImgUI() {
@@ -2916,8 +2912,7 @@ function resetBImgUI() {
     });
     container.innerHTML = '';
   }
-  bImgFiles = [];
-  bImgAlts = [];
+  bskyComposeMediaDraft.clear();
   const drop = document.getElementById('b-img-drop');
   if (drop) { drop.style.opacity = '1'; }
   const fi = document.getElementById('b-img-file');
@@ -2999,6 +2994,7 @@ function findXComposeWebView(account) {
 }
 
 async function doCrossPost(text) {
+  const media = bskyComposeMediaDraft.getSnapshot();
   const accountIndex = Number(document.getElementById('cross-post-x-account')?.value || 0);
   const account = state.xs?.[accountIndex];
   if (!account) { toast('Xアカウントを選択してください'); return; }
@@ -3013,14 +3009,14 @@ async function doCrossPost(text) {
     networkId: 'b',
     accountId: state.b.did,
     text,
-    images: bImgFiles.map((file, index) => ({ file, altText: bImgAlts[index] || '' })),
+    images: media.images,
     replyTo: null,
   });
   const xRequest = composeRequests.createComposeRequest({
     networkId: 'x',
     accountId: account.username || account.partition,
     text,
-    images: bImgFiles.map(file => ({ file })),
+    images: media.images.map(image => ({ file: image.file })),
     replyTo: null,
   });
   const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
@@ -3086,9 +3082,10 @@ async function doCrossPost(text) {
 }
 
 async function doSend() {
+  const media = bskyComposeMediaDraft.getSnapshot();
   if (bskyComposeAttempt.getSnapshot().status === 'sending') return;
   const text = document.getElementById('cta').value.trim();
-  if (!text && bImgFiles.length === 0) return;
+  if (!text && media.images.length === 0) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
   if (!replyTarget && document.getElementById('cross-post-x')?.checked) {
     await doCrossPost(text);
@@ -3099,10 +3096,7 @@ async function doSend() {
     networkId: 'b',
     accountId: state.b.did,
     text,
-    images: bImgFiles.map((file, index) => ({
-      file,
-      altText: bImgAlts[index] || '',
-    })),
+    images: media.images,
     replyTo: replyTarget
       ? {
           root: {
