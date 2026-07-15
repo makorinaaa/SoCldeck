@@ -26,6 +26,39 @@ test('loads Mute Rules before the renderer entry point', () => {
   assert.ok(muteRulesIndex < rendererIndex);
 });
 
+test('loads the X WebView Runtime before renderer and keeps X ownership behind it', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/x-webview-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckXWebViewRuntime\.createXWebViewRuntime\(\{/);
+  assert.match(renderer, /xWebViewRuntime\.mountColumn\(\{/);
+  assert.match(renderer, /xWebViewRuntime\.executeCompose\(/);
+  assert.match(renderer, /xWebViewRuntime\.listNotifications\(\{/);
+  assert.match(renderer, /xWebViewRuntime\.openNotificationTarget\(\{/);
+  assert.match(renderer, /columnLifecycle\.refreshAll\(\)/);
+  assert.match(renderer, /columnLifecycle\.clear\(\{ removeElements: true \}\)/);
+  assert.doesNotMatch(renderer, /document\.createElement\(\s*['"]webview['"]\s*\)/);
+  assert.doesNotMatch(renderer, /<webview\b/i);
+  assert.doesNotMatch(renderer, /querySelector\(\s*['"]webview['"]\s*\)/);
+  assert.doesNotMatch(renderer, /getElementById\(\s*`wv-\$\{/);
+  assert.doesNotMatch(renderer, /\b(?:xPostingNow|wvReloadQueue|wvSilentReloading)\b/);
+  assert.doesNotMatch(
+    renderer,
+    /\b(?:getXNotificationReader|waitForXNotificationReader|waitForXColumnWebViewReady)\b/,
+  );
+  assert.doesNotMatch(renderer, /\bX_[A-Z_]+_SCRIPT\b/);
+  assert.doesNotMatch(
+    renderer,
+    /querySelectorAll\(['"]webview['"]\)\.forEach\([^)]*\.reload\(/,
+  );
+});
+
 test('keeps Compose Experience media Runtime State out of renderer globals', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
 

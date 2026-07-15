@@ -46,10 +46,23 @@
       return state.parkedIds.slice();
     }
 
+    function unregister(partition, webviewId) {
+      const state = states.get(partition);
+      if (!state) return [];
+      if (state.ownerId === webviewId) {
+        states.delete(partition);
+        return state.parkedIds.slice();
+      }
+      state.parkedIds = state.parkedIds.filter(id => id !== webviewId);
+      return [];
+    }
+
     return {
+      clear: () => states.clear(),
       isActive: partition => states.has(partition),
       observe,
       register,
+      unregister,
     };
   }
 

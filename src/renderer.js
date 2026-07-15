@@ -14,6 +14,7 @@ const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
 const notificationCenter = window.SocialDeckNotificationCenter;
 const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
+let xWebViewRuntime;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -144,9 +145,9 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
   clearRefreshSchedule: id => refreshScheduler.remove(id),
   executeRefresh: (id, plan) => networkAdapters.executeColumnRefresh(id, plan, {
-    refreshXNavigation: executeXNavigationRefresh,
-    reloadWebView: id => wvReload(id, { silent: true }),
-    loadWebViewUrl: (id, url) => document.getElementById(`wv-${id}`)?.loadURL(url),
+    refreshXNavigation: (id, destination) => xWebViewRuntime.refreshNavigation(id, destination),
+    reloadWebView: id => xWebViewRuntime.reload(id, { silent: true }),
+    loadWebViewUrl: (id, url) => xWebViewRuntime.navigateToStart(id, url),
     refreshBlueskyFeed: silentRefreshBsky,
   }),
   applyWidth: (id, width) => {
@@ -158,9 +159,12 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   cleanupRuntimeState: id => {
     delete colCursors[id];
     collapsedCols.delete(id);
-    wvSilentReloading.delete(id);
+    xWebViewRuntime?.disposeColumn(id);
     localStorage.removeItem(`col_fs_${id}`);
   },
+  listElementIds: () => [...document.querySelectorAll('#cols .col')]
+    .map(element => element.id?.replace(/^col-/, ''))
+    .filter(Boolean),
   removeElement: id => {
     const element = document.getElementById(`col-${id}`);
     if (!element) return false;
@@ -378,6 +382,7 @@ function getXAccountPartitions() {
 }
 
 function syncXNetworkAccounts() {
+  xWebViewRuntime?.syncAccounts(state.xs || []);
   if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
     return Promise.resolve([]);
   }
@@ -402,6 +407,7 @@ function switchTab(t) {
 }
 
 function updateLoginUI() {
+  xWebViewRuntime?.syncAccounts(state.xs || []);
   const xStatus = document.getElementById('x-status');
   const bStatus = document.getElementById('b-status');
   const xAccounts = state.xs || [];
@@ -572,7 +578,7 @@ async function logoutAll() {
     await window.electronAPI.clearAllXSessions();
   }
   // 全カラムの自動更新を停止
-  columnLifecycle.clear();
+  columnLifecycle.clear({ removeElements: true });
   document.getElementById('notif-center-x-readers')?.replaceChildren();
   notificationCenterItems = [];
   xNotificationCenterItems = [];
@@ -596,6 +602,7 @@ async function logoutAll() {
 
 // ─── APP RENDER ────────────────────────────────
 function renderApp() {
+  xWebViewRuntime.syncAccounts(state.xs || []);
   renderNavChips();
   renderSbAvatars();
   renderDefaultCols();
@@ -665,10 +672,21 @@ async function initWvPreloadPath() {
 }
 const refreshScheduler = window.SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
+xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
+  documentRef: document,
+  storage: localStorage,
+  isElectron: IS_ELECTRON,
+  loginGate: xLoginGate,
+  isLoginPending: partition => getXAccountByPartition(partition)?.loginPending === true,
+  completeLogin: completeXLogin,
+  getRefreshInterval: id => columnLifecycle.getRefreshInterval(id),
+  setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
+  defaultRefreshInterval: DEFAULT_INTERVAL_MS,
+  createRefreshScript: destination => window.SocialDeckXTimelineRefresh.createRefreshScript(destination),
+  getCanonicalUrl: getXNotificationColumnUrl,
+  openImage: openImg,
+});
 
-function setColumnAutoRefresh(id, ms) {
-  columnLifecycle.setRefreshInterval(id, ms);
-}
 async function silentRefreshBsky(cid, type, feedUri) {
   if (!state.b) return { status: 'deferred', detail: 'account-unavailable' };
   const feedEl = document.getElementById(`feed-${cid}`);
@@ -756,8 +774,7 @@ function addColBtnHTML() {
 }
 
 function renderDefaultCols() {
-  const cols = document.getElementById('cols');
-  cols.querySelectorAll('.col').forEach(c => c.remove());
+  columnLifecycle.clear({ removeElements: true });
 
   if (restoreColLayout()) return;
 
@@ -783,6 +800,7 @@ async function initializeXLoginStates() {
     }
   }));
   if (changed) saveState();
+  xWebViewRuntime.syncAccounts(state.xs || []);
 }
 
 function getXAccountByPartition(partition) {
@@ -791,30 +809,19 @@ function getXAccountByPartition(partition) {
   );
 }
 
-function completeXLogin(partition, parkedIds) {
+function completeXLogin(partition) {
   const account = getXAccountByPartition(partition);
   if (account?.loginPending) {
     delete account.loginPending;
     saveState();
+    xWebViewRuntime.syncAccounts(state.xs || []);
   }
-  parkedIds.forEach(id => {
-    const webview = document.getElementById(`wv-${id}`);
-    if (!webview || webview.dataset.sdLoginParked !== 'true') return;
-    webview.dataset.sdLoginParked = 'false';
-    const loading = document.getElementById(`wvload-${id}`);
-    if (loading) loading.innerHTML = '<div class="spinner"></div>読み込み中…';
-    webview.src = webview.dataset.sdLoginTarget;
-  });
 }
 
 // ─── WEBVIEW COLUMN (X) ─────────────────────────
 function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   const cols = document.getElementById('cols');
   const addbtn = before || cols.querySelector('.add-col-btn');
-  const loginPending = getXAccountByPartition(partition)?.loginPending === true;
-  const parkedForLogin = xLoginGate.register(partition, cfg.id, loginPending);
-  const initialUrl = parkedForLogin ? 'about:blank' : cfg.url;
-  const loadingLabel = parkedForLogin ? 'Xのログイン完了を待っています…' : '読み込み中…';
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cfg.id}`;
@@ -837,346 +844,23 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
       </div>
     </div>
     <div class="col-webview" style="position:relative">
-      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>${loadingLabel}</div>
-      <webview
-        id="wv-${cfg.id}"
-        src="${initialUrl}"
-        style="flex:1;display:none"
-        partition="${partition}"
-        webpreferences="backgroundThrottling=false"
-        ${wvPreloadPath ? `preload="${wvPreloadPath}"` : ''}
-      ></webview>
+      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>読み込み中…</div>
       <!-- スムーズリロード用オーバーレイ（リロード中に現在の画面を表示し続ける） -->
       <div id="wvov-${cfg.id}" style="display:none;position:absolute;inset:0;z-index:10;pointer-events:none;opacity:1;transition:opacity .4s ease"></div>
     </div>
   `;
   cols.insertBefore(div, addbtn);
+  xWebViewRuntime.mountColumn({
+    id: cfg.id,
+    networkId: cfg.network || 'x',
+    partition,
+    targetUrl: cfg.url,
+    host: div.querySelector('.col-webview'),
+    preloadPath: wvPreloadPath,
+  });
 
-  // webview イベント
-  const wv = div.querySelector('webview');
-  if (wv) {
-    wv.dataset.sdLoginParked = String(parkedForLogin);
-    wv.dataset.sdLoginTarget = cfg.url;
-
-    const observeXLogin = url => {
-      const wasActive = xLoginGate.isActive(partition);
-      const parkedIds = xLoginGate.observe(partition, cfg.id, url);
-      if (wasActive && !xLoginGate.isActive(partition)) {
-        completeXLogin(partition, parkedIds);
-      }
-    };
-    wv.addEventListener('did-navigate', event => observeXLogin(event.url));
-    wv.addEventListener('did-navigate-in-page', event => observeXLogin(event.url));
-
-    // 全ページ共通スタイル（サイドバー・ヘッダー非表示・スクロールバー等）
-    const XSTYLES_BASE = `
-      [data-testid="sidebarColumn"]{display:none!important}
-      [data-testid="DMDrawer"]{display:none!important}
-      header[role="banner"]{display:none!important}
-      .r-1mhb1uw{display:none!important}
-      body{overflow-x:hidden!important}
-      [data-testid="WhoToFollow"]{display:none!important}
-      [data-testid="UserRecommendations"]{display:none!important}
-      *{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.15) transparent}
-      *::-webkit-scrollbar{width:3px;height:3px}
-      *::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:2px}
-      *::-webkit-scrollbar-track{background:transparent}
-    `;
-
-    // ホームの投稿欄を非表示（SocialDeckモーダルを使うため）
-    const XSTYLES_HOME_COMPOSE = `
-      [data-testid="tweetButtonInline"]{display:none!important}
-      [data-testid="tweetTextarea_0"]{display:none!important}
-      [data-testid="tweetTextarea_0_label"]{display:none!important}
-      [data-testid="toolBar"]{display:none!important}
-      [data-testid="tweetTextarea_0RichTextInputContainer"]{display:none!important}
-      div:has(>[data-testid="tweetTextarea_0"]){display:none!important}
-    `;
-
-    // WebView内でstyleタグをDOMベースで制御するスクリプト
-    // 返信ダイアログはURLが変わらずDOMのみ変化するため、
-    // data-testid="tweetButton" の出現/消滅で返信モードを判定する
-    // （ホーム投稿欄には tweetButtonInline のみ存在し tweetButton は存在しない）
-    const X_STYLE_SCRIPT = `
-      (function() {
-        // ベーススタイルを挿入（1回だけ）
-        if (!document.getElementById('__sd_base_style')) {
-          const s = document.createElement('style');
-          s.id = '__sd_base_style';
-          s.textContent = ${JSON.stringify(XSTYLES_BASE)};
-          document.head.appendChild(s);
-        }
-
-        // 投稿欄非表示スタイルのON/OFF制御
-        function setComposeHide(hide) {
-          let cs = document.getElementById('__sd_compose_style');
-          if (!cs) {
-            cs = document.createElement('style');
-            cs.id = '__sd_compose_style';
-            document.head.appendChild(cs);
-          }
-          cs.textContent = hide ? ${JSON.stringify(XSTYLES_HOME_COMPOSE)} : '';
-        }
-
-        function checkCompose() {
-          // tweetButton（返信・新規投稿確定ボタン）が存在する = 返信ダイアログが開いている
-          // ホームの投稿欄には tweetButtonInline のみ存在し tweetButton は存在しない
-          const isReplyOpen = !!document.querySelector('[data-testid="tweetButton"]');
-          setComposeHide(!isReplyOpen);
-        }
-
-        // 初回チェック
-        checkCompose();
-
-        // DOM変化を監視して自動切り替え（50msデバウンスで負荷軽減）
-        if (window._sdStyleObserver) {
-          window._sdStyleObserver.disconnect();
-        }
-        let _sdComposeDebounce = null;
-        window._sdStyleObserver = new MutationObserver(() => {
-          clearTimeout(_sdComposeDebounce);
-          _sdComposeDebounce = setTimeout(checkCompose, 50);
-        });
-        window._sdStyleObserver.observe(document.body, { childList: true, subtree: true });
-      })();
-    `;
-
-    const applyXStyles = () => {
-      wv.executeJavaScript(X_STYLE_SCRIPT).catch(() => {});
-    };
-
-    // ── 新着自動読み込みスクリプト ──
-    // 1. 可視性偽装: Xが常に「見られている」と認識し新着ポーリングを継続する
-    //    (バックグラウンド時にXがポーリングを止めてバナーが出なくなる問題への対策)
-    // 2. バナー不可視化＆自動クリック: 「新しいポストを表示」バナーをCSSで隠し、
-    //    出現をMutationObserverで検知して即クリック → 新着が静かにTLに積まれる
-    const X_AUTOLOAD_SCRIPT = `
-      (function() {
-        // ── 可視性偽装（1回だけ） ──
-        if (!window._sdVisSpoofed) {
-          window._sdVisSpoofed = true;
-          try {
-            Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-            Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-            // visibilitychangeイベントの発火を無効化（hiddenへの遷移をXに知らせない）
-            document.addEventListener('visibilitychange', function(e) { e.stopImmediatePropagation(); }, true);
-            // requestAnimationFrameもバックグラウンドで止まるため、フォールバックを提供
-            window.addEventListener('blur', function(e) { e.stopImmediatePropagation(); }, true);
-          } catch(err) {}
-        }
-
-        // ── バナー不可視化CSS（1回だけ） ──
-        if (!document.getElementById('__sd_banner_hide')) {
-          var s = document.createElement('style');
-          s.id = '__sd_banner_hide';
-          // バナーを視覚的に隠すがクリックは可能な状態にする
-          s.textContent = '[data-testid$="-newTweetsButton"]{opacity:0!important;pointer-events:none!important;height:0!important;min-height:0!important;overflow:hidden!important}';
-          document.head.appendChild(s);
-        }
-
-        // ── バナー自動クリック監視（1回だけ） ──
-        function findBanner() {
-          return document.querySelector('[data-testid$="-newTweetsButton"]')
-            || Array.from(document.querySelectorAll('[role="button"]')).find(function(b) {
-                return /新しいポスト|新しいツイート|Show \\d+ posts?/i.test(b.textContent || '');
-            });
-        }
-        function clickBanner() {
-          var b = findBanner();
-          if (b) {
-            var scroller = document.scrollingElement || document.documentElement;
-            var atTop = scroller.scrollTop < 60;
-            b.click();
-            if (atTop) setTimeout(function(){ scroller.scrollTop = 0; }, 120);
-            return true;
-          }
-          return false;
-        }
-
-        if (!window._sdBannerObserver) {
-          // 初回チェック
-          clickBanner();
-          window._sdBannerObserver = new MutationObserver(function() {
-            clearTimeout(window._sdBannerDebounce);
-            window._sdBannerDebounce = setTimeout(clickBanner, 200);
-          });
-          window._sdBannerObserver.observe(document.body, { childList: true, subtree: true });
-        }
-      })();
-    `;
-
-    const applyXAutoload = () => {
-      wv.executeJavaScript(X_AUTOLOAD_SCRIPT).catch(() => {});
-    };
-
-    // 広告非表示をMutationObserverで安全に実施
-    const X_AD_SCRIPT = `
-      (function() {
-        // 既存のObserverを切断して再接続（ページ遷移後も確実に動作させる）
-        if (window._sdAdObserver) {
-          window._sdAdObserver.disconnect();
-          window._sdAdObserver = null;
-        }
-
-        function hideAds() {
-          document.querySelectorAll('[data-testid="placementTracking"]').forEach(pt => {
-            const cell = pt.closest('[data-testid="cellInnerDiv"]');
-            if (!cell || cell.style.display === 'none') return;
-            const tweet = pt.closest('[data-testid="tweet"]');
-            if (!tweet) cell.style.display = 'none';
-          });
-        }
-
-        hideAds();
-        let _adTimer = null;
-        window._sdAdObserver = new MutationObserver(() => {
-          if (_adTimer) return;
-          _adTimer = setTimeout(() => { _adTimer = null; hideAds(); }, 500);
-        });
-        window._sdAdObserver.observe(document.body, { childList: true, subtree: true });
-      })();
-    `;
-
-    // X画像クリックをSocialDeckのライトボックスに繋ぐスクリプト
-    const X_IMG_SCRIPT = `
-      (function() {
-        // 既存リスナーを削除して毎回最新版を登録
-        if (window._sdImgHandlerFn) {
-          document.removeEventListener('click', window._sdImgHandlerFn, true);
-        }
-
-        function isVideoPhoto(photo) {
-          if (photo.querySelector('video')) return true;
-          if (photo.querySelector('[data-testid="gifPlayer"]')) return true;
-          if (photo.closest('[data-testid="videoPlayer"]')) return true;
-          if (photo.closest('[data-testid="gifPlayer"]')) return true;
-          if (photo.closest('[data-testid="videoComponent"]')) return true;
-          // 再生ボタンが兄弟要素にあれば動画
-          if (photo.parentElement?.querySelector('[data-testid="playButton"]')) return true;
-          // imgのalt属性が「動画」を含む（例: 埋め込み動画）
-          const imgAlt = photo.querySelector('img')?.getAttribute('alt') || '';
-          if (imgAlt.includes('動画') || imgAlt.toLowerCase().includes('video') || imgAlt.includes('gif') || imgAlt.includes('GIF')) return true;
-          // 動画サムネイルはamplify_video_thumbのURLを持つ
-          const img = photo.querySelector('img');
-          if (img?.src?.includes('amplify_video_thumb')) return true;
-          if (img?.src?.includes('ext_tw_video_thumb')) return true;
-          if (img?.src?.includes('tweet_video_thumb')) return true;
-          // 3階層上のコンテナに動画要素があれば動画
-          const container = photo.parentElement?.parentElement?.parentElement;
-          if (container?.querySelector('video, [data-testid="videoPlayer"], [data-testid="gifPlayer"], [data-testid="playButton"]')) return true;
-          return false;
-        }
-
-        window._sdImgHandlerFn = e => {
-          // videoPlayer・gifPlayer・再生ボタン自体のクリックは除外
-          if (e.target.closest('[data-testid="videoPlayer"]')) return;
-          if (e.target.closest('[data-testid="gifPlayer"]')) return;
-          if (e.target.closest('[data-testid="playButton"]')) return;
-          if (e.target.closest('[data-testid="videoComponent"]')) return;
-
-          const imgEl = e.target.closest('[data-testid="tweetPhoto"]');
-          if (!imgEl) return;
-
-          // 動画・GIF判定
-          if (isVideoPhoto(imgEl)) return;
-
-          // pbs.twimg.com の画像のみ収集（動画と判定されないphotoのみ）
-          const tweet = imgEl.closest('[data-testid="tweet"]') || document.body;
-          const allImgs = [...tweet.querySelectorAll('[data-testid="tweetPhoto"]')]
-            .filter(photo => !isVideoPhoto(photo))
-            .map(photo => {
-              const img = photo.querySelector('img');
-              if (!img || !img.src.includes('pbs.twimg.com/media/')) return null;
-              return img.src.split('&name=')[0] + '&name=large';
-            })
-            .filter(Boolean);
-
-          if (!allImgs.length) return;
-
-          const clickedImg = imgEl.querySelector('img');
-          const clickedBase = (clickedImg?.src || '').split('&name=')[0];
-          let idx = allImgs.findIndex(u => u.split('&name=')[0] === clickedBase);
-          if (idx < 0) idx = 0;
-
-          e.preventDefault();
-          e.stopPropagation();
-          window.postMessage(JSON.stringify({ _sdType: 'x-img-open', urls: allImgs, idx }), '*');
-        };
-        document.addEventListener('click', window._sdImgHandlerFn, true);
-      })();
-    `;
-
-    // X返信ボタンをSocialDeckの投稿モーダルに繋ぐスクリプト
-    // dom-ready: スピナーを消してwebviewを表示
-    let _domReadyOnce = false;
-    wv.addEventListener('dom-ready', () => {
-      if (wv.dataset.sdLoginParked === 'true') return;
-      wv.dataset.ready = 'true';
-      document.getElementById(`wvload-${cfg.id}`).style.display = 'none';
-      wv.style.display = 'flex';
-      wv.style.flex = '1';
-      applyXStyles();
-      applyXAutoload();
-      wv.executeJavaScript(X_AD_SCRIPT).catch(() => {});
-      wv.executeJavaScript(X_IMG_SCRIPT).catch(() => {});
-      // 自動更新タイマーは初回のみ設定（ShareX等による dom-ready 再発火でリセットされないように）
-      if (!_domReadyOnce) {
-        _domReadyOnce = true;
-        if (columnLifecycle.getRefreshInterval(cfg.id) === undefined) {
-          setColumnAutoRefresh(cfg.id, DEFAULT_INTERVAL_MS);
-        }
-      }
-    });
-
-    // did-finish-load: スタイル再注入・広告除去・オーバーレイフェードアウト
-    wv.addEventListener('did-finish-load', () => {
-      observeXLogin(wv.getURL());
-      if (wv.dataset.sdLoginParked === 'true') return;
-      wvSilentReloading.delete(cfg.id);
-      setWvRefreshBusy(cfg.id, false);
-      wv.style.opacity = wv.dataset.sdPrevOpacity || '';
-      delete wv.dataset.sdPrevOpacity;
-      applyXStyles();
-      applyXAutoload();
-      const savedFs = parseInt(localStorage.getItem(`col_fs_${cfg.id}`));
-      if (savedFs && savedFs !== 13) {
-        wv.insertCSS(`* { font-size: ${savedFs}px !important; }`).catch(() => {});
-      }
-      wv.executeJavaScript(X_AD_SCRIPT).catch(() => {});
-      wv.executeJavaScript(X_IMG_SCRIPT).catch(() => {});
-      // ナビゲーション完了後にレイアウトを保存（正規化済みURLが使われる）
-      columnLifecycle.persist();
-
-      const ov = document.getElementById(`wvov-${cfg.id}`);
-      if (ov && ov.style.display !== 'none') {
-        ov.style.opacity = '0';
-        setTimeout(() => {
-          ov.style.display = 'none';
-          ov.style.backgroundImage = '';
-          ov.style.opacity = '1';
-        }, 420);
-      }
-    });
-
-    // WebViewからのipc-messageを受信
-    wv.addEventListener('ipc-message', e => {
-      if (e.channel === 'x-img-open') {
-        try {
-          const { urls, idx } = JSON.parse(e.args[0]);
-          if (urls && urls.length) openImg(urls, idx);
-        } catch {}
-      }
-    });
-
-    wv.addEventListener('did-fail-load', () => {
-      wvSilentReloading.delete(cfg.id);
-      setWvRefreshBusy(cfg.id, false);
-      wv.style.opacity = wv.dataset.sdPrevOpacity || '';
-      delete wv.dataset.sdPrevOpacity;
-      document.getElementById(`wvload-${cfg.id}`).innerHTML = `<div style="color:var(--red);font-size:12px;text-align:center;padding:20px">読み込みに失敗しました<br><button onclick="wvReload('${cfg.id}')" style="margin-top:8px;padding:4px 10px;border-radius:5px;background:transparent;border:1px solid var(--red);color:var(--red);cursor:pointer;font-size:11px">再試行</button></div>`;
-    });
-  }
 }
+
 
 function getXNotificationColumnUrl(id) {
   const column = document.getElementById(`col-${id}`);
@@ -1186,14 +870,7 @@ function getXNotificationColumnUrl(id) {
 }
 
 function wvBack(id) {
-  const wv = document.getElementById(`wv-${id}`);
-  if (!wv) return;
-  const notificationUrl = getXNotificationColumnUrl(id);
-  if (notificationUrl) {
-    wv.loadURL(notificationUrl);
-    return;
-  }
-  if (wv.canGoBack()) wv.goBack();
+  xWebViewRuntime.back(id);
 }
 
 // ─── COLUMN COLLAPSE ─────────────────────────────
@@ -1250,15 +927,7 @@ function toggleColCollapse(id) {
 }
 
 function openFirstXWebViewDevTools() {
-  const cols = document.getElementById('cols');
-  let target = null;
-  cols?.querySelectorAll('.col').forEach(col => {
-    const wv = col.querySelector('webview');
-    if (!wv?.src?.includes('x.com')) return;
-    if (!target || wv.src.includes('x.com/home')) target = wv;
-  });
-  if (target) target.openDevTools();
-  else toast('X WebView not found');
+  if (!xWebViewRuntime.openDevTools()) toast('X WebView not found');
 }
 
 // カラムヘッダークリックで先頭へスクロール
@@ -1268,18 +937,11 @@ function wvScrollTop(id) {
   if (collapsedCols.has(id)) { toggleColCollapse(id); return; }
 
   const col = document.getElementById(`col-${id}`);
-  const wv = document.getElementById(`wv-${id}`);
-  if (!wv || !col) return;
+  if (!col) return;
 
   const layout = loadColLayout();
   const saved = layout.find(c => c.id === id);
-  const originalUrl = getXNotificationColumnUrl(id) || saved?.url || wv.src;
-
-  if (wv.src === originalUrl) {
-    wvReload(id);
-  } else {
-    wv.src = originalUrl;
-  }
+  xWebViewRuntime.navigateToStart(id, saved?.url);
 }
 
 function bskyScrollTop(cid) {
@@ -1289,115 +951,10 @@ function bskyScrollTop(cid) {
   if (feedEl) feedEl.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-let xPostingNow = false;
-const wvReloadQueue = new Set();
-const wvSilentReloading = new Set();
-
-function setWvRefreshBusy(id, busy) {
-  const btn = document.getElementById(`rfr-${id}`);
-  if (btn) btn.classList.toggle('updating', !!busy);
-  const sub = document.querySelector(`#col-${id} .col-sub`);
-  if (!sub) return;
-  if (busy) {
-    if (!sub.dataset.origText) sub.dataset.origText = sub.innerHTML;
-    sub.innerHTML = '<div class="ldot" style="background:var(--accent)"></div>更新中...';
-  } else if (sub.dataset.origText) {
-    sub.innerHTML = sub.dataset.origText;
-    delete sub.dataset.origText;
-  }
-}
-
-async function wvReload(id, opts = {}) {
-  const wv = document.getElementById(`wv-${id}`);
-  if (!wv) return;
-
-  if (xPostingNow) {
-    wvReloadQueue.add(id);
-    return;
-  }
-
-  const ov = document.getElementById(`wvov-${id}`);
-  const silent = opts.silent !== false;
-  if (silent) {
-    wvSilentReloading.add(id);
-    setWvRefreshBusy(id, true);
-  }
-
-  if (silent && ov && wv.style.display !== 'none') {
-    try {
-      const dataUrl = await wv.capturePage().then(img => img.toDataURL());
-      ov.style.backgroundImage = `url(${dataUrl})`;
-      ov.style.backgroundSize = '100% auto';
-      ov.style.backgroundRepeat = 'no-repeat';
-      ov.style.backgroundPosition = 'top left';
-      ov.style.display = 'block';
-      ov.style.opacity = '1';
-      wv.dataset.sdPrevOpacity = wv.style.opacity || '';
-      wv.style.opacity = '0';
-    } catch (e) {
-      ov.style.backgroundImage = '';
-      ov.style.backgroundColor = '#000';
-      ov.style.display = 'block';
-      ov.style.opacity = '1';
-      wv.dataset.sdPrevOpacity = wv.style.opacity || '';
-      wv.style.opacity = '0';
-    }
-  }
-
-  const notificationUrl = getXNotificationColumnUrl(id);
-  if (notificationUrl) wv.loadURL(notificationUrl);
-  else wv.reload();
-  if (silent) {
-    setTimeout(() => {
-      if (wvSilentReloading.has(id)) {
-        wvSilentReloading.delete(id);
-        setWvRefreshBusy(id, false);
-        wv.style.opacity = wv.dataset.sdPrevOpacity || '';
-        delete wv.dataset.sdPrevOpacity;
-      }
-    }, 30000);
-  }
-}
-
-async function refreshXColumnIds(ids) {
-  await Promise.all(ids.map(async id => {
-    const definitionId = document.getElementById(`col-${id}`)?.dataset.definitionId;
-    const destination = definitionId === 'x-home-new'
-      ? 'home'
-      : definitionId === 'x-notif-new'
-        ? 'notifications'
-        : null;
-    if (!destination) {
-      wvReload(id, { silent: true });
-      return;
-    }
-    const refreshed = await softReloadX(id, destination);
-    if (!refreshed) wvReload(id, { silent: true });
-  }));
-}
-
-async function flushWvReloadQueue() {
-  if (wvReloadQueue.size === 0) return;
-  const ids = [...wvReloadQueue];
-  wvReloadQueue.clear();
-  await refreshXColumnIds(ids);
-}
-
-async function refreshXColumnsForPartition(partition) {
-  const ids = [...document.querySelectorAll('webview')]
-    .filter(webview => webview.partition === partition)
-    .map(webview => webview.id?.replace('wv-', ''))
-    .filter(Boolean);
-
-  await refreshXColumnIds(ids);
-}
 
 async function refreshAfterCompose(target) {
   if (target.kind === 'x-account-columns') {
-    const account = state.xs?.find(item => item.username === target.accountId);
-    const partition = account?.partition
-      || (target.accountId.startsWith('persist:x-') ? target.accountId : null);
-    if (partition) await refreshXColumnsForPartition(partition);
+    await xWebViewRuntime.refreshAccount(target.accountId);
     return;
   }
 
@@ -1413,29 +970,6 @@ async function refreshAfterCompose(target) {
   throw new Error(`Unsupported compose refresh target: ${target.kind}`);
 }
 
-// XのWebナビゲーションを1回押して、ページ全体を再読み込みせずに更新する。
-async function softReloadX(id, destination = 'home') {
-  const result = await executeXNavigationRefresh(id, destination);
-  return result === 'home-clicked'
-    || result === 'notifications-clicked'
-    || result === 'banner-clicked'
-    || result === 'deferred'
-    || result === 'not-following'
-    || result === 'queued';
-}
-
-async function executeXNavigationRefresh(id, destination = 'home') {
-  const wv = document.getElementById(`wv-${id}`);
-  if (!wv || wv.style.display === 'none') return 'unavailable';
-  if (xPostingNow) { wvReloadQueue.add(id); return 'queued'; }
-
-  try {
-    const script = window.SocialDeckXTimelineRefresh.createRefreshScript(destination);
-    return await wv.executeJavaScript(script);
-  } catch {
-    return 'failed';
-  }
-}
 
 // ─── BLUESKY COLUMN ─────────────────────────────
 function insertBskyCol(cfg, before = null) {
@@ -1449,7 +983,7 @@ function insertBskyCol(cfg, before = null) {
   div.id = `col-${cid}`;
   if (cfg.network) div.dataset.network = cfg.network;
   if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
-  // refreshBskyCol が type と feedUri を読み取れるように dataset に保存
+  // Refresh plans and pagination use the column metadata.
   div.dataset.type = cfg.type || 'timeline';
   if (cfg.feedUri) div.dataset.feeduri = cfg.feedUri;
 
@@ -1478,7 +1012,7 @@ function insertBskyCol(cfg, before = null) {
   // 自動ロードとデフォルト自動更新開始
   if (!hasSearch) {
     loadBskyFeed(cid, cfg.type, cfg.feedUri);
-    setColumnAutoRefresh(cid, DEFAULT_INTERVAL_MS);
+    columnLifecycle.setRefreshInterval(cid, DEFAULT_INTERVAL_MS);
   }
   // フォントサイズ設定を復元
   const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
@@ -1563,14 +1097,6 @@ async function doSearch(cid) {
   } catch (e) {
     feedEl.innerHTML = `<div class="feed-err">検索エラー: ${esc(e.message)}<br><button onclick="doSearch('${cid}')">再試行</button></div>`;
   }
-}
-
-function refreshBskyCol(cid, btn) {
-  btn.classList.add('spin');
-  const col = document.getElementById(`col-${cid}`);
-  const type = col?.dataset?.type || 'timeline';
-  const feedUri = col?.dataset?.feeduri || null;
-  loadBskyFeed(cid, type, feedUri).finally(() => btn.classList.remove('spin'));
 }
 
 function removeCol(id) {
@@ -1968,10 +1494,13 @@ function openBskyProfileCol(handleOrDid) {
     document.querySelectorAll('.col')
   );
   if (existingCol) {
-    const webview = existingCol.querySelector('webview');
     const cid = existingCol.id?.replace('col-', '');
     if (cid && collapsedCols.has(cid)) toggleColCollapse(cid);
-    if (webview?.loadURL) webview.loadURL(url);
+    if (cid) {
+      xWebViewRuntime.navigate(cid, url)
+        .then(() => columnLifecycle.persist())
+        .catch(error => console.warn('Bluesky profile could not be opened:', error));
+    }
     existingCol.scrollIntoView({ behavior: 'smooth', inline: 'center' });
     toast('プロフィールカラムを切り替えました');
     return;
@@ -2456,17 +1985,20 @@ function setXCrossPostDraftLocked(locked) {
   if (accountSelect) accountSelect.style.pointerEvents = locked ? 'none' : '';
 }
 
+function executeXComposeDelivery(delivery, context = {}) {
+  return xWebViewRuntime.executeCompose(
+    delivery,
+    context,
+    (preparedDelivery, preparedContext) =>
+      networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext),
+  );
+}
+
 async function doXOriginCrossPost(text) {
   const media = xComposeMediaDraft.getSnapshot();
   const account = state.xs?.[selectedXIdx];
   if (!account) { toast('Xアカウントを選択してください'); return; }
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
-
-  const webview = findXComposeWebView(account);
-  if (!webview) {
-    toast(`${account.username} のホームカラムを追加してください`);
-    return;
-  }
 
   const xRequest = composeRequests.createComposeRequest({
     networkId: 'x',
@@ -2501,19 +2033,7 @@ async function doXOriginCrossPost(text) {
     {
       id: 'x',
       request: xRequest,
-      deliver: async () => {
-        xPostingNow = true;
-        try {
-          return await networkAdapters.executeComposeDelivery(xDelivery, { webview });
-        } finally {
-          xPostingNow = false;
-          try {
-            await flushWvReloadQueue();
-          } catch (error) {
-            console.warn('Queued X refresh failed:', error);
-          }
-        }
-      },
+      deliver: () => executeXComposeDelivery(xDelivery),
       completionPlan: xCompletion,
     },
     {
@@ -2560,22 +2080,7 @@ async function doXPost() {
   }
 
   const acc = state.xs?.[selectedXIdx];
-  const targetPartition = acc?.partition || 'persist:x-0';
-
-  let wv = null, wvFallback = null;
-
-  document.querySelectorAll('webview').forEach(el => {
-    if (el.partition !== targetPartition) return;
-    const src = el.src || '';
-    if (src.includes('x.com/home') || src.includes('twitter.com/home')) wv = el;
-    else if (!wvFallback) wvFallback = el;
-  });
-  if (!wv) wv = wvFallback;
-
-  if (!wv) {
-    toast(`${acc?.username || 'X'} のホームカラムが見つかりません。カラム追加から「ホーム」を追加してください`);
-    return;
-  }
+  if (!acc) { toast('Xアカウントを選択してください'); return; }
 
   // 動画の長さチェック
   if (media.video) {
@@ -2588,7 +2093,7 @@ async function doXPost() {
 
   const request = composeRequests.createComposeRequest({
     networkId: 'x',
-    accountId: acc?.username || targetPartition,
+    accountId: acc.username || acc.partition,
     text,
     images: media.images.map(image => ({ file: image.file })),
     video: media.video
@@ -2602,23 +2107,15 @@ async function doXPost() {
   const completionPlan = networkAdapters.prepareComposeCompletion(request);
 
   setComposeBusy('xPostMod', 'x-sndb', true, '送信中…');
-  xPostingNow = true;
   const result = await composeCoordinator.submitSingle({
     networkId: 'x',
     request,
-    deliver: () => networkAdapters.executeComposeDelivery(delivery, {
-      webview: wv,
+    deliver: () => executeXComposeDelivery(delivery, {
       videoPath: media.video?.path || null,
       videoDuration: media.video?.durationSeconds || 0,
     }),
     completionPlan,
   });
-  xPostingNow = false;
-  try {
-    await flushWvReloadQueue();
-  } catch (error) {
-    console.warn('Queued X refresh failed:', error);
-  }
 
   setComposeBusy('xPostMod', 'x-sndb', false);
   if (result.status === 'succeeded') {
@@ -2784,30 +2281,11 @@ async function resolveMentionDids(facets, jwt) {
   });
 }
 
-function findXComposeWebView(account) {
-  const partition = account?.partition || 'persist:x-0';
-  let home = null;
-  let fallback = null;
-  document.querySelectorAll('webview').forEach(webview => {
-    if (webview.partition !== partition) return;
-    const src = webview.src || '';
-    if (src.includes('x.com/home') || src.includes('twitter.com/home')) home = webview;
-    else if (!fallback) fallback = webview;
-  });
-  return home || fallback;
-}
-
 async function doCrossPost(text) {
   const media = bskyComposeMediaDraft.getSnapshot();
   const accountIndex = Number(document.getElementById('cross-post-x-account')?.value || 0);
   const account = state.xs?.[accountIndex];
   if (!account) { toast('Xアカウントを選択してください'); return; }
-
-  const webview = findXComposeWebView(account);
-  if (!webview) {
-    toast(`${account.username} のホームカラムを追加してください`);
-    return;
-  }
 
   const bRequest = composeRequests.createComposeRequest({
     networkId: 'b',
@@ -2840,19 +2318,7 @@ async function doCrossPost(text) {
     {
       id: 'x',
       request: xRequest,
-      deliver: async () => {
-        xPostingNow = true;
-        try {
-          return await networkAdapters.executeComposeDelivery(xDelivery, { webview });
-        } finally {
-          xPostingNow = false;
-          try {
-            await flushWvReloadQueue();
-          } catch (error) {
-            console.warn('Queued X refresh failed:', error);
-          }
-        }
-      },
+      deliver: () => executeXComposeDelivery(xDelivery),
       completionPlan: xCompletion,
     },
     {
@@ -2976,13 +2442,21 @@ function mkOpt(id, icon, name, desc, disabled, plat) {
 }
 
 let extraColN = 0;
+function nextColumnId(prefix) {
+  let id;
+  do {
+    extraColN += 1;
+    id = `${prefix}-${extraColN}`;
+  } while (document.getElementById(`col-${id}`));
+  return id;
+}
+
 function addColFromModal(definitionId, network, accountIdx) {
   closeOv('addMod');
-  extraColN++;
   // X: アカウントindexをIDに含めて一意にする
   const id = network === 'x'
-    ? `x${accountIdx}-${definitionId}-${extraColN}`
-    : `${definitionId}-${extraColN}`;
+    ? nextColumnId(`x${accountIdx}-${definitionId}`)
+    : nextColumnId(definitionId);
   const xAccount = network === 'x' ? state.xs?.[accountIdx ?? 0] : null;
   const result = columnLifecycle.create({
     networkId: network,
@@ -3033,7 +2507,7 @@ function openColSettings(id, colType) {
   document.body.appendChild(ov);
 }
 function applyInterval(id, ms) {
-  setColumnAutoRefresh(id, ms);
+  columnLifecycle.setRefreshInterval(id, ms);
   const label = ms===0?'OFF':ms<60000?(ms/1000)+' sec':(ms/60000)+' min';
   toast('Auto refresh: '+label);
   document.getElementById('col-settings-ov')?.remove();
@@ -3043,9 +2517,7 @@ function applyInterval(id, ms) {
 function applyColFontSize(id, colType, fs) {
   localStorage.setItem(`col_fs_${id}`, fs);
   if (colType === 'wv') {
-    // XのWebViewにCSSを注入
-    const wv = document.getElementById(`wv-${id}`);
-    if (wv) wv.insertCSS(`* { font-size: ${fs}px !important; }`).catch(() => {});
+    xWebViewRuntime.setFontSize(id, fs);
   } else {
     // Bskyのfeedにfont-sizeを適用
     const feed = document.getElementById(`feed-${id}`);
@@ -3210,57 +2682,12 @@ async function loadNotificationCenter() {
   }
 }
 
-function getXNotificationReader(account, accountIndex) {
-  const host = document.getElementById('notif-center-x-readers');
-  if (!host || !IS_ELECTRON) return null;
-  const id = `x-notif-reader-${accountIndex}`;
-  let webview = document.getElementById(id);
-  if (webview && webview.partition !== account.partition) {
-    webview.remove();
-    webview = null;
-  }
-  if (webview) return webview;
-
-  webview = document.createElement('webview');
-  webview.id = id;
-  webview.setAttribute('partition', account.partition || `persist:x-${accountIndex}`);
-  webview.setAttribute('webpreferences', 'backgroundThrottling=false');
-  webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
-  webview.src = 'https://x.com/notifications';
-  host.appendChild(webview);
-  return webview;
-}
-
-function waitForXNotificationReader(webview) {
-  if (webview.dataset.ready === 'true') return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('X通知ページの読み込みがタイムアウトしました'));
-    }, 15000);
-    const ready = () => { cleanup(); resolve(); };
-    const failed = event => {
-      if (event.errorCode === -3) return;
-      cleanup();
-      reject(new Error('X通知ページを読み込めませんでした'));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      webview.removeEventListener('dom-ready', ready);
-      webview.removeEventListener('did-fail-load', failed);
-    };
-    webview.addEventListener('dom-ready', ready, { once: true });
-    webview.addEventListener('did-fail-load', failed);
-  });
-}
-
 async function loadXNotificationsForAccount(account, accountIndex) {
-  const webview = getXNotificationReader(account, accountIndex);
-  if (!webview) return [];
-  await waitForXNotificationReader(webview);
-  const rawItems = await webview.executeJavaScript(
-    notificationCenter.buildXNotificationExtractionScript(40)
-  );
+  const rawItems = await xWebViewRuntime.listNotifications({
+    accountId: account.username || account.partition || `persist:x-${accountIndex}`,
+    host: document.getElementById('notif-center-x-readers'),
+    script: notificationCenter.buildXNotificationExtractionScript(40),
+  });
   return (rawItems || []).map(raw => notificationCenter.normalizeXNotification(raw, {
     account,
     accountIndex,
@@ -3390,52 +2817,23 @@ async function openXNotificationCenterItem(item) {
   const account = state.xs?.[item.accountIndex];
   if (!account) return;
   const targetCol = goToNotifCol('x', item.accountIndex);
-  const webview = targetCol?.querySelector('webview');
-  if (!webview?.loadURL) return;
-  const targetUrl = item.targetUrl || 'https://x.com/notifications';
-  const requiresNotificationActivation = ['like', 'repost', 'reply', 'mention', 'quote'].includes(item.reason)
-    && !/\/status\/\d+/.test(targetUrl);
-  if (!requiresNotificationActivation) {
-    webview.loadURL(targetUrl);
-    return;
-  }
+  const columnId = targetCol?.id?.replace(/^col-/, '');
+  if (!columnId) return;
 
   try {
-    await waitForXColumnWebViewReady(webview);
-    if (webview.getURL?.() !== 'https://x.com/notifications') {
-      await webview.loadURL('https://x.com/notifications');
+    const result = await xWebViewRuntime.openNotificationTarget({
+      columnId,
+      item,
+      notificationUrl: 'https://x.com/notifications',
+      activationScript: notificationCenter.buildXNotificationActivationScript(item.raw),
+    });
+    if (result.status === 'not-found') {
+      toast('対象のポストを通知ページで見つけられませんでした');
     }
-    const activated = await webview.executeJavaScript(
-      notificationCenter.buildXNotificationActivationScript(item.raw)
-    );
-    if (!activated) toast('対象のポストを通知ページで見つけられませんでした');
   } catch (error) {
     console.warn('X notification target could not be opened:', error);
     toast('対象のポストを開けませんでした');
   }
-}
-
-function waitForXColumnWebViewReady(webview) {
-  if (webview.dataset.ready === 'true') return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('X通知カラムの読み込みがタイムアウトしました'));
-    }, 15000);
-    const ready = () => { cleanup(); resolve(); };
-    const failed = event => {
-      if (event.errorCode === -3) return;
-      cleanup();
-      reject(new Error('X通知カラムを読み込めませんでした'));
-    };
-    const cleanup = () => {
-      clearTimeout(timeout);
-      webview.removeEventListener('dom-ready', ready);
-      webview.removeEventListener('did-fail-load', failed);
-    };
-    webview.addEventListener('dom-ready', ready, { once: true });
-    webview.addEventListener('did-fail-load', failed);
-  });
 }
 
 async function markNotificationCenterRead() {
@@ -3474,8 +2872,7 @@ function scrollToNotifCol(baseId, xIdx, acc) {
   } else {
     // カラムがなければ追加
     if (xIdx >= 0 && acc) {
-      extraColN++;
-      const id = `x${xIdx}-x-notif-new-${extraColN}`;
+      const id = nextColumnId(`x${xIdx}-x-notif-new`);
       const result = columnLifecycle.create({
         networkId: 'x',
         definitionId: 'x-notif-new',
@@ -3528,12 +2925,8 @@ function scrollColsToStart() {
   cols.scrollTo({ left: 0, behavior: 'smooth' });
 }
 
-function refreshAll() {
-  document.querySelectorAll('[id^="rfr-"]').forEach(btn => {
-    if (!btn.classList.contains('spin')) btn.click();
-  });
-  // X webviews
-  document.querySelectorAll('webview').forEach(wv => wv.reload());
+async function refreshAll() {
+  await columnLifecycle.refreshAll();
   toast('Refreshing all feeds...');
 }
 
@@ -3727,8 +3120,7 @@ function confirmXList(accountIdx) {
   const xPart = acc?.partition || `persist:x-${accountIdx ?? 0}`;
   const accLabel = acc ? ` - ${acc.username}` : '';
 
-  extraColN++;
-  const id = `x${accountIdx}-list-${listId}-${extraColN}`;
+  const id = nextColumnId(`x${accountIdx}-list-${listId}`);
   const result = columnLifecycle.create({
     networkId: 'x',
     definitionId: 'x-list-new',

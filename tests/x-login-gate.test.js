@@ -44,3 +44,33 @@ test('does not gate an existing authenticated X account', () => {
   assert.equal(gate.register('persist:x-0', 'home', false), false);
   assert.equal(gate.register('persist:x-0', 'notifications', false), false);
 });
+
+test('releases parked WebViews when the login owner is removed', () => {
+  const gate = loadModule().createXLoginGate();
+  gate.register('persist:x-0', 'home', true);
+  gate.register('persist:x-0', 'notifications', true);
+  gate.register('persist:x-0', 'search', true);
+
+  assert.deepEqual(
+    Array.from(gate.unregister('persist:x-0', 'home')),
+    ['notifications', 'search'],
+  );
+  assert.equal(gate.isActive('persist:x-0'), false);
+});
+
+test('removes a parked WebView without disturbing the login owner', () => {
+  const gate = loadModule().createXLoginGate();
+  gate.register('persist:x-0', 'home', true);
+  gate.register('persist:x-0', 'notifications', true);
+
+  assert.deepEqual(Array.from(gate.unregister('persist:x-0', 'notifications')), []);
+  assert.equal(gate.isActive('persist:x-0'), true);
+  assert.deepEqual(
+    Array.from(gate.observe('persist:x-0', 'home', 'https://x.com/i/flow/login')),
+    [],
+  );
+  assert.deepEqual(
+    Array.from(gate.observe('persist:x-0', 'home', 'https://x.com/home')),
+    [],
+  );
+});

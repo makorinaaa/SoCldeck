@@ -77,6 +77,21 @@ test('creates a Column from a Definition through its lifecycle interface', () =>
   ]);
 });
 
+test('rejects a duplicate Column id without inserting or persisting it', async () => {
+  const { lifecycle, events } = createHarness();
+  lifecycle.create({ networkId: 'wv', definitionId: 'home', id: 'duplicate' });
+  events.length = 0;
+
+  const result = lifecycle.create({ networkId: 'bsky', definitionId: 'timeline', id: 'duplicate' });
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.error.message, /already materialized/);
+  assert.deepEqual(events, []);
+
+  await lifecycle.refreshNow('duplicate');
+  assert.deepEqual(events, [['execute-refresh', 'duplicate', 'wv']]);
+});
+
 test('returns an input requirement without registering an incomplete Column', () => {
   const events = [];
   const lifecycle = loadFactory()({
@@ -164,6 +179,162 @@ test('reports a deferred refresh without changing the last successful time', asy
   assert.equal(result.status, 'deferred');
   assert.equal(states.at(-1).status, 'deferred');
   assert.equal(states.at(-1).lastUpdatedAt, undefined);
+});
+
+test('refreshes every registered plan exactly once and returns the results', async () => {
+  const calls = [];
+  const lifecycle = loadFactory()({
+    createPlan: request => ({
+      kind: request.networkId,
+      refresh: { kind: request.networkId },
+      config: { id: request.id, network: request.networkId, definitionId: request.definitionId },
+    }),
+    insertPlan: () => true,
+    executeRefresh: async (id, plan) => {
+      calls.push([id, plan.kind]);
+      return { status: 'succeeded', detail: `${id}-refreshed` };
+    },
+  });
+  lifecycle.create({ networkId: 'x', definitionId: 'home', id: 'first' });
+  lifecycle.create({ networkId: 'b', definitionId: 'timeline', id: 'second' });
+
+  const results = await lifecycle.refreshAll();
+
+  assert.deepEqual(calls, [
+    ['first', 'x'],
+    ['second', 'b'],
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(results)), [
+    { status: 'succeeded', detail: 'first-refreshed' },
+    { status: 'succeeded', detail: 'second-refreshed' },
+  ]);
+});
+
+test('clears refresh and Runtime State for every registered Column without persisting', async () => {
+  const { lifecycle, events } = createHarness();
+  lifecycle.create({ networkId: 'wv', definitionId: 'home', id: 'first' });
+  lifecycle.create({ networkId: 'bsky', definitionId: 'timeline', id: 'second' });
+  lifecycle.setRefreshInterval('first', 1000);
+  events.length = 0;
+
+  lifecycle.clear();
+
+  assert.deepEqual(events, [
+    ['clear-refresh', 'first'],
+    ['cleanup-runtime', 'first'],
+    ['clear-refresh', 'second'],
+    ['cleanup-runtime', 'second'],
+  ]);
+  assert.equal((await lifecycle.refreshNow('first')).status, 'failed');
+});
+
+test('clear can remove registered elements without persisting', () => {
+  const { lifecycle, events } = createHarness();
+  lifecycle.create({ networkId: 'wv', definitionId: 'home', id: 'first' });
+  lifecycle.create({ networkId: 'bsky', definitionId: 'timeline', id: 'second' });
+  events.length = 0;
+
+  lifecycle.clear({ removeElements: true });
+
+  assert.deepEqual(events, [
+    ['clear-refresh', 'first'],
+    ['cleanup-runtime', 'first'],
+    ['remove-element', 'first'],
+    ['clear-refresh', 'second'],
+    ['cleanup-runtime', 'second'],
+    ['remove-element', 'second'],
+  ]);
+});
+
+test('clear can remove an unregistered restore error element', () => {
+  const events = [];
+  const lifecycle = loadFactory()({
+    createPlan: () => null,
+    insertPlan: () => false,
+    listElementIds: () => ['restore-error'],
+    clearRefreshSchedule: id => events.push(['clear-refresh', id]),
+    cleanupRuntimeState: id => events.push(['cleanup-runtime', id]),
+    removeElement: id => {
+      events.push(['remove-element', id]);
+      return true;
+    },
+  });
+
+  lifecycle.clear({ removeElements: true });
+
+  assert.deepEqual(events, [
+    ['clear-refresh', 'restore-error'],
+    ['cleanup-runtime', 'restore-error'],
+    ['remove-element', 'restore-error'],
+  ]);
+});
+
+test('removes registration when materialization fails so the id can be retried', async () => {
+  let shouldInsert = false;
+  const events = [];
+  const lifecycle = loadFactory()({
+    createPlan: request => ({
+      kind: 'wv',
+      refresh: { kind: 'wv' },
+      config: { id: request.id, network: 'x', definitionId: request.definitionId },
+    }),
+    insertPlan: plan => {
+      events.push(['insert', plan.config.id]);
+      return shouldInsert;
+    },
+    clearRefreshSchedule: id => events.push(['clear-refresh', id]),
+    persistWorkspace: () => events.push(['persist']),
+  });
+
+  const failed = lifecycle.create({ networkId: 'x', definitionId: 'home', id: 'retry' });
+  const refreshAfterFailure = await lifecycle.refreshNow('retry');
+  shouldInsert = true;
+  const retried = lifecycle.create({ networkId: 'x', definitionId: 'home', id: 'retry' });
+
+  assert.equal(failed.status, 'failed');
+  assert.equal(refreshAfterFailure.status, 'failed');
+  assert.equal(retried.status, 'created');
+  assert.deepEqual(events, [
+    ['insert', 'retry'],
+    ['clear-refresh', 'retry'],
+    ['insert', 'retry'],
+    ['persist'],
+  ]);
+});
+
+test('rolls back the mounted Column when workspace persistence fails', async () => {
+  const events = [];
+  const lifecycle = loadFactory()({
+    createPlan: request => ({
+      kind: 'wv',
+      refresh: { kind: 'wv' },
+      config: { id: request.id, network: 'x', definitionId: request.definitionId },
+    }),
+    insertPlan: plan => {
+      events.push(['insert', plan.config.id]);
+      return true;
+    },
+    clearRefreshSchedule: id => events.push(['clear-refresh', id]),
+    cleanupRuntimeState: id => events.push(['cleanup-runtime', id]),
+    removeElement: id => {
+      events.push(['remove-element', id]);
+      return true;
+    },
+    persistWorkspace: () => { throw new Error('storage unavailable'); },
+  });
+
+  const result = lifecycle.create({ networkId: 'x', definitionId: 'home', id: 'rollback' });
+  const refreshResult = await lifecycle.refreshNow('rollback');
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.error.message, /storage unavailable/);
+  assert.equal(refreshResult.status, 'failed');
+  assert.deepEqual(events, [
+    ['insert', 'rollback'],
+    ['clear-refresh', 'rollback'],
+    ['cleanup-runtime', 'rollback'],
+    ['remove-element', 'rollback'],
+  ]);
 });
 
 test('restores Column lifecycle state through a Network Adapter plan', () => {

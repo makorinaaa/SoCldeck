@@ -44,6 +44,10 @@ _Avoid_: Required method, feature flag, optional helper
 A Network Adapter whose capabilities depend on an embedded network website rather than a public API. It may rely on DOM automation, Electron partitions, and page lifecycle handling, so those constraints are part of its design.
 _Avoid_: Normal adapter, browser hack, X exception
 
+**X WebView Runtime**:
+The Runtime State and page lifecycle implementation behind X's WebView-backed Network Adapter. It owns visible and hidden X WebViews, account-to-partition resolution, login gating, readiness, navigation, refresh queuing during Compose delivery, and notification extraction; callers express X intents without coordinating WebView events directly.
+_Avoid_: WebView helper, renderer script injection, X page globals
+
 **Column Type**:
 A named kind of Column, such as Timeline, Notifications, Search, List, Settings, or Feed. Network Adapters declare which Column Types they support.
 _Avoid_: Type string, view mode, tab kind

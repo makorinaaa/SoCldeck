@@ -13,6 +13,7 @@ const X_AVATAR_URL = 'https://pbs.twimg.com/profile_images/alice.jpg';
 
 const X_FIXTURES = {
   useNotificationReaders: true,
+  authenticatedXPartitions: ['persist:x-0', 'persist:x-1'],
   state: {
     xs: [
       { username: '@first', initials: 'F', bg: '#334455', partition: 'persist:x-0' },
@@ -55,6 +56,7 @@ const BLUESKY_FIXTURES = {
 };
 
 const COMPOSE_FIXTURES = {
+  authenticatedXPartitions: ['persist:x-0'],
   state: {
     xs: [
       { username: '@compose', initials: 'C', bg: '#445566', partition: 'persist:x-0' },
@@ -156,6 +158,18 @@ async function launchApp(t, fixtures) {
       }, error => error ? reject(error) : resolve());
     });
     const tasks = fixture.xPartitions.map(partition => intercept(partition, 'x'));
+    fixture.authenticatedXPartitions.forEach(partition => {
+      tasks.push(session.fromPartition(partition).cookies.set({
+        url: 'https://x.com/',
+        name: 'auth_token',
+        value: 'socialdeck-e2e',
+        domain: '.x.com',
+        path: '/',
+        secure: true,
+        sameSite: 'no_restriction',
+        expirationDate: Date.now() / 1000 + 3600,
+      }));
+    });
     if (fixture.hasXAvatar) tasks.push(intercept('', 'avatar'));
     if (fixture.hasBluesky) {
       tasks.push(intercept('persist:bsky', 'b'));
@@ -172,6 +186,7 @@ async function launchApp(t, fixtures) {
       Page __PATH__
     </body></html>`,
     xPartitions: fixtures.xPartitions || fixtures.state.xs.map(account => account.partition),
+    authenticatedXPartitions: fixtures.authenticatedXPartitions || [],
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
     simulateXLogin: Boolean(fixtures.simulateXLogin),
@@ -210,7 +225,27 @@ async function openXLikeNotification(page) {
   await page.locator('#sb-notif-b').click();
   await page.locator('.notif-center-tab[data-network="x"]').click();
   const item = page.locator('.notif-center-item').filter({ hasText: 'Alice' }).first();
-  await item.locator(`.av img[src="${X_AVATAR_URL}"]`).waitFor({ state: 'attached' });
+  try {
+    await item.locator(`.av img[src="${X_AVATAR_URL}"]`).waitFor({
+      state: 'attached',
+      timeout: 10000,
+    });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      notificationText: document.getElementById('notif-center-list')?.textContent || '',
+      notificationHtml: document.getElementById('notif-center-list')?.innerHTML || '',
+      readers: [...document.querySelectorAll('#notif-center-x-readers webview')].map(webview => ({
+        id: webview.id,
+        partition: webview.partition,
+        src: webview.src,
+        url: webview.getURL?.() || '',
+        ready: webview.dataset.ready || '',
+      })),
+      errors: typeof xNotificationCenterErrors === 'undefined' ? [] : xNotificationCenterErrors,
+      warnings: window.__e2eWarnings || [],
+    }));
+    throw new Error(`${error.message}\n${JSON.stringify(diagnostics)}`);
+  }
   await item.click();
 }
 

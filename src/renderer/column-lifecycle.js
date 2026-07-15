@@ -10,6 +10,7 @@
     reportRestoreError = () => {},
     cleanupRuntimeState = () => {},
     removeElement = () => false,
+    listElementIds = () => [],
     persistWorkspace = () => {},
     onRefreshStateChange = () => {},
     now = () => new Date(),
@@ -17,6 +18,7 @@
     const refreshPlans = new Map();
     const refreshIntervals = {};
     const refreshStates = new Map();
+    const materializedColumnIds = new Set();
 
     function setRefreshState(id, status, details = {}) {
       const previous = refreshStates.get(id) || {};
@@ -45,6 +47,11 @@
       }
     }
 
+    async function refreshAll() {
+      const ids = [...refreshPlans.keys()];
+      return Promise.all(ids.map(id => refreshNow(id)));
+    }
+
     function setRefreshInterval(id, interval) {
       refreshIntervals[id] = interval;
       clearRefreshSchedule(id);
@@ -60,28 +67,49 @@
       delete refreshIntervals[id];
       refreshPlans.delete(id);
       refreshStates.delete(id);
+      materializedColumnIds.delete(id);
     }
 
-    function materialize(plan) {
+    function rollbackMaterialization(id) {
+      cleanupRefresh(id);
+      cleanupRuntimeState(id);
+      removeElement(id);
+    }
+
+    function materialize(plan, fallbackId) {
       if (!plan || !plan.config || !plan.refresh) {
+        if (!materializedColumnIds.has(fallbackId)) cleanupRefresh(fallbackId);
         throw new Error('Column Definition could not be resolved');
       }
 
-      refreshPlans.set(plan.config.id, plan.refresh);
-      if (!insertPlan(plan)) throw new Error(`Unsupported Column plan: ${plan.kind || 'missing'}`);
-      return plan;
+      const id = plan.config.id;
+      if (materializedColumnIds.has(id)) {
+        throw new Error(`Column ${id} is already materialized`);
+      }
+
+      materializedColumnIds.add(id);
+      try {
+        refreshPlans.set(id, plan.refresh);
+        if (!insertPlan(plan)) throw new Error(`Unsupported Column plan: ${plan.kind || 'missing'}`);
+        return plan;
+      } catch (error) {
+        rollbackMaterialization(id);
+        throw error;
+      }
     }
 
     function create(request) {
       let plan;
+      let didMaterialize = false;
       try {
         plan = createPlan(request);
         if (plan?.kind === 'input-required') return { status: 'input-required', plan };
-        materialize(plan);
+        materialize(plan, request?.id);
+        didMaterialize = true;
         persistWorkspace();
         return { status: 'created', id: plan.config.id, plan };
       } catch (error) {
-        cleanupRefresh(plan?.config?.id || request?.id);
+        if (didMaterialize) rollbackMaterialization(plan.config.id);
         return { status: 'failed', error };
       }
     }
@@ -120,9 +148,22 @@
       });
     }
 
-    function clear() {
-      Object.keys(refreshIntervals).forEach(cleanupRefresh);
+    function clear({ removeElements = false } = {}) {
+      const ids = new Set([
+        ...materializedColumnIds,
+        ...refreshPlans.keys(),
+        ...Object.keys(refreshIntervals),
+        ...refreshStates.keys(),
+        ...(removeElements ? listElementIds() : []),
+      ]);
+      ids.forEach(id => {
+        cleanupRefresh(id);
+        cleanupRuntimeState(id);
+        if (removeElements) removeElement(id);
+      });
       refreshPlans.clear();
+      refreshStates.clear();
+      materializedColumnIds.clear();
     }
 
     function restore(layout, { persistNormalized } = {}) {
@@ -130,8 +171,11 @@
       const failures = [];
 
       layout.forEach(storedColumn => {
+        let didMaterialize = false;
+        let plan;
         try {
-          const plan = materialize(createPlan({ storedColumn }));
+          plan = materialize(createPlan({ storedColumn }), storedColumn.id);
+          didMaterialize = true;
 
           if (storedColumn.interval !== undefined) {
             setRefreshInterval(storedColumn.id, storedColumn.interval);
@@ -141,7 +185,7 @@
 
           normalizedLayout.push(normalizeStoredColumn(storedColumn, plan));
         } catch (error) {
-          cleanupRefresh(storedColumn.id);
+          if (didMaterialize) rollbackMaterialization(plan.config.id);
           failures.push({ storedColumn, error });
           reportRestoreError(storedColumn, error);
           normalizedLayout.push(storedColumn);
@@ -167,6 +211,7 @@
       pauseRefresh,
       persist: persistWorkspace,
       remove,
+      refreshAll,
       refreshNow,
       restore,
       resumeRefresh,
