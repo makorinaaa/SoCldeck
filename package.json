@@ -1,6 +1,6 @@
 {
   "name": "socialdeck",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "TweetDeck風マルチカラムクライアント (X + Bluesky)",
   "main": "src/main.js",
   "scripts": {
@@ -10,7 +10,6 @@
     "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icons.ps1",
     "release:check": "npm run test:all && electron-builder --win --dir",
     "release:win": "npm run test:all && electron-builder --win",
-    "release:publish": "npm run test:all && electron-builder --win --publish always",
     "start": "electron .",
     "dev": "electron . --dev",
     "build-win": "electron-builder --win",
