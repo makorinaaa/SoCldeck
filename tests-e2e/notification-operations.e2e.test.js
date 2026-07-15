@@ -53,6 +53,16 @@ const BLUESKY_FIXTURES = {
   ],
 };
 
+const NEW_X_ACCOUNT_FIXTURES = {
+  xPartitions: ['persist:x-0'],
+  state: {
+    xs: [],
+    activeX: 0,
+    b: null,
+    composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
+  },
+};
+
 function xFixture(url) {
   const pathname = new URL(url).pathname;
   if (pathname === '/notifications') {
@@ -129,7 +139,7 @@ async function launchApp(t, fixtures) {
   }, {
     notificationsHtml: xFixture(NOTIFICATIONS_URL),
     pageHtml: '<!doctype html><html><body data-e2e-path="__PATH__">Page __PATH__</body></html>',
-    xPartitions: fixtures.state.xs.map(account => account.partition),
+    xPartitions: fixtures.xPartitions || fixtures.state.xs.map(account => account.partition),
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
     avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -199,6 +209,24 @@ test('X notification journey reuses the account column and returns to notificati
   await openXLikeNotification(page);
   await expectWebviewUrl(page, webviewSelector, LIKED_POST_URL);
   assert.equal(await column.count(), 1);
+});
+
+test('new X accounts default to the black theme', async t => {
+  const { electronApp, page } = await launchApp(t, NEW_X_ACCOUNT_FIXTURES);
+  await page.locator('#login-screen').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => typeof window.loginX === 'function');
+
+  await page.locator('#x-user').fill('new-account');
+  await page.evaluate(() => window.loginX());
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  const cookies = await electronApp.evaluate(({ session }) =>
+    session.fromPartition('persist:x-0').cookies.get({
+      url: 'https://x.com/',
+      name: 'night_mode',
+    })
+  );
+  assert.equal(cookies[0]?.value, '2');
 });
 
 test('Bluesky follow notifications reuse one profile column and switch its URL', async t => {

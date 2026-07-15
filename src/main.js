@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, session, Menu, shell } = require('electron'
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { ensureDefaultXDarkTheme } = require('./main/x-session-theme');
 
 // ── ffmpeg（メインプロセスで実行）──
 const ffmpeg = require('fluent-ffmpeg');
@@ -267,6 +268,10 @@ app.on('web-contents-created', (_, contents) => {
 ipcMain.handle('get-config', () => loadConfig());
 ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('initialize-x-session-theme', async (_, partition) => {
+  if (!isAllowedXPartition(partition)) return false;
+  return ensureDefaultXDarkTheme(session.fromPartition(partition));
+});
 
 // webview-preloadのパスを返す（X画像ライトボックス用）
 ipcMain.handle('get-webview-preload-path', () =>

@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   clearXSession: (partition) => isXPartition(partition)
     ? ipcRenderer.invoke('clear-x-session', partition)
     : Promise.resolve(false),
+  initializeXSessionTheme: (partition) => isXPartition(partition)
+    ? ipcRenderer.invoke('initialize-x-session-theme', partition)
+    : Promise.resolve(false),
   clearAllXSessions: () => ipcRenderer.invoke('clear-all-x-sessions'),
 
   // メモリクリア

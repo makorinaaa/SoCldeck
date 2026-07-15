@@ -470,7 +470,7 @@ function updateLoginUI() {
   msg.textContent = canEnter ? [xAccounts.length > 0 ? 'X(' + xAccounts.length + ')' : '', state.b ? 'Bluesky' : ''].filter(Boolean).join(' + ') + ' connected' : 'Add an account to continue';
 }
 
-function loginX() {
+async function loginX() {
   const user = document.getElementById('x-user').value.trim();
   const err = document.getElementById('x-err');
   err.textContent = '';
@@ -483,9 +483,19 @@ function loginX() {
     return;
   }
 
+  const loginButton = document.getElementById('x-login-btn');
+  if (loginButton?.disabled) return;
   const idx = (state.xs || []).length;
   const partition = nextXPartition();
   const bg = AVBG[idx % AVBG.length];
+  if (loginButton) loginButton.disabled = true;
+  try {
+    if (IS_ELECTRON) {
+      await window.electronAPI?.initializeXSessionTheme?.(partition);
+    }
+  } catch {} finally {
+    if (loginButton) loginButton.disabled = false;
+  }
   if (!state.xs) state.xs = [];
   state.xs.push({ username, initials: clean.slice(0, 2).toUpperCase(), bg, partition });
   state.activeX = idx;
@@ -4273,7 +4283,7 @@ function addResizeHandle(col) {
 }
 
 // ─── INIT ───────────────────────────────────────
-state = E2E_FIXTURES?.state || stateStore.load();
+state = E2E_FIXTURES?.state ? structuredClone(E2E_FIXTURES.state) : stateStore.load();
 if (state.x && !(state.xs && state.xs.length > 0)) {
   state.xs = [{ ...state.x, partition: 'persist:x-0' }];
   state.activeX = 0;
