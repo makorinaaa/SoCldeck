@@ -144,7 +144,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
   clearRefreshSchedule: id => refreshScheduler.remove(id),
   executeRefresh: (id, plan) => networkAdapters.executeColumnRefresh(id, plan, {
-    refreshXTimeline: executeXTimelineRefresh,
+    refreshXNavigation: executeXNavigationRefresh,
     reloadWebView: id => wvReload(id, { silent: true }),
     loadWebViewUrl: (id, url) => document.getElementById(`wv-${id}`)?.loadURL(url),
     refreshBlueskyFeed: silentRefreshBsky,
@@ -1359,12 +1359,17 @@ async function wvReload(id, opts = {}) {
 
 async function refreshXColumnIds(ids) {
   await Promise.all(ids.map(async id => {
-    const notificationUrl = getXNotificationColumnUrl(id);
-    if (notificationUrl) {
-      await document.getElementById(`wv-${id}`)?.loadURL(notificationUrl);
+    const definitionId = document.getElementById(`col-${id}`)?.dataset.definitionId;
+    const destination = definitionId === 'x-home-new'
+      ? 'home'
+      : definitionId === 'x-notif-new'
+        ? 'notifications'
+        : null;
+    if (!destination) {
+      wvReload(id, { silent: true });
       return;
     }
-    const refreshed = await softReloadX(id);
+    const refreshed = await softReloadX(id, destination);
     if (!refreshed) wvReload(id, { silent: true });
   }));
 }
@@ -1406,24 +1411,24 @@ async function refreshAfterCompose(target) {
   throw new Error(`Unsupported compose refresh target: ${target.kind}`);
 }
 
-// ソフトリロード: 新着バナー、または「おすすめ」→「フォロー中」のタブ往復で
-// ページ全体を再読み込みせずにXへ新着取得を促す。
-async function softReloadX(id) {
-  const result = await executeXTimelineRefresh(id);
-  return result === 'clicked'
-    || result === 'tab-toggled'
+// XのWebナビゲーションを1回押して、ページ全体を再読み込みせずに更新する。
+async function softReloadX(id, destination = 'home') {
+  const result = await executeXNavigationRefresh(id, destination);
+  return result === 'home-clicked'
+    || result === 'notifications-clicked'
+    || result === 'banner-clicked'
     || result === 'deferred'
     || result === 'not-following'
     || result === 'queued';
 }
 
-async function executeXTimelineRefresh(id) {
+async function executeXNavigationRefresh(id, destination = 'home') {
   const wv = document.getElementById(`wv-${id}`);
   if (!wv || wv.style.display === 'none') return 'unavailable';
   if (xPostingNow) { wvReloadQueue.add(id); return 'queued'; }
 
   try {
-    const script = window.SocialDeckXTimelineRefresh.createRefreshScript();
+    const script = window.SocialDeckXTimelineRefresh.createRefreshScript(destination);
     return await wv.executeJavaScript(script);
   } catch {
     return 'failed';

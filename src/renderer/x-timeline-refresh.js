@@ -1,7 +1,8 @@
 (function (global) {
-  async function refreshFollowingTimeline({
+  async function refreshXNavigation({
     documentLike,
     schedule,
+    destination = 'home',
   }) {
     function wait(ms) {
       return new Promise(resolve => schedule(resolve, ms));
@@ -16,50 +17,75 @@
         .find(tab => pattern.test(normalizedText(tab)));
     }
 
+    function findNavigationLink(target) {
+      const testId = target === 'notifications'
+        ? 'AppTabBar_Notifications_Link'
+        : 'AppTabBar_Home_Link';
+      const direct = documentLike.querySelector(`[data-testid="${testId}"]`);
+      if (direct) return direct;
+
+      return Array.from(documentLike.querySelectorAll('a[href]')).find(link => {
+        const href = link.getAttribute?.('href') || link.href || '';
+        try {
+          const path = new URL(href, 'https://x.com').pathname.replace(/\/$/, '');
+          return target === 'notifications'
+            ? path === '/notifications'
+            : path === '/home';
+        } catch {
+          return false;
+        }
+      });
+    }
+
     const scroller = documentLike.scrollingElement || documentLike.documentElement;
     const atTop = (scroller?.scrollTop || 0) < 60;
-    const followingTab = findTab(/^(フォロー中|Following)$/i);
-    const forYouTab = findTab(/^(おすすめ|For you)$/i);
-
-    if (atTop && followingTab && forYouTab && followingTab.getAttribute('aria-selected') === 'true') {
-      forYouTab.click();
-      await wait(300);
-
-      const refreshedFollowingTab = findTab(/^(フォロー中|Following)$/i);
-      if (!refreshedFollowingTab) return 'tabs-missing';
-      refreshedFollowingTab.click();
-      await wait(500);
-      if (scroller) scroller.scrollTop = 0;
-      return 'tab-toggled';
-    }
-
-    const banner = documentLike.querySelector('[data-testid$="-newTweetsButton"]')
-      || Array.from(documentLike.querySelectorAll('[role="button"]')).find(button => (
-        /新しいポスト|新しいツイート|Show .* posts?/i.test(normalizedText(button))
-      ));
-    if (banner) {
-      banner.click();
-      if (atTop && scroller) {
-        await wait(150);
-        scroller.scrollTop = 0;
-      }
-      return 'clicked';
-    }
-
     if (!atTop) return 'deferred';
-    if (!followingTab || !forYouTab) return 'tabs-missing';
-    return 'not-following';
+
+    if (destination === 'home') {
+      const followingTab = findTab(/^(フォロー中|Following)$/i);
+      const forYouTab = findTab(/^(おすすめ|For you)$/i);
+      if (followingTab && followingTab.getAttribute('aria-selected') !== 'true') {
+        return 'not-following';
+      }
+      if (!followingTab && forYouTab?.getAttribute('aria-selected') === 'true') {
+        return 'not-following';
+      }
+    }
+
+    const navigationLink = findNavigationLink(destination);
+    if (navigationLink) {
+      navigationLink.click();
+      await wait(150);
+      if (scroller) scroller.scrollTop = 0;
+      return `${destination}-clicked`;
+    }
+
+    if (destination === 'home') {
+      const banner = documentLike.querySelector('[data-testid$="-newTweetsButton"]')
+        || Array.from(documentLike.querySelectorAll('[role="button"]')).find(button => (
+          /新しいポスト|新しいツイート|Show .* posts?/i.test(normalizedText(button))
+        ));
+      if (banner) {
+        banner.click();
+        await wait(150);
+        if (scroller) scroller.scrollTop = 0;
+        return 'banner-clicked';
+      }
+    }
+
+    return 'navigation-missing';
   }
 
-  function createRefreshScript() {
-    return `(${refreshFollowingTimeline.toString()})({
+  function createRefreshScript(destination = 'home') {
+    return `(${refreshXNavigation.toString()})({
       documentLike: document,
-      schedule: setTimeout
+      schedule: setTimeout,
+      destination: ${JSON.stringify(destination)}
     })`;
   }
 
   global.SocialDeckXTimelineRefresh = {
-    refreshFollowingTimeline,
+    refreshXNavigation,
     createRefreshScript,
   };
 })(window);

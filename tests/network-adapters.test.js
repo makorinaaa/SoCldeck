@@ -229,18 +229,22 @@ test('X Column refresh falls back to WebView reload when timeline refresh is una
   const registry = createRegistry();
   const calls = [];
 
-  await registry.executeColumnRefresh('x-home', { networkId: 'x', kind: 'webview' }, {
-    refreshXTimeline: async id => {
-      calls.push(['timeline', id]);
+  await registry.executeColumnRefresh('x-home', {
+    networkId: 'x',
+    kind: 'webview',
+    definitionId: 'x-home-new',
+  }, {
+    refreshXNavigation: async (id, destination) => {
+      calls.push(['navigation', id, destination]);
       return false;
     },
     reloadWebView: id => calls.push(['reload', id]),
   });
 
-  assert.deepEqual(calls, [['timeline', 'x-home'], ['reload', 'x-home']]);
+  assert.deepEqual(calls, [['navigation', 'x-home', 'home'], ['reload', 'x-home']]);
 });
 
-test('X notifications refresh returns to its canonical page', async () => {
+test('X notifications refresh uses its in-page navigation link', async () => {
   const registry = createRegistry();
   const calls = [];
   const plan = registry.createColumnPlan({
@@ -255,11 +259,14 @@ test('X notifications refresh returns to its canonical page', async () => {
 
   await registry.executeColumnRefresh('x-notifications', plan.refresh, {
     loadWebViewUrl: (...args) => calls.push(['load', ...args]),
-    refreshXTimeline: async () => calls.push(['timeline']),
+    refreshXNavigation: async (...args) => {
+      calls.push(['navigation', ...args]);
+      return 'notifications-clicked';
+    },
     reloadWebView: () => calls.push(['reload']),
   });
 
-  assert.deepEqual(calls, [['load', 'x-notifications', 'https://x.com/notifications']]);
+  assert.deepEqual(calls, [['navigation', 'x-notifications', 'notifications']]);
 });
 
 test('Bluesky Column refresh delegates feed parameters to its adapter operation', () => {

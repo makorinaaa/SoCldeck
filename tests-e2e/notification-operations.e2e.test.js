@@ -164,7 +164,13 @@ async function launchApp(t, fixtures) {
     await Promise.all(tasks);
   }, {
     notificationsHtml: xFixture(NOTIFICATIONS_URL),
-    pageHtml: '<!doctype html><html><body data-e2e-path="__PATH__">Page __PATH__</body></html>',
+    pageHtml: `<!doctype html><html><body data-e2e-path="__PATH__">
+      <nav>
+        <a data-testid="AppTabBar_Home_Link" href="https://x.com/home">Home</a>
+        <a data-testid="AppTabBar_Notifications_Link" href="https://x.com/notifications">Notifications</a>
+      </nav>
+      Page __PATH__
+    </body></html>`,
     xPartitions: fixtures.xPartitions || fixtures.state.xs.map(account => account.partition),
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),

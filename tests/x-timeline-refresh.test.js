@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 function loadRefreshRuntime() {
-  const context = { window: {} };
+  const context = { URL, window: {} };
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'x-timeline-refresh.js'),
     'utf8',
@@ -22,35 +22,56 @@ function createTab(label, selected, clicks) {
   };
 }
 
-function createTimelineDocument({ tabs, scrollTop = 0, banner = null }) {
+function createNavigationLink(destination, clicks) {
+  return { click: () => clicks.push(destination) };
+}
+
+function createTimelineDocument({
+  tabs,
+  scrollTop = 0,
+  banner = null,
+  home = null,
+  notifications = null,
+  links = [],
+}) {
   return {
     scrollingElement: { scrollTop },
     documentElement: { scrollTop },
-    querySelector: selector => selector.includes('newTweetsButton') ? banner : null,
+    querySelector: selector => {
+      if (selector === '[data-testid="AppTabBar_Home_Link"]') return home;
+      if (selector === '[data-testid="AppTabBar_Notifications_Link"]') return notifications;
+      if (selector.includes('newTweetsButton')) return banner;
+      return null;
+    },
     querySelectorAll: selector => {
       if (selector === '[role="tab"]') return tabs;
       if (selector === '[role="button"]') return [];
+      if (selector === 'a[href]') return links;
       return [];
     },
   };
 }
 
-test('refreshes an active Following timeline and settles at the top', async () => {
+test('refreshes an active Following timeline with one Home navigation click', async () => {
   const clicks = [];
   const tabs = [
     createTab('おすすめ', false, clicks),
     createTab('フォロー中', true, clicks),
   ];
-  const documentLike = createTimelineDocument({ tabs, scrollTop: 40 });
-  const scheduleImmediately = callback => callback();
-
-  const result = await loadRefreshRuntime().refreshFollowingTimeline({
-    documentLike,
-    schedule: scheduleImmediately,
+  const documentLike = createTimelineDocument({
+    tabs,
+    scrollTop: 40,
+    home: createNavigationLink('home', clicks),
   });
 
-  assert.equal(result, 'tab-toggled');
-  assert.deepEqual(clicks, ['おすすめ', 'フォロー中']);
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike,
+    schedule: callback => callback(),
+    destination: 'home',
+  });
+
+  assert.equal(result, 'home-clicked');
+  assert.deepEqual(clicks, ['home']);
   assert.equal(documentLike.scrollingElement.scrollTop, 0);
 });
 
@@ -61,9 +82,14 @@ test('leaves a timeline unchanged while the user is scrolled down', async () => 
     createTab('フォロー中', true, clicks),
   ];
 
-  const result = await loadRefreshRuntime().refreshFollowingTimeline({
-    documentLike: createTimelineDocument({ tabs, scrollTop: 200 }),
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike: createTimelineDocument({
+      tabs,
+      scrollTop: 200,
+      home: createNavigationLink('home', clicks),
+    }),
     schedule: callback => callback(),
+    destination: 'home',
   });
 
   assert.equal(result, 'deferred');
@@ -77,31 +103,36 @@ test('leaves the For you timeline selected', async () => {
     createTab('Following', false, clicks),
   ];
 
-  const result = await loadRefreshRuntime().refreshFollowingTimeline({
-    documentLike: createTimelineDocument({ tabs }),
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike: createTimelineDocument({
+      tabs,
+      home: createNavigationLink('home', clicks),
+    }),
     schedule: callback => callback(),
+    destination: 'home',
   });
 
   assert.equal(result, 'not-following');
   assert.deepEqual(clicks, []);
 });
 
-test('keeps using the new-posts banner when X provides one', async () => {
+test('keeps using the new-posts banner when Home navigation is unavailable', async () => {
   const clicks = [];
   const banner = { click: () => clicks.push('banner') };
-
   const documentLike = createTimelineDocument({ tabs: [], banner, scrollTop: 30 });
-  const result = await loadRefreshRuntime().refreshFollowingTimeline({
+
+  const result = await loadRefreshRuntime().refreshXNavigation({
     documentLike,
     schedule: callback => callback(),
+    destination: 'home',
   });
 
-  assert.equal(result, 'clicked');
+  assert.equal(result, 'banner-clicked');
   assert.deepEqual(clicks, ['banner']);
   assert.equal(documentLike.scrollingElement.scrollTop, 0);
 });
 
-test('prefers the Following tab refresh over a stale new-posts banner', async () => {
+test('prefers one Home click over tabs and a stale new-posts banner', async () => {
   const clicks = [];
   const tabs = [
     createTab('おすすめ', false, clicks),
@@ -109,28 +140,72 @@ test('prefers the Following tab refresh over a stale new-posts banner', async ()
   ];
   const banner = { click: () => clicks.push('banner') };
 
-  const result = await loadRefreshRuntime().refreshFollowingTimeline({
-    documentLike: createTimelineDocument({ tabs, banner }),
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike: createTimelineDocument({
+      tabs,
+      banner,
+      home: createNavigationLink('home', clicks),
+    }),
     schedule: callback => callback(),
+    destination: 'home',
   });
 
-  assert.equal(result, 'tab-toggled');
-  assert.deepEqual(clicks, ['おすすめ', 'フォロー中']);
+  assert.equal(result, 'home-clicked');
+  assert.deepEqual(clicks, ['home']);
 });
 
-test('runs the Following refresh through the generated WebView script', async () => {
+test('runs the Home refresh through the generated WebView script', async () => {
   const clicks = [];
   const tabs = [
     createTab('For you', false, clicks),
     createTab('Following', true, clicks),
   ];
   const runtime = loadRefreshRuntime();
+  const documentLike = createTimelineDocument({
+    tabs,
+    home: createNavigationLink('home', clicks),
+  });
 
-  const result = await vm.runInNewContext(runtime.createRefreshScript(), {
-    document: createTimelineDocument({ tabs }),
+  const result = await vm.runInNewContext(runtime.createRefreshScript('home'), {
+    document: documentLike,
     setTimeout: callback => callback(),
   });
 
-  assert.equal(result, 'tab-toggled');
-  assert.deepEqual(clicks, ['For you', 'Following']);
+  assert.equal(result, 'home-clicked');
+  assert.deepEqual(clicks, ['home']);
+});
+
+test('refreshes notifications with one Notifications navigation click', async () => {
+  const clicks = [];
+  const runtime = loadRefreshRuntime();
+  const documentLike = createTimelineDocument({
+    tabs: [],
+    notifications: createNavigationLink('notifications', clicks),
+  });
+
+  const result = await runtime.refreshXNavigation({
+    documentLike,
+    schedule: callback => callback(),
+    destination: 'notifications',
+  });
+
+  assert.equal(result, 'notifications-clicked');
+  assert.deepEqual(clicks, ['notifications']);
+});
+
+test('falls back to the Home href when X changes its navigation test id', async () => {
+  const clicks = [];
+  const homeLink = {
+    getAttribute: name => name === 'href' ? '/home' : null,
+    click: () => clicks.push('home-href'),
+  };
+
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike: createTimelineDocument({ tabs: [], links: [homeLink] }),
+    schedule: callback => callback(),
+    destination: 'home',
+  });
+
+  assert.equal(result, 'home-clicked');
+  assert.deepEqual(clicks, ['home-href']);
 });

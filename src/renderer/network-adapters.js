@@ -162,16 +162,26 @@
   }
 
   async function refreshXColumn({ id, plan, operations }) {
-    if (plan.definitionId === 'x-notif-new' && plan.canonicalUrl) {
-      await operations.loadWebViewUrl(id, plan.canonicalUrl);
-      return { status: 'succeeded', detail: 'canonical-url' };
+    const destination = plan.definitionId === 'x-home-new'
+      ? 'home'
+      : plan.definitionId === 'x-notif-new'
+        ? 'notifications'
+        : null;
+    if (!destination) {
+      operations.reloadWebView(id);
+      return { status: 'succeeded', detail: 'reloaded' };
     }
-    const result = await operations.refreshXTimeline(id);
+
+    const result = await operations.refreshXNavigation(id, destination);
     if (result === 'deferred' || result === 'queued' || result === 'not-following') {
       return { status: 'deferred', detail: result };
     }
-    if (result === 'clicked' || result === 'tab-toggled') {
+    if (result === 'home-clicked' || result === 'notifications-clicked' || result === 'banner-clicked') {
       return { status: 'succeeded', detail: result };
+    }
+    if (destination === 'notifications' && plan.canonicalUrl) {
+      await operations.loadWebViewUrl(id, plan.canonicalUrl);
+      return { status: 'succeeded', detail: 'canonical-url-fallback' };
     }
     operations.reloadWebView(id);
     return { status: 'succeeded', detail: 'reloaded' };
