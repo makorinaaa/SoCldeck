@@ -415,6 +415,17 @@ function loadState() {
 }
 function saveState() { stateStore.save(state); }
 
+function getXAccountPartitions() {
+  return (state.xs || []).map(account => account.partition).filter(Boolean);
+}
+
+function syncXNetworkAccounts() {
+  if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
+    return Promise.resolve([]);
+  }
+  return window.electronAPI.syncXNetworkAccounts(getXAccountPartitions());
+}
+
 function nextXPartition() {
   const used = new Set((state.xs || []).map(a => a.partition).filter(Boolean));
   for (let i = 0; i < 100; i++) {
@@ -501,6 +512,7 @@ async function loginX() {
   state.xs.push({ username, initials: clean.slice(0, 2).toUpperCase(), bg, partition, loginPending: true });
   state.activeX = idx;
   saveState();
+  await syncXNetworkAccounts();
   document.getElementById('x-user').value = '';
   updateLoginUI();
   toast(username + ' added');
@@ -520,6 +532,7 @@ async function removeXAccount(idx) {
   state.xs.splice(idx, 1);
   if (state.activeX >= state.xs.length) state.activeX = Math.max(0, state.xs.length - 1);
   saveState();
+  await syncXNetworkAccounts();
   updateLoginUI();
   const app = document.getElementById('app');
   if (app.style.display !== 'none' && app.style.display !== '') renderApp();
@@ -611,6 +624,7 @@ async function logoutAll() {
     composePreferences,
   };
   saveState();
+  await syncXNetworkAccounts();
   columnRuntime.clearStoredLayout(); // カラムレイアウトもリセット
   closeAmenu();
   notificationRuntime.stopPoll();
@@ -4392,7 +4406,7 @@ if ((state.xs && state.xs.length > 0) || state.b) {
   if (state.b?.refreshJwt) {
     refreshBskyToken().catch(() => {});
   }
-  Promise.all([initWvPreloadPath(), initializeXLoginStates()]).finally(() => {
+  Promise.all([syncXNetworkAccounts(), initWvPreloadPath(), initializeXLoginStates()]).finally(() => {
     enterApp();
     if (state.b) {
       setTimeout(() => fetchBskyUnreadCount(), 3000);

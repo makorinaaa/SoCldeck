@@ -58,6 +58,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ? ipcRenderer.invoke('is-x-session-authenticated', partition)
     : Promise.resolve(false),
   clearAllXSessions: () => ipcRenderer.invoke('clear-all-x-sessions'),
+  syncXNetworkAccounts: (partitions) => {
+    const validPartitions = Array.isArray(partitions)
+      ? partitions.filter(isXPartition).slice(0, 100)
+      : [];
+    return ipcRenderer.invoke('sync-x-network-accounts', validPartitions);
+  },
 
   // メモリクリア
   clearMemory: () => ipcRenderer.invoke('clear-memory'),

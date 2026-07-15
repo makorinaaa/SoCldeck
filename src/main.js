@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-session-theme');
 const { createAppUpdater } = require('./main/app-updater');
+const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
 const { autoUpdater } = require('electron-updater');
 
 // ── ffmpeg（メインプロセスで実行）──
@@ -56,10 +57,6 @@ function openExternalUrl(value) {
   const url = parseHttpUrl(value);
   if (!url) return;
   shell.openExternal(url.toString());
-}
-
-function isAllowedXPartition(partition) {
-  return typeof partition === 'string' && /^persist:x(?:-\d+)?$/.test(partition);
 }
 
 function isSocialDeckTempFile(filePath) {
@@ -115,6 +112,11 @@ function applyAdBlockToSession(targetSession) {
     console.error('[AdBlock] セッション適用失敗:', e.message);
   }
 }
+
+const xAccountRuntime = createXAccountRuntime({
+  getSession: partition => session.fromPartition(partition),
+  applyAdBlock: applyAdBlockToSession,
+});
 
 // ── 設定ファイルパス ──
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
@@ -273,12 +275,16 @@ ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('check-for-updates', () => appUpdaterController?.check({ manual: true }) ?? false);
 ipcMain.handle('install-update', () => appUpdaterController?.install() ?? false);
+ipcMain.handle('sync-x-network-accounts', (_, partitions) => {
+  if (!Array.isArray(partitions)) return xAccountRuntime.getPartitions();
+  return xAccountRuntime.sync(partitions);
+});
 ipcMain.handle('initialize-x-session-theme', async (_, partition) => {
-  if (!isAllowedXPartition(partition)) return false;
+  if (!xAccountRuntime.register(partition)) return false;
   return ensureDefaultXDarkTheme(session.fromPartition(partition));
 });
 ipcMain.handle('is-x-session-authenticated', async (_, partition) => {
-  if (!isAllowedXPartition(partition)) return false;
+  if (!xAccountRuntime.register(partition)) return false;
   return isXSessionAuthenticated(session.fromPartition(partition));
 });
 
@@ -288,33 +294,11 @@ ipcMain.handle('get-webview-preload-path', () =>
 );
 
 ipcMain.handle('clear-x-session', async (_, partition) => {
-  try {
-    if (!isAllowedXPartition(partition)) return false;
-    const ses = session.fromPartition(partition);
-    await ses.clearStorageData();
-    await ses.clearCache();
-    await ses.clearAuthCache();
-    return true;
-  } catch (e) { return false; }
+  if (!isXPartition(partition)) return false;
+  return xAccountRuntime.clearPartitionData(partition);
 });
 
-ipcMain.handle('clear-all-x-sessions', async () => {
-  try {
-    for (let i = 0; i < 100; i++) {
-      try {
-        const ses = session.fromPartition(`persist:x-${i}`);
-        await ses.clearStorageData();
-        await ses.clearCache();
-      } catch {}
-    }
-    try {
-      const ses = session.fromPartition('persist:x');
-      await ses.clearStorageData();
-      await ses.clearCache();
-    } catch {}
-    return true;
-  } catch (e) { return false; }
-});
+ipcMain.handle('clear-all-x-sessions', () => xAccountRuntime.clearAll());
 
 ipcMain.handle('minimize', () => mainWindow.minimize());
 
@@ -374,14 +358,8 @@ ipcMain.handle('get-useragent', () => X_USER_AGENT);
 ipcMain.handle('clear-memory', async () => {
   try {
     await session.defaultSession.clearCache();
-    const partitions = ['persist:x', 'persist:bsky'];
-    for (let i = 0; i < 100; i++) partitions.push(`persist:x-${i}`);
-    for (const p of partitions) {
-      try { await session.fromPartition(p).clearCache(); } catch {}
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.session.clearCache();
-    }
+    await session.fromPartition('persist:bsky').clearCache();
+    await xAccountRuntime.clearCaches();
     if (global.gc) global.gc();
     return true;
   } catch (e) { return false; }
@@ -523,13 +501,7 @@ app.whenReady().then(async () => {
   if (process.env.SOCIALDECK_E2E !== '1') {
     initAdBlocker().then(() => {
       if (!blocker) return;
-      // persist:x（メイン）と persist:x-0〜9（マルチアカウント）に適用
-      applyAdBlockToSession(xSession);
-      for (let i = 0; i < 100; i++) {
-        try {
-          applyAdBlockToSession(session.fromPartition(`persist:x-${i}`));
-        } catch {}
-      }
+      xAccountRuntime.enableAdBlock();
     });
   }
 
