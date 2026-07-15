@@ -49,3 +49,23 @@ test('keeps network-specific Compose delivery behind Network Adapters', () => {
     assert.ok(scriptIndex < rendererIndex);
   }
 });
+
+test('keeps Compose orchestration behind the Compose Coordinator', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const coordinatorIndex = index.indexOf(
+    '<script src="renderer/compose-coordinator.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(coordinatorIndex, -1);
+  assert.ok(coordinatorIndex < rendererIndex);
+  assert.match(
+    renderer,
+    /SocialDeckComposeCoordinator\.createComposeCoordinator\(/,
+  );
+  assert.doesNotMatch(
+    renderer,
+    /const (?:xComposeAttempt|bskyComposeAttempt|crossPostRuntime)\b/,
+  );
+});

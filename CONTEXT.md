@@ -28,6 +28,10 @@ _Avoid_: Draft, API payload, modal state, post form
 The Runtime State for submitting one Compose Request, including whether delivery is idle, sending, failed, unknown, or succeeded. A failed or unconfirmed Compose Attempt retains its Compose Request; a successful or explicitly cancelled attempt releases it.
 _Avoid_: Workspace State, saved draft, network payload, delivery queue
 
+**Compose Coordinator**:
+The Compose Experience boundary that owns single-network and cross-network submission state, retry eligibility, retained Compose Requests, and successful completion dispatch. UI callers ask for status and submit intents without coordinating Compose Attempts, cross-post state, and completion runtimes directly.
+_Avoid_: Modal submit handler, attempt globals, posting state manager
+
 **Network Adapter**:
 A boundary that exposes one social network's capabilities to SocialDeck. A Network Adapter hides authentication and integration mechanics while presenting network capabilities such as columns, posting, notifications, search, and profile display.
 _Avoid_: API client, webview helper, platform module

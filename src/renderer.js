@@ -170,13 +170,15 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   persistWorkspace: saveColLayout,
   onRefreshStateChange: renderColumnRefreshState,
 });
-const xComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
-const bskyComposeAttempt = window.SocialDeckComposeAttempt.createComposeAttemptRuntime();
-const crossPostRuntime = window.SocialDeckCrossPostRuntime.createCrossPostRuntime();
 const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
   notify: toast,
   refresh: refreshAfterCompose,
   onRefreshError: error => console.warn('Compose refresh failed:', error),
+});
+const composeCoordinator = window.SocialDeckComposeCoordinator.createComposeCoordinator({
+  createAttemptRuntime: window.SocialDeckComposeAttempt.createComposeAttemptRuntime,
+  createCrossPostRuntime: window.SocialDeckCrossPostRuntime.createCrossPostRuntime,
+  complete: plan => composeCompletion.complete(plan),
 });
 
 function saveColLayout() {
@@ -2064,7 +2066,7 @@ function renderCompUI() {
 }
 
 function openComp() {
-  crossPostRuntime.reset();
+  composeCoordinator.resetCrossPost();
   updateCrossPostControls();
   renderComposePreview('b');
   document.getElementById('compMod').classList.add('on');
@@ -2074,7 +2076,7 @@ function openComp() {
 let selectedXIdx = 0; // 投稿に使うXアカウントのindex
 
 function openXPost() {
-  crossPostRuntime.reset();
+  composeCoordinator.resetCrossPost();
   const sel = document.getElementById('x-acc-select');
   const xs = state.xs || [];
 
@@ -2437,7 +2439,7 @@ function updateXCrossPostControls() {
 }
 
 function toggleXCrossPost() {
-  crossPostRuntime.reset();
+  composeCoordinator.resetCrossPost();
   state.composePreferences.crossPostFromX = document.getElementById('x-cross-post-b').checked;
   saveState();
   updXCC();
@@ -2485,8 +2487,7 @@ async function doXOriginCrossPost(text) {
   const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
   const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
 
-  const snapshot = crossPostRuntime.getSnapshot();
-  const hasUnknown = snapshot.targets.some(target => target.status === 'unknown');
+  const hasUnknown = composeCoordinator.getStatus('x').hasUnknownCross;
   let retryUnknown = false;
   if (hasUnknown) {
     retryUnknown = confirm(
@@ -2496,7 +2497,7 @@ async function doXOriginCrossPost(text) {
   }
 
   setComposeBusy('xPostMod', 'x-sndb', true, 'X + Blueskyへ送信中...');
-  const result = await crossPostRuntime.submit([
+  const result = await composeCoordinator.submitCrossPost([
     {
       id: 'x',
       request: xRequest,
@@ -2513,15 +2514,19 @@ async function doXOriginCrossPost(text) {
           }
         }
       },
+      completionPlan: xCompletion,
     },
-    { id: 'b', request: bRequest, deliver: () => networkAdapters.executeComposeDelivery(bDelivery) },
+    {
+      id: 'b',
+      request: bRequest,
+      deliver: () => networkAdapters.executeComposeDelivery(bDelivery),
+      completionPlan: bCompletion,
+    },
   ], { retryUnknown });
   setComposeBusy('xPostMod', 'x-sndb', false);
 
   if (result.status === 'succeeded') {
     closeOv('xPostMod');
-    composeCompletion.complete(xCompletion);
-    composeCompletion.complete(bCompletion);
     toast('XとBlueskyへ投稿しました');
     return;
   }
@@ -2539,11 +2544,9 @@ async function doXOriginCrossPost(text) {
 async function doXPost() {
   const media = xComposeMediaDraft.getSnapshot();
   const crossPosting = Boolean(document.getElementById('x-cross-post-b')?.checked && state.b && !media.video);
-  if (crossPosting) {
-    if (crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending')) return;
-  } else if (xComposeAttempt.getSnapshot().status === 'sending') {
-    return;
-  } else if (xComposeAttempt.getSnapshot().status === 'unknown') {
+  const composeStatus = composeCoordinator.getStatus('x');
+  if (composeStatus.isSending) return;
+  if (!crossPosting && composeStatus.hasUnknownSingle) {
     const confirmedMissing = confirm(
       'X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
     );
@@ -2600,12 +2603,16 @@ async function doXPost() {
 
   setComposeBusy('xPostMod', 'x-sndb', true, '送信中…');
   xPostingNow = true;
-  const result = await xComposeAttempt.submit(request, () =>
-    networkAdapters.executeComposeDelivery(delivery, {
+  const result = await composeCoordinator.submitSingle({
+    networkId: 'x',
+    request,
+    deliver: () => networkAdapters.executeComposeDelivery(delivery, {
       webview: wv,
       videoPath: media.video?.path || null,
       videoDuration: media.video?.durationSeconds || 0,
-    }));
+    }),
+    completionPlan,
+  });
   xPostingNow = false;
   try {
     await flushWvReloadQueue();
@@ -2616,7 +2623,6 @@ async function doXPost() {
   setComposeBusy('xPostMod', 'x-sndb', false);
   if (result.status === 'succeeded') {
     closeOv('xPostMod');
-    composeCompletion.complete(completionPlan);
     return;
   }
 
@@ -2641,7 +2647,7 @@ function updateCrossPostControls() {
   if (!available) {
     checkbox.checked = false;
     select.style.display = 'none';
-    crossPostRuntime.reset();
+    composeCoordinator.resetCrossPost();
     updCC();
     return;
   }
@@ -2655,7 +2661,7 @@ function updateCrossPostControls() {
 }
 
 function toggleCrossPost() {
-  crossPostRuntime.reset();
+  composeCoordinator.resetCrossPost();
   const checked = document.getElementById('cross-post-x').checked;
   state.composePreferences.crossPostFromBluesky = checked;
   saveState();
@@ -2822,8 +2828,7 @@ async function doCrossPost(text) {
   const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
   const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
 
-  const snapshot = crossPostRuntime.getSnapshot();
-  const hasUnknown = snapshot.targets.some(target => target.status === 'unknown');
+  const hasUnknown = composeCoordinator.getStatus('b').hasUnknownCross;
   let retryUnknown = false;
   if (hasUnknown) {
     retryUnknown = confirm('X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。');
@@ -2831,7 +2836,7 @@ async function doCrossPost(text) {
   }
 
   setComposeBusy('compMod', 'sndb', true, 'X + Blueskyへ送信中...');
-  const result = await crossPostRuntime.submit([
+  const result = await composeCoordinator.submitCrossPost([
     {
       id: 'x',
       request: xRequest,
@@ -2848,15 +2853,19 @@ async function doCrossPost(text) {
           }
         }
       },
+      completionPlan: xCompletion,
     },
-    { id: 'b', request: bRequest, deliver: () => networkAdapters.executeComposeDelivery(bDelivery) },
+    {
+      id: 'b',
+      request: bRequest,
+      deliver: () => networkAdapters.executeComposeDelivery(bDelivery),
+      completionPlan: bCompletion,
+    },
   ], { retryUnknown });
   setComposeBusy('compMod', 'sndb', false);
 
   if (result.status === 'succeeded') {
     closeOv('compMod');
-    composeCompletion.complete(xCompletion);
-    composeCompletion.complete(bCompletion);
     toast('XとBlueskyへ投稿しました');
     return;
   }
@@ -2873,7 +2882,7 @@ async function doCrossPost(text) {
 
 async function doSend() {
   const media = bskyComposeMediaDraft.getSnapshot();
-  if (bskyComposeAttempt.getSnapshot().status === 'sending') return;
+  if (composeCoordinator.getStatus('b').isSending) return;
   const text = document.getElementById('cta').value.trim();
   if (!text && media.images.length === 0) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
@@ -2901,13 +2910,16 @@ async function doSend() {
   const completionPlan = networkAdapters.prepareComposeCompletion(request);
 
   setComposeBusy('compMod', 'sndb', true, '送信中…');
-  const result = await bskyComposeAttempt.submit(request, () =>
-    networkAdapters.executeComposeDelivery(delivery));
+  const result = await composeCoordinator.submitSingle({
+    networkId: 'b',
+    request,
+    deliver: () => networkAdapters.executeComposeDelivery(delivery),
+    completionPlan,
+  });
 
   setComposeBusy('compMod', 'sndb', false);
   if (result.status === 'succeeded') {
     closeOv('compMod');
-    composeCompletion.complete(completionPlan);
     return;
   }
 
@@ -3849,12 +3861,10 @@ function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
 
 function isComposeSending(modalId) {
   if (modalId === 'xPostMod') {
-    return xComposeAttempt.getSnapshot().status === 'sending'
-      || crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending');
+    return composeCoordinator.getStatus('x').isSending;
   }
   if (modalId === 'compMod') {
-    return bskyComposeAttempt.getSnapshot().status === 'sending'
-      || crossPostRuntime.getSnapshot().targets.some(target => target.status === 'sending');
+    return composeCoordinator.getStatus('b').isSending;
   }
   return false;
 }
@@ -3864,8 +3874,7 @@ function closeOv(id, e) {
   if (!e || e.target.classList.contains('ov')) {
     document.getElementById(id).classList.remove('on');
     if (id === 'xPostMod') {
-      xComposeAttempt.reset();
-      crossPostRuntime.reset();
+      composeCoordinator.reset('x');
       setXCrossPostDraftLocked(false);
       resetXImgUI();
       document.getElementById('x-cta').value = '';
@@ -3874,8 +3883,7 @@ function closeOv(id, e) {
       updXCC();
     }
     if (id === 'compMod') {
-      bskyComposeAttempt.reset();
-      crossPostRuntime.reset();
+      composeCoordinator.reset('b');
       setCrossPostDraftLocked(false);
       resetBImgUI();
       const cta = document.getElementById('cta');
