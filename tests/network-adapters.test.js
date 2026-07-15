@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function createRegistry() {
+function createRegistry(options = {}) {
   const context = { URL, window: {} };
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'network-adapters.js'),
@@ -13,6 +13,7 @@ function createRegistry() {
   vm.runInNewContext(source, context);
   return context.window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
     icons: { x: 'x', bell: 'bell', gear: 'gear', bsky: 'bsky' },
+    ...options,
   });
 }
 
@@ -137,6 +138,25 @@ test('Bluesky compose capability prepares timeline completion', () => {
     refresh: { kind: 'bsky-timelines', accountId: 'did:plc:alice' },
     delayMs: 1000,
   });
+});
+
+test('executes prepared Compose delivery through its Network Adapter', async () => {
+  const calls = [];
+  const registry = createRegistry({
+    composeExecutors: {
+      x: { execute: async (...args) => calls.push(['x', ...args]) },
+      b: { execute: async (...args) => calls.push(['b', ...args]) },
+    },
+  });
+  const context = { webview: 'home' };
+
+  await registry.executeComposeDelivery({ kind: 'x-webview' }, context);
+  await registry.executeComposeDelivery({ kind: 'bsky-atproto' });
+
+  assert.deepEqual(calls, [
+    ['x', { kind: 'x-webview' }, context],
+    ['b', { kind: 'bsky-atproto' }, undefined],
+  ]);
 });
 
 test('X list Column plan accepts Definition parameters', () => {

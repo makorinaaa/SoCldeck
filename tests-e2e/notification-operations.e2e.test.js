@@ -132,11 +132,15 @@ async function launchApp(t, fixtures) {
           return;
         }
         if (network === 'api') {
-          const body = url.pathname.endsWith('getUnreadCount')
-            ? '{"count":0}'
-            : url.pathname.endsWith('listNotifications')
-              ? '{"notifications":[]}'
-              : '{"feed":[]}';
+          const body = url.pathname.endsWith('uploadBlob')
+            ? '{"blob":{"ref":"e2e-blob"}}'
+            : url.pathname.endsWith('createRecord')
+              ? '{}'
+              : url.pathname.endsWith('getUnreadCount')
+                ? '{"count":0}'
+                : url.pathname.endsWith('listNotifications')
+                  ? '{"notifications":[]}'
+                  : '{"feed":[]}';
           callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(body) });
           return;
         }
@@ -302,7 +306,7 @@ test('Bluesky follow notifications reuse one profile column and switch its URL',
   assert.equal(await column.count(), 1);
 });
 
-test('Compose Experience retains media and alt text until each modal closes', async t => {
+test('Compose Experience retains media and executes Bluesky delivery through its Adapter', async t => {
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
@@ -323,6 +327,7 @@ test('Compose Experience retains media and alt text until each modal closes', as
   await page.locator('#b-alt-0').fill('Bluesky image description');
   assert.equal(await page.locator('#sndb').isEnabled(), true);
   assert.match(await page.locator('#b-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
-  await page.evaluate(() => closeOv('compMod'));
+  await page.locator('#sndb').click();
+  await page.locator('#compMod').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#b-img-preview').textContent(), '');
 });

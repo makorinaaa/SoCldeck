@@ -35,3 +35,17 @@ test('keeps Compose Experience media Runtime State out of renderer globals', () 
     /\blet (?:xImgFiles|xImgAlts|xVideoFile|xVideoPath|xTrimIn|xTrimOut|bImgFiles|bImgAlts)\b/,
   );
 });
+
+test('keeps network-specific Compose delivery behind Network Adapters', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.doesNotMatch(renderer, /function _deliver(?:X|Bsky)Post/);
+  assert.match(renderer, /networkAdapters\.executeComposeDelivery\(/);
+  for (const script of ['x-compose-delivery.js', 'bsky-compose-delivery.js']) {
+    const scriptIndex = index.indexOf(`<script src="renderer/${script}"></script>`);
+    assert.notEqual(scriptIndex, -1);
+    assert.ok(scriptIndex < rendererIndex);
+  }
+});

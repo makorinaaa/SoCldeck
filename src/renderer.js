@@ -36,6 +36,15 @@ async function apiGet(endpoint, params = {}, token = null) {
   return res.json();
 }
 
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 let _refreshPromise = null;
 async function refreshBskyToken() {
   if (_refreshPromise) return _refreshPromise; // 既に実行中なら同じPromiseを返す
@@ -94,7 +103,41 @@ const SVG = {
 // ─── COLUMN PERSISTENCE ──────────────────────────
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
-const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({ icons: SVG });
+const xComposeExecutor = window.SocialDeckXComposeDelivery.createXComposeDelivery({
+  createPreparationScript: () => xComposePreparation.createPreparationScript(),
+  createConfirmationScript: options => xPostConfirmation.createConfirmationScript(options),
+  readFileAsDataUrl,
+  trimVideo: window.electronAPI?.trimVideo,
+  readFileBase64: window.electronAPI?.readFileBase64,
+  deleteTempFile: window.electronAPI?.deleteTempFile,
+  setStatus: setFFmpegStatus,
+});
+const bskyComposeExecutor = window.SocialDeckBskyComposeDelivery.createBlueskyComposeDelivery({
+  uploadBlob: async file => {
+    const response = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type,
+        'Authorization': `Bearer ${state.b.accessJwt}`,
+      },
+      body: await file.arrayBuffer(),
+    });
+    if (!response.ok) throw new Error('Image upload failed');
+    return (await response.json()).blob;
+  },
+  buildFacets,
+  resolveFacets: facets => resolveMentionDids(facets, state.b.accessJwt),
+  createRecord: ({ repoDid, record }) => bskyCallWithRefresh(jwt =>
+    apiPost('com.atproto.repo.createRecord', {
+      repo: repoDid,
+      collection: 'app.bsky.feed.post',
+      record,
+    }, jwt)),
+});
+const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
+  icons: SVG,
+  composeExecutors: { x: xComposeExecutor, b: bskyComposeExecutor },
+});
 const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   createPlan: request => networkAdapters.createColumnPlan(request),
   insertPlan: insertColumnPlan,
@@ -2455,15 +2498,7 @@ async function doXOriginCrossPost(text) {
       deliver: async () => {
         xPostingNow = true;
         try {
-          return await _deliverXPost({
-            wv: webview,
-            postText: xDelivery.text,
-            postImgs: xDelivery.imageFiles,
-            postVideo: null,
-            postVideoPath: null,
-            postTrimIn: 0,
-            postTrimOut: 0,
-          });
+          return await networkAdapters.executeComposeDelivery(xDelivery, { webview });
         } finally {
           xPostingNow = false;
           try {
@@ -2474,7 +2509,7 @@ async function doXOriginCrossPost(text) {
         }
       },
     },
-    { id: 'b', request: bRequest, deliver: () => _deliverBskyPost(bDelivery) },
+    { id: 'b', request: bRequest, deliver: () => networkAdapters.executeComposeDelivery(bDelivery) },
   ], { retryUnknown });
   setComposeBusy('xPostMod', 'x-sndb', false);
 
@@ -2557,23 +2592,14 @@ async function doXPost() {
   });
   const delivery = networkAdapters.prepareComposeDelivery(request);
   const completionPlan = networkAdapters.prepareComposeCompletion(request);
-  const postText = delivery.text;
-  const postImgs = delivery.imageFiles;
-  const postVideo = delivery.video?.file || null;
-  const postVideoPath = media.video?.path || null;
-  const postTrimIn = delivery.video?.trim.startSeconds || 0;
-  const postTrimOut = delivery.video?.trim.endSeconds || 0;
 
   setComposeBusy('xPostMod', 'x-sndb', true, '送信中…');
   xPostingNow = true;
-  const result = await xComposeAttempt.submit(request, () => _deliverXPost({
-      wv,
-      postText,
-      postImgs,
-      postVideo,
-      postVideoPath,
-      postTrimIn,
-      postTrimOut,
+  const result = await xComposeAttempt.submit(request, () =>
+    networkAdapters.executeComposeDelivery(delivery, {
+      webview: wv,
+      videoPath: media.video?.path || null,
+      videoDuration: media.video?.durationSeconds || 0,
     }));
   xPostingNow = false;
   try {
@@ -2643,197 +2669,6 @@ function setCrossPostDraftLocked(locked) {
   if (checkbox) checkbox.disabled = locked;
   if (select) select.disabled = locked;
   if (imageArea) imageArea.style.pointerEvents = locked ? 'none' : '';
-}
-
-async function _deliverXPost({
-  wv,
-  postText,
-  postImgs,
-  postVideo,
-  postVideoPath,
-  postTrimIn,
-  postTrimOut,
-}) {
-  const preparation = await wv.executeJavaScript(
-    xComposePreparation.createPreparationScript()
-  );
-  if (preparation.status !== 'ready') {
-    throw new Error('Xの投稿欄を初期化できませんでした。Xカラムを確認して再試行してください');
-  }
-
-  // ══ 動画投稿 ══
-  if (postVideo) {
-      const vid = document.getElementById('x-video-preview');
-      const duration = vid?.duration || 0;
-      const trimEnd = postTrimOut || duration;
-
-      const needsTrim = IS_ELECTRON && postVideoPath &&
-        (postTrimIn > 0.5 || (duration > 0 && trimEnd < duration - 0.5));
-
-      let videoDataUrl;
-
-      if (needsTrim) {
-        setFFmpegStatus('トリミング中…');
-        const trimmedPath = await window.electronAPI.trimVideo(postVideoPath, postTrimIn, trimEnd);
-        setFFmpegStatus('読み込み中…');
-        videoDataUrl = await window.electronAPI.readFileBase64(trimmedPath);
-        window.electronAPI.deleteTempFile(trimmedPath).catch(() => {});
-        setFFmpegStatus('');
-      } else {
-        videoDataUrl = await new Promise((res, rej) => {
-          const reader = new FileReader();
-          reader.onload = () => res(reader.result);
-          reader.onerror = rej;
-          reader.readAsDataURL(postVideo);
-        });
-      }
-
-      await wv.executeJavaScript(`
-        (async () => {
-          // 投稿欄を強制表示してから取得（返信ページでCSSで非表示になっている場合の対策）
-          document.querySelectorAll('[data-testid="tweetTextarea_0"],[data-testid="tweetButtonInline"],[data-testid="toolBar"],[data-testid="tweetTextarea_0RichTextInputContainer"],[data-testid="tweetTextarea_0_label"]').forEach(el => {
-            el.style.setProperty('display','block','important');
-          });
-          // div:has(>[data-testid="tweetTextarea_0"]) も強制表示
-          var ta0 = document.querySelector('[data-testid="tweetTextarea_0"]');
-          if (ta0) {
-            var p = ta0.parentElement;
-            while (p) { p.style.removeProperty('display'); p = p.parentElement; if (p && p.dataset && p.dataset.testid === 'primaryColumn') break; }
-          }
-          const box = document.querySelector('[data-testid="tweetTextarea_0"]')
-                   || document.querySelector('[role="textbox"]');
-          if (!box) throw new Error('投稿欄が見つかりません');
-          box.style.setProperty('display','block','important');
-          box.click(); box.focus();
-          await new Promise(r => setTimeout(r, 300));
-
-          ${postText ? `
-          const dt = new DataTransfer();
-          dt.setData('text/plain', ${JSON.stringify(postText)});
-          box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
-          await new Promise(r => setTimeout(r, 400));
-          ` : ''}
-
-          function b64toBlob(dataUrl, type) {
-            const b64 = dataUrl.split(',')[1];
-            const bytes = atob(b64);
-            const arr = new Uint8Array(bytes.length);
-            for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-            return new Blob([arr], { type });
-          }
-          const videoFile = new File(
-            [b64toBlob(${JSON.stringify(videoDataUrl)}, 'video/mp4')],
-            'video.mp4', { type: 'video/mp4' }
-          );
-          const fileInput = document.querySelector('input[data-testid="fileInput"]')
-                         || document.querySelector('input[accept*="video"][type="file"]')
-                         || document.querySelector('input[accept*="image"][type="file"]');
-          if (!fileInput) throw new Error('ファイル入力欄が見つかりません');
-          const transfer = new DataTransfer();
-          transfer.items.add(videoFile);
-          Object.defineProperty(fileInput, 'files', { value: transfer.files, configurable: true });
-          fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-          await new Promise(r => setTimeout(r, 3000));
-
-          const postBtn = document.querySelector('[data-testid="tweetButton"]')
-                       || document.querySelector('[data-testid="tweetButtonInline"]');
-          if (!postBtn) throw new Error('送信ボタンが見つかりません');
-          let retries = 20;
-          while (postBtn.disabled && retries-- > 0) await new Promise(r => setTimeout(r, 500));
-          if (postBtn.disabled) throw new Error('送信ボタンを有効化できませんでした');
-          box.setAttribute('data-sd-compose-submit', 'pending');
-          postBtn.click();
-          return 'ok';
-        })()
-      `);
-
-  // ══ 画像投稿 ══
-  } else {
-      const imgPayloads = await Promise.all(postImgs.map(f => new Promise((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = () => res({ dataUrl: reader.result, type: f.type, name: f.name });
-        reader.onerror = rej;
-        reader.readAsDataURL(f);
-      })));
-
-      await wv.executeJavaScript(`
-        (async () => {
-          // 投稿欄を強制表示
-          document.querySelectorAll('[data-testid="tweetTextarea_0"],[data-testid="tweetButtonInline"],[data-testid="toolBar"],[data-testid="tweetTextarea_0RichTextInputContainer"],[data-testid="tweetTextarea_0_label"]').forEach(el => {
-            el.style.setProperty('display','block','important');
-          });
-          var ta0 = document.querySelector('[data-testid="tweetTextarea_0"]');
-          if (ta0) {
-            var p = ta0.parentElement;
-            while (p) { p.style.removeProperty('display'); p = p.parentElement; if (p && p.dataset && p.dataset.testid === 'primaryColumn') break; }
-          }
-          const box = document.querySelector('[data-testid="tweetTextarea_0"]')
-                   || document.querySelector('[role="textbox"]');
-          if (!box) throw new Error('投稿欄が見つかりません');
-          box.style.setProperty('display','block','important');
-          box.click(); box.focus();
-          await new Promise(r => setTimeout(r, 300));
-
-          ${postText ? `
-          const dt = new DataTransfer();
-          dt.setData('text/plain', ${JSON.stringify(postText)});
-          box.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
-          await new Promise(r => setTimeout(r, 400));
-          ` : ''}
-
-          const imgs = ${JSON.stringify(imgPayloads)};
-          if (imgs.length > 0) {
-            function b64toBlob(dataUrl, type) {
-              const b64 = dataUrl.split(',')[1];
-              const bytes = atob(b64);
-              const arr = new Uint8Array(bytes.length);
-              for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-              return new Blob([arr], { type });
-            }
-            const files = imgs.map(img =>
-              new File([b64toBlob(img.dataUrl, img.type)], img.name, { type: img.type })
-            );
-            const fileInput = document.querySelector('input[data-testid="fileInput"]')
-                           || document.querySelector('input[accept*="image"][type="file"]');
-            if (fileInput) {
-              const transfer = new DataTransfer();
-              files.forEach(f => transfer.items.add(f));
-              Object.defineProperty(fileInput, 'files', { value: transfer.files, configurable: true });
-              fileInput.dispatchEvent(new Event('change', { bubbles: true }));
-              await new Promise(r => setTimeout(r, 2000));
-            } else {
-              const transfer = new DataTransfer();
-              files.forEach(f => transfer.items.add(f));
-              box.dispatchEvent(new DragEvent('dragenter', { bubbles: true, dataTransfer: transfer }));
-              box.dispatchEvent(new DragEvent('dragover',  { bubbles: true, dataTransfer: transfer }));
-              box.dispatchEvent(new DragEvent('drop',      { bubbles: true, dataTransfer: transfer }));
-              await new Promise(r => setTimeout(r, 2000));
-            }
-          }
-
-          const postBtn = document.querySelector('[data-testid="tweetButton"]')
-                       || document.querySelector('[data-testid="tweetButtonInline"]');
-          if (!postBtn) throw new Error('送信ボタンが見つかりません');
-          let retries = 15;
-          while (postBtn.disabled && retries-- > 0) await new Promise(r => setTimeout(r, 300));
-          if (postBtn.disabled) throw new Error('送信ボタンを有効化できませんでした');
-          box.setAttribute('data-sd-compose-submit', 'pending');
-          postBtn.click();
-          return 'ok';
-        })()
-      `);
-  }
-
-  const confirmation = await wv.executeJavaScript(
-    xPostConfirmation.createConfirmationScript({
-      hadText: !!postText,
-      hadMedia: !!postVideo || postImgs.length > 0,
-    })
-  );
-  if (confirmation.status === 'failed') {
-    throw new Error(confirmation.message || 'X rejected the post');
-  }
-  return confirmation;
 }
 
 function updCC() {
@@ -2938,48 +2773,6 @@ async function resolveMentionDids(facets, jwt) {
   });
 }
 
-async function _deliverBskyPost(delivery) {
-  const replyRef = delivery.reply;
-  let embed = undefined;
-  if (delivery.images.length > 0) {
-    const images = await Promise.all(delivery.images.map(async image => {
-      const file = image.file;
-      const buf = await file.arrayBuffer();
-      const res = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': file.type,
-          'Authorization': `Bearer ${state.b.accessJwt}`,
-        },
-        body: buf,
-      });
-      if (!res.ok) throw new Error('Image upload failed');
-      const data = await res.json();
-      return { alt: image.alt, image: data.blob };
-    }));
-    embed = { $type: 'app.bsky.embed.images', images };
-  }
-
-  const rawFacets = buildFacets(delivery.text);
-  const resolvedFacets = await resolveMentionDids(rawFacets, state.b.accessJwt);
-  const record = {
-    $type: 'app.bsky.feed.post',
-    text: delivery.text,
-    createdAt: new Date().toISOString(),
-  };
-  if (resolvedFacets.length) record.facets = resolvedFacets;
-  if (replyRef) record.reply = replyRef;
-  if (embed) record.embed = embed;
-
-  await bskyCallWithRefresh(jwt =>
-    apiPost('com.atproto.repo.createRecord', {
-      repo: delivery.repoDid,
-      collection: 'app.bsky.feed.post',
-      record,
-    }, jwt)
-  );
-}
-
 function findXComposeWebView(account) {
   const partition = account?.partition || 'persist:x-0';
   let home = null;
@@ -3040,15 +2833,7 @@ async function doCrossPost(text) {
       deliver: async () => {
         xPostingNow = true;
         try {
-          return await _deliverXPost({
-            wv: webview,
-            postText: xDelivery.text,
-            postImgs: xDelivery.imageFiles,
-            postVideo: null,
-            postVideoPath: null,
-            postTrimIn: 0,
-            postTrimOut: 0,
-          });
+          return await networkAdapters.executeComposeDelivery(xDelivery, { webview });
         } finally {
           xPostingNow = false;
           try {
@@ -3059,7 +2844,7 @@ async function doCrossPost(text) {
         }
       },
     },
-    { id: 'b', request: bRequest, deliver: () => _deliverBskyPost(bDelivery) },
+    { id: 'b', request: bRequest, deliver: () => networkAdapters.executeComposeDelivery(bDelivery) },
   ], { retryUnknown });
   setComposeBusy('compMod', 'sndb', false);
 
@@ -3111,7 +2896,8 @@ async function doSend() {
   const completionPlan = networkAdapters.prepareComposeCompletion(request);
 
   setComposeBusy('compMod', 'sndb', true, '送信中…');
-  const result = await bskyComposeAttempt.submit(request, () => _deliverBskyPost(delivery));
+  const result = await bskyComposeAttempt.submit(request, () =>
+    networkAdapters.executeComposeDelivery(delivery));
 
   setComposeBusy('compMod', 'sndb', false);
   if (result.status === 'succeeded') {

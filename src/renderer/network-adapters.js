@@ -186,7 +186,7 @@
       || { status: 'succeeded' };
   }
 
-  function createXAdapter({ icons }) {
+  function createXAdapter({ icons, composeExecutor }) {
     return {
       id: 'x',
       label: 'X',
@@ -195,6 +195,7 @@
         compose: {
           prepareDelivery: prepareXComposeDelivery,
           prepareCompletion: prepareXComposeCompletion,
+          executeDelivery: composeExecutor?.execute,
         },
         columns: {
           createPlan: createXColumnPlan,
@@ -256,7 +257,7 @@
     };
   }
 
-  function createBlueskyAdapter({ icons }) {
+  function createBlueskyAdapter({ icons, composeExecutor }) {
     return {
       id: 'b',
       label: 'Bluesky',
@@ -265,6 +266,7 @@
         compose: {
           prepareDelivery: prepareBlueskyComposeDelivery,
           prepareCompletion: prepareBlueskyComposeCompletion,
+          executeDelivery: composeExecutor?.execute,
         },
         columns: {
           createPlan: createBlueskyColumnPlan,
@@ -349,10 +351,10 @@
     };
   }
 
-  function createNetworkAdapterRegistry({ icons }) {
+  function createNetworkAdapterRegistry({ icons, composeExecutors = {} }) {
     const adapters = [
-      createXAdapter({ icons }),
-      createBlueskyAdapter({ icons }),
+      createXAdapter({ icons, composeExecutor: composeExecutors.x }),
+      createBlueskyAdapter({ icons, composeExecutor: composeExecutors.b }),
     ];
 
     function getAdapter(id) {
@@ -460,6 +462,19 @@
       return compose.prepareCompletion(request);
     }
 
+    function executeComposeDelivery(delivery, context) {
+      const networkId = delivery?.kind === 'x-webview'
+        ? 'x'
+        : delivery?.kind === 'bsky-atproto'
+          ? 'b'
+          : null;
+      const execute = getCapability(networkId, 'compose')?.executeDelivery;
+      if (!execute) {
+        throw new Error(`Compose delivery is unavailable for kind: ${delivery?.kind || 'missing'}`);
+      }
+      return execute(delivery, context);
+    }
+
     function executeColumnRefresh(id, plan, operations) {
       const refresh = getCapability(plan?.networkId, 'columns')?.refresh;
       if (!refresh) throw new Error(`Column refresh is unavailable for network: ${plan?.networkId || 'missing'}`);
@@ -475,6 +490,7 @@
       resolveColumnDefinition,
       createColumnPlan,
       executeColumnRefresh,
+      executeComposeDelivery,
       prepareComposeDelivery,
       prepareComposeCompletion,
     };
