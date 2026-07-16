@@ -15,6 +15,7 @@ const xPostConfirmation = window.SocialDeckXPostConfirmation;
 const notificationCenter = window.SocialDeckNotificationCenter;
 const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
 let xWebViewRuntime;
+let bskyColumnsRuntime;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -165,8 +166,8 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   applyCollapsed: id => setTimeout(() => toggleColCollapse(id), 0),
   reportRestoreError: insertColumnRestoreError,
   cleanupRuntimeState: id => {
-    delete colCursors[id];
     collapsedCols.delete(id);
+    bskyColumnsRuntime?.dispose(id);
     xWebViewRuntime?.disposeColumn(id);
     animeScheduleRuntime.dispose(id);
     localStorage.removeItem(`col_fs_${id}`);
@@ -383,6 +384,54 @@ const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
 });
 const notificationRuntime = window.SocialDeckNotificationRuntime.createNotificationRuntime();
 const xLoginGate = window.SocialDeckXLoginGate.createXLoginGate();
+const authenticatedBskyAdapter = window.SocialDeckBskyClient.createAuthenticatedBlueskyAdapter({
+  client: bsky,
+  getAccount: () => state.b,
+  updateAccount: session => {
+    if (!state.b) return;
+    state.b = { ...state.b, ...session };
+    saveState();
+  },
+});
+bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumnsRuntime({
+  adapter: authenticatedBskyAdapter,
+  muteRules,
+  ui: { formatText, relTime, renderAvatar },
+  icons: { reply: SVG.reply, repost: SVG.rt, heart: SVG.heart, bell: SVG.bell, follow: SVG.follow },
+  documentRef: document,
+  intents: {
+    reply: ({ uri, cid, handle }) => openReply(uri, cid, handle),
+    quote: ({ uri, cid, handle }) => openQuoteModal(uri, cid, handle),
+    openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
+    openProfile: ({ did, handle }) => showProfile(did || handle),
+    openPostMenu: ({ handle, x, y }) => showPostMenu({ handle, x, y }),
+    clearNotificationUnread: () => notificationRuntime.clearUnread(),
+    activateNotification: ({ authorDid, authorHandle, targetUri }) => {
+      if (targetUri) {
+        bskyColumnsRuntime.openPost({ uri: targetUri, handle: authorHandle });
+      } else {
+        showProfile(authorDid);
+      }
+    },
+  },
+  onOutcome: outcome => {
+    if (outcome.kind === 'like') {
+      toast(outcome.status === 'failed'
+        ? `エラー: ${outcome.error?.message || 'いいねできませんでした'}`
+        : outcome.active ? 'いいねしました' : 'いいねを取り消しました');
+    } else if (outcome.kind === 'repost') {
+      toast(outcome.status === 'failed'
+        ? `エラー: ${outcome.error?.message || 'リポストできませんでした'}`
+        : outcome.active ? 'リポストしました' : 'リポストを取り消しました');
+    } else if (outcome.kind === 'follow') {
+      toast(outcome.status === 'failed'
+        ? `エラー: ${outcome.error?.message || 'フォローを更新できませんでした'}`
+        : outcome.active ? `@${outcome.handle} をフォローしました` : `@${outcome.handle} のフォローを解除しました`);
+    } else if (outcome.kind === 'refresh' && outcome.status === 'failed') {
+      toast(`更新エラー: ${outcome.error?.message || '更新できませんでした'}`);
+    }
+  },
+});
 
 
 function loadState() {
@@ -673,7 +722,6 @@ document.addEventListener('click', e => { if (!e.target.closest('.sb')) closeAme
 
 // ─── DEFAULT COLUMNS ────────────────────────────
 let colIdSeq = 0;
-const colCursors = {}; // colId → cursor for pagination
 
 // X画像ライトボックス用WebViewプリロードパス
 // enterApp前に確定させてカラム生成時に確実に使えるようにする
@@ -706,81 +754,10 @@ async function silentRefreshBsky(cid, type, feedUri) {
   const feedEl = document.getElementById(`feed-${cid}`);
   if (!feedEl) return { status: 'deferred', detail: 'column-unavailable' };
   if (feedEl.querySelector('.feed-loading')) return { status: 'deferred', detail: 'loading' };
-
-  try {
-    let items = [];
-    if (type === 'timeline') {
-      const data = await bskyCallWithRefresh(jwt => bsky.timeline(jwt, 10));
-      items = data.feed || [];
-    } else if (type === 'feed' && feedUri) {
-      const data = await bskyCallWithRefresh(jwt => bsky.feed(jwt, feedUri, 10));
-      items = data.feed || [];
-    } else if (type === 'notif') {
-      const data = await bskyCallWithRefresh(jwt => bsky.notifications(jwt, 10));
-      items = (data.notifications || []).map(n => ({ _notif: n }));
-    }
-    if (!items.length) return { status: 'succeeded', detail: 'no-changes' };
-
-    window.SocialDeckBskyPostRuntime.syncPostMetrics(feedEl, items);
-
-    const existingUris = new Set([...feedEl.querySelectorAll('.post[data-uri]')].map(el => el.dataset.uri));
-    const firstNotifTime = feedEl.querySelector('.notif')?.dataset?.time;
-    const newItems = items.filter(it => {
-      if (it._notif) return !firstNotifTime || new Date(it._notif.indexedAt) > new Date(firstNotifTime);
-      const uri = it.post?.uri;
-      return !uri || !existingUris.has(uri);
-    });
-    if (!newItems.length) return { status: 'succeeded', detail: 'no-changes' };
-
-    const html = newItems
-      .filter(item => item._notif
-        ? !muteRules.blocksNotification(item._notif)
-        : !muteRules.blocksPost(item))
-      .map(item => item._notif ? renderBskyNotif(item._notif) : renderBskyPost(item))
-      .join('');
-    if (!html) return { status: 'succeeded', detail: 'filtered' };
-
-    const prevScrollTop = feedEl.scrollTop;
-    const atTop = prevScrollTop < 50;
-    const beforeCount = feedEl.children.length;
-    feedEl.insertAdjacentHTML('afterbegin', html);
-    const addedCount = feedEl.children.length - beforeCount;
-    const addedEls = [];
-    for (let i = 0; i < addedCount; i++) {
-      const el = feedEl.children[i];
-      if (el) { el.classList.add('sd-new'); addedEls.push(el); }
-    }
-
-    if (atTop) {
-      requestAnimationFrame(() => feedEl.scrollTo({ top: 0, behavior: 'smooth' }));
-    } else {
-      requestAnimationFrame(() => {
-        let addedHeight = 0;
-        addedEls.forEach(el => { addedHeight += el.offsetHeight; });
-        feedEl.scrollTop = prevScrollTop + addedHeight;
-        requestAnimationFrame(() => {
-          let h2 = 0;
-          addedEls.forEach(el => { h2 += el.offsetHeight; });
-          if (h2 !== addedHeight) feedEl.scrollTop = prevScrollTop + h2;
-        });
-      });
-    }
-
-    setTimeout(() => addedEls.forEach(el => el.classList.remove('sd-new')), 600);
-    if (feedEl.scrollTop < 100) {
-      const posts = feedEl.querySelectorAll('.post, .notif');
-      for (let i = 300; i < posts.length; i++) posts[i].remove();
-    }
-    const badge = document.getElementById(`badge-${cid}`);
-    if (badge) {
-      badge.textContent = `+${newItems.length}`;
-      badge.style.display = '';
-      setTimeout(() => { badge.style.display = 'none'; }, 5000);
-    }
-    return { status: 'succeeded', detail: 'new-items' };
-  } catch (error) {
-    throw error;
+  if (!['timeline', 'feed', 'notif'].includes(type)) {
+    return { status: 'deferred', detail: 'unsupported-column-type' };
   }
+  return bskyColumnsRuntime.refresh(cid, { mode: 'prepend' });
 }
 
 function addColBtnHTML() {
@@ -995,8 +972,6 @@ function insertBskyCol(cfg, before = null) {
   const cols = document.getElementById('cols');
   const addbtn = before || cols.querySelector('.add-col-btn');
   const cid = cfg.id || `b-${++colIdSeq}`;
-  colCursors[cid] = null;
-
   const div = document.createElement('div');
   div.className = 'col';
   div.id = `col-${cid}`;
@@ -1023,13 +998,29 @@ function insertBskyCol(cfg, before = null) {
         <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
-    ${hasSearch ? `<div class="col-search-bar"><input type="text" id="sq-${cid}" placeholder="Bluesky を検索…" onkeydown="if(event.key==='Enter')doSearch('${cid}')"><button onclick="doSearch('${cid}')">検索</button></div>` : ''}
+    ${hasSearch ? `<div class="col-search-bar"><input type="text" id="sq-${cid}" placeholder="Bluesky を検索…"><button type="button" id="sq-btn-${cid}">検索</button></div>` : ''}
     <div class="feed" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>読み込み中…</div></div>
   `;
   cols.insertBefore(div, addbtn);
 
   // 自動ロードとデフォルト自動更新開始
-  if (!hasSearch) {
+  if (cfg.type === 'timeline' || cfg.type === 'feed' || cfg.type === 'notif' || hasSearch) {
+    bskyColumnsRuntime.mount({
+      id: cid,
+      type: cfg.type,
+      feedUri: cfg.feedUri || null,
+      host: div.querySelector('.feed'),
+      badge: div.querySelector('.cbadge'),
+      searchInput: hasSearch ? div.querySelector(`#sq-${cid}`) : null,
+      searchButton: hasSearch ? div.querySelector(`#sq-btn-${cid}`) : null,
+    });
+    if (!hasSearch) {
+      bskyColumnsRuntime.refresh(cid, { mode: 'replace' }).catch(() => {});
+      columnLifecycle.setRefreshInterval(cid, DEFAULT_INTERVAL_MS);
+    } else {
+      div.querySelector('.feed').innerHTML = '<div class="feed-empty">検索キーワードを入力してください</div>';
+    }
+  } else if (!hasSearch) {
     loadBskyFeed(cid, cfg.type, cfg.feedUri);
     columnLifecycle.setRefreshInterval(cid, DEFAULT_INTERVAL_MS);
   }
@@ -1078,79 +1069,10 @@ function insertAnimeScheduleCol(cfg, before = null) {
 
 async function loadBskyFeed(cid, type, feedUri = null, append = false) {
   if (!state.b) return;
-  const feedEl = document.getElementById(`feed-${cid}`);
-  if (!feedEl) return;
-  if (!append) { feedEl.innerHTML = `<div class="feed-loading"><div class="spinner"></div>読み込み中…</div>`; colCursors[cid] = null; }
-
-  try {
-    let items = [], newCursor = null;
-    if (type === 'timeline') {
-      const data = await bskyCallWithRefresh(jwt => bsky.timeline(jwt, 40, colCursors[cid]));
-      items = data.feed || []; newCursor = data.cursor;
-    } else if (type === 'feed' && feedUri) {
-      const data = await bskyCallWithRefresh(jwt => bsky.feed(jwt, feedUri, 40, colCursors[cid]));
-      items = data.feed || []; newCursor = data.cursor;
-    } else if (type === 'notif') {
-      const data = await bskyCallWithRefresh(jwt => bsky.notifications(jwt, 40));
-      items = (data.notifications || []).map(n => ({ _notif: n }));
-      if (!append) {
-        bskyCallWithRefresh(jwt => bsky.updateSeen(jwt, new Date().toISOString()))
-          .then(() => notificationRuntime.clearUnread())
-          .catch(() => {});
-      }
-    }
-
-    colCursors[cid] = newCursor;
-    const html = items
-      .filter(item => item._notif
-        ? !muteRules.blocksNotification(item._notif)
-        : !muteRules.blocksPost(item))
-      .map(item => item._notif ? renderBskyNotif(item._notif) : renderBskyPost(item)).join('');
-
-    if (append) {
-      feedEl.querySelector('.load-more')?.remove();
-      feedEl.insertAdjacentHTML('beforeend', html);
-    } else {
-      feedEl.innerHTML = html || `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">投稿がありません</div>`;
-    }
-
-    // フィードのスクロールで未読バッジをリセット
-    const feedElForScroll = document.getElementById(`feed-${cid}`);
-    if (feedElForScroll) {
-      feedElForScroll.addEventListener('scroll', () => {
-        const badge = document.getElementById(`badge-${cid}`);
-        if (badge) badge.style.display = 'none';
-      }, { once: true });
-    }
-
-    // もっと読むボタン
-    if (newCursor && type !== 'notif') {
-      feedEl.insertAdjacentHTML('beforeend', `<button class="load-more" onclick="loadBskyFeed('${cid}','${type}',${feedUri ? `'${feedUri}'` : 'null'},true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><polyline points="6 9 12 15 18 9"/></svg>もっと見る</button>`);
-    }
-
-    // バッジ更新
-    const badge = document.getElementById(`badge-${cid}`);
-    if (badge && items.length) { badge.textContent = items.length; badge.style.display = ''; setTimeout(() => { badge.style.display = 'none'; }, 5000); }
-  } catch (e) {
-    if (!append) feedEl.innerHTML = `<div class="feed-err">取得エラー: ${esc(e.message)}<br><button onclick="loadBskyFeed('${cid}','${type}',${feedUri ? `'${feedUri}'` : 'null'})">再試行</button></div>`;
-    else toast(`エラー: ${e.message}`);
+  if (!['timeline', 'feed', 'notif'].includes(type)) {
+    return { status: 'deferred', detail: 'unsupported-column-type' };
   }
-}
-
-async function doSearch(cid) {
-  const q = document.getElementById(`sq-${cid}`)?.value?.trim();
-  if (!q) return;
-  const feedEl = document.getElementById(`feed-${cid}`);
-  feedEl.innerHTML = `<div class="feed-loading"><div class="spinner"></div>検索中…</div>`;
-  try {
-    const data = await bsky.search(state.b.accessJwt, q, 40);
-    const posts = data.posts || [];
-    feedEl.innerHTML = posts.length
-      ? posts.map(p => renderBskyPost({ post: p })).join('')
-      : `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">「${esc(q)}」の結果は0件です</div>`;
-  } catch (e) {
-    feedEl.innerHTML = `<div class="feed-err">検索エラー: ${esc(e.message)}<br><button onclick="doSearch('${cid}')">再試行</button></div>`;
-  }
+  return bskyColumnsRuntime.refresh(cid, { mode: append ? 'append' : 'replace' });
 }
 
 function removeCol(id) {
@@ -1164,60 +1086,6 @@ async function refreshColumn(id, button) {
   } finally {
     button?.classList.remove('spin');
   }
-}
-
-// ─── BLUESKY POST RENDERING ──────────────────────
-
-function renderBskyPost(item) {
-  const post = item.post || item;
-  const record = post.record || {};
-  const author = post.author || {};
-  const reposter = item.reason?.by || null;
-  const uri = post.uri || '';
-  const cid = post.cid || '';
-  const body = formatText(record.text || '', record.facets);
-  const time = relTime(record.createdAt);
-  const likes = post.likeCount || 0;
-  const rts = post.repostCount || 0;
-  const replies = post.replyCount || 0;
-  const liked = !!post.viewer?.like;
-  const reposted = !!post.viewer?.repost;
-  const likeUri = post.viewer?.like || '';
-  const repostUri = post.viewer?.repost || '';
-
-  let imgHtml = '';
-  const embed = post.embed;
-  const imgs = embed?.images || embed?.media?.images || [];
-  if (imgs.length) {
-    const cls = ['', 'n1', 'n2', 'n3', 'n4'][Math.min(imgs.length, 4)];
-    const urlArr = imgs.slice(0, 4).map(img => img.fullsize || img.thumb);
-    imgHtml = '<div class="p-imgs ' + cls + '" data-urls="' + esc(JSON.stringify(urlArr)) + '">' +
-      urlArr.map((url, idx) => '<img src="' + esc(imgs[idx].thumb || imgs[idx].fullsize) + '" alt="' + esc(imgs[idx].alt || '') + '" loading="lazy" style="cursor:zoom-in" onclick="openImg(JSON.parse(this.closest(\'.p-imgs\').dataset.urls), ' + idx + ')">').join('') +
-      '</div>';
-  }
-
-  const repostLabel = reposter ? '<div class="repost-label">' + SVG.rt + ' ' + esc(reposter.displayName || reposter.handle) + ' reposted</div>' : '';
-  return '<div class="post" role="link" tabindex="0" data-uri="' + esc(uri) + '" data-cid="' + esc(cid) + '" data-likeuri="' + esc(likeUri) + '" data-reposturi="' + esc(repostUri) + '" onclick="openBskyPost(event,\'' + esc(uri) + '\',\'' + esc(author.handle) + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \')openBskyPost(event,\'' + esc(uri) + '\',\'' + esc(author.handle) + '\')" oncontextmenu="showPostMenu(event,\'' + esc(author.handle) + '\')">' +
-    repostLabel +
-    '<div class="post-top">' + renderAvatar(author) + '<div class="post-meta"><div class="meta-row"><span class="p-name" title="' + esc(author.displayName || author.handle) + '">' + esc(author.displayName || author.handle) + '</span><span class="p-handle">@' + esc(author.handle) + '</span><span class="p-time">' + time + '</span></div></div></div>' +
-    '<div class="p-body">' + body + '</div>' + imgHtml +
-    '<div class="p-acts">' +
-    '<button class="pa rep" onclick="openReply(\'' + esc(uri) + '\',\'' + esc(cid) + '\',\'' + esc(author.handle) + '\')">' + SVG.reply + ' <span>' + replies + '</span></button>' +
-    '<button class="pa rt ' + (reposted ? 'rted' : '') + '" onclick="showRtMenu(event,this,\'' + esc(uri) + '\',\'' + esc(cid) + '\',\'' + esc(author.handle) + '\')">' + SVG.rt + ' <span>' + rts + '</span></button>' +
-    '<button class="pa lk ' + (liked ? 'liked' : '') + '" onclick="toggleLike(this,\'' + esc(uri) + '\',\'' + esc(cid) + '\')">' + SVG.heart.replace('none', liked ? 'currentColor' : 'none') + ' <span>' + likes + '</span></button>' +
-    '</div></div>';
-}
-
-function renderBskyNotif(n) {
-  const a = n.author || {};
-  const tp = n.reason;
-  const icons = { like: SVG.heart, repost: SVG.rt, follow: SVG.follow, reply: SVG.reply, mention: SVG.reply, quote: SVG.reply };
-  const labels = { like: 'Like', repost: 'Repost', follow: 'Follow', reply: 'Reply', mention: 'Mention', quote: 'Quote' };
-  const time = relTime(n.indexedAt);
-  return '<div class="notif" data-time="' + esc(n.indexedAt) + '" onclick="showProfile(\'' + esc(a.did) + '\')">' +
-    '<div class="ntype nt' + esc(tp) + '">' + (icons[tp] || SVG.bell) + ' ' + esc(labels[tp] || tp) + '</div>' +
-    '<div class="nrow">' + renderAvatar(a, 28) + '<div class="ninfo"><div class="nwho">' + esc(a.displayName || a.handle) + '</div><div class="nex">@' + esc(a.handle) + '</div><div class="nago">' + time + '</div></div></div>' +
-    '</div>';
 }
 
 let hoverCardTimer = null;
@@ -1318,70 +1186,6 @@ function _hoverCardPosition(card, target) {
   card.style.top = top + 'px';
 }
 
-// ─── INTERACTIONS ────────────────────────────────
-async function toggleLike(btn, uri, cid) {
-  if (!state.b) return;
-  const post = btn.closest('.post');
-  const on = !btn.classList.contains('liked');
-  // 楽観的UI更新
-  btn.classList.toggle('liked', on);
-  const svg = btn.querySelector('svg');
-  if (svg) svg.setAttribute('fill', on ? 'currentColor' : 'none');
-  const span = btn.querySelector('span');
-  const currentLikes = parseInt(span?.textContent || '0');
-  if (span) span.textContent = on ? currentLikes + 1 : Math.max(0, currentLikes - 1);
-  try {
-    if (on) {
-      const res = await bsky.like(state.b.accessJwt, state.b.did, uri, cid);
-      if (post && res.uri) post.dataset.likeuri = res.uri;
-    } else {
-      const likeUri = post?.dataset?.likeuri;
-      if (likeUri) await bsky.unlike(state.b.accessJwt, state.b.did, likeUri);
-      if (post) post.dataset.likeuri = '';
-    }
-    toast(on ? 'いいねしました' : 'いいねを取り消しました');
-  } catch (e) {
-    // 失敗時はロールバック
-    btn.classList.toggle('liked', !on);
-    if (svg) svg.setAttribute('fill', !on ? 'currentColor' : 'none');
-    if (span) span.textContent = currentLikes;
-    toast(`エラー: ${e.message}`);
-  }
-}
-
-// ─── REPOST MENU ────────────────────────────────
-function showRtMenu(event, btn, uri, cid, handle) {
-  event.preventDefault();
-  event.stopPropagation();
-  document.getElementById('rt-ctx-menu')?.remove();
-
-  const post = btn.closest('.post');
-  const isRted = btn.classList.contains('rted');
-
-  const menu = document.createElement('div');
-  menu.id = 'rt-ctx-menu';
-  const rect = btn.getBoundingClientRect();
-  menu.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
-
-  const rtLabel = isRted ? 'Undo repost' : 'Repost';
-  menu.innerHTML = `
-    <div onclick="toggleRepost(document.querySelector('[data-uri=\\'${uri}\\'] .pa.rt'),'${uri}','${cid}');document.getElementById('rt-ctx-menu')?.remove()"
-      style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:${isRted ? 'var(--red)' : 'var(--green)'};display:flex;align-items:center;gap:8px"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-      ${SVG.rt} ${rtLabel}
-    </div>
-    <div onclick="openQuoteModal('${uri}','${cid}','${esc(handle)}');document.getElementById('rt-ctx-menu')?.remove()"
-      style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-      引用リポスト
-    </div>
-  `;
-  document.body.appendChild(menu);
-  const close = () => { menu.remove(); document.removeEventListener('click', close); };
-  setTimeout(() => document.addEventListener('click', close), 50);
-}
-
 // 引用リポストモーダル
 let quoteTarget = null;
 function openQuoteModal(uri, cid, handle) {
@@ -1468,35 +1272,9 @@ async function doQuotePost() {
   }
 }
 
-async function toggleRepost(btn, uri, cid) {
-  if (!state.b) return;
-  const post = btn.closest('.post');
-  const on = !btn.classList.contains('rted');
-  btn.classList.toggle('rted', on);
-  const span = btn.querySelector('span');
-  const cur = parseInt(span?.textContent || '0');
-  if (span) span.textContent = on ? cur + 1 : Math.max(0, cur - 1);
-  try {
-    if (on) {
-      const res = await bsky.repost(state.b.accessJwt, state.b.did, uri, cid);
-      if (post && res.uri) post.dataset.reposturi = res.uri;
-    } else {
-      const repostUri = post?.dataset?.reposturi;
-      if (repostUri) await bsky.unrepost(state.b.accessJwt, state.b.did, repostUri);
-      if (post) post.dataset.reposturi = '';
-    }
-    toast(on ? 'リポストしました' : 'リポストを取り消しました');
-  } catch (e) {
-    btn.classList.toggle('rted', !on);
-    if (span) span.textContent = cur;
-    toast(`エラー: ${e.message}`);
-  }
-}
-
 let replyTarget = null; // { uri, cid, rootUri, rootCid }
 
 async function openReply(uri, cid, handle) {
-  document.getElementById('bsky-post-detail')?.remove();
   replyTarget = { uri, cid, rootUri: uri, rootCid: cid };
 
   // 返信先プレビューを表示
@@ -1576,49 +1354,6 @@ function openBskyProfileCol(handleOrDid) {
     if (col) col.scrollIntoView({ behavior: 'smooth', inline: 'end' });
   }, 300);
   toast('プロフィールカラムを開きました');
-}
-
-async function openBskyPost(event, uri, handle) {
-  if (event.target.closest('button,a,img,.p-imgs,input,textarea')) return;
-  if (window.getSelection()?.toString()) return;
-  event.preventDefault();
-
-  document.getElementById('bsky-post-detail')?.remove();
-  const overlay = document.createElement('div');
-  overlay.className = 'ov on';
-  overlay.id = 'bsky-post-detail';
-  overlay.onclick = detailEvent => {
-    if (detailEvent.target === overlay) overlay.remove();
-  };
-  overlay.innerHTML = `
-    <div class="bsky-post-detail-modal">
-      <div class="chead">
-        <h2>ポスト</h2>
-        <button class="cbtn" title="閉じる" onclick="document.getElementById('bsky-post-detail')?.remove()">&times;</button>
-      </div>
-      <div class="bsky-post-detail-body">
-        <div class="feed-loading"><div class="spinner"></div>読み込み中...</div>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  try {
-    const data = await bskyCallWithRefresh(jwt => bsky.getThread(jwt, uri, 6));
-    const thread = data?.thread;
-    const body = overlay.querySelector('.bsky-post-detail-body');
-    if (!body || !thread?.post) throw new Error('ポストを取得できませんでした');
-
-    const replies = (thread.replies || [])
-      .filter(reply => reply?.post)
-      .map(reply => `<div class="bsky-thread-reply">${renderBskyPost({ post: reply.post })}</div>`)
-      .join('');
-    body.innerHTML = `
-      <div class="bsky-thread-main">${renderBskyPost({ post: thread.post })}</div>
-      ${replies ? `<div class="bsky-thread-label">返信</div>${replies}` : '<div class="feed-empty">返信はありません</div>'}`;
-  } catch (error) {
-    const body = overlay.querySelector('.bsky-post-detail-body');
-    if (body) body.innerHTML = `<div class="feed-err">${esc(error.message)}</div>`;
-  }
 }
 
 // ─── COMPOSE ────────────────────────────────────
@@ -2586,12 +2321,11 @@ function applyColFontSize(id, colType, fs) {
   document.getElementById('col-settings-ov')?.remove();
 }
 
-function showPostMenu(e, handle) {
-  e.preventDefault();
+function showPostMenu({ handle, x, y }) {
   document.getElementById('post-ctx-menu')?.remove();
   const menu = document.createElement('div');
   menu.id = 'post-ctx-menu';
-  menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
   menu.innerHTML = `
     <div onclick="addNgUser('${esc(handle)}')" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
@@ -2866,7 +2600,7 @@ function openNotificationCenterItem(index) {
   }
   if (item.targetUri) {
     const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
-    openBskyPost({ target: document.body, preventDefault() {} }, item.targetUri, handle || state.b?.handle || 'post');
+    bskyColumnsRuntime.openPost({ uri: item.targetUri, handle: handle || state.b?.handle || 'post' });
     return;
   }
   if (item.author?.did) showProfile(item.author.did);

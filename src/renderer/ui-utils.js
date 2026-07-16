@@ -21,12 +21,19 @@
       return avatarBackgrounds[Math.abs((handle || '').charCodeAt(0) || 0) % avatarBackgrounds.length];
     }
 
-    function renderAvatar(author, size = 34) {
+    function renderAvatar(author, size = 34, { delegated = false } = {}) {
       const bg = avBgFor(author.handle);
       const init = esc((author.displayName || author.handle || '?').slice(0, 2).toUpperCase());
-      const img = author.avatar ? `<img src="${esc(author.avatar)}" loading="lazy" onerror="this.style.display='none'">` : '';
+      const img = author.avatar
+        ? `<img src="${esc(author.avatar)}" loading="lazy"${delegated ? '' : ' onerror="this.style.display=\'none\'"'}>`
+        : '';
       const did = esc(author.did || '');
       const handle = esc(author.handle || '');
+      if (delegated) {
+        return `<div class="av" style="width:${size}px;height:${size}px;background:${bg};font-size:${size < 32 ? 9 : 11}px;cursor:pointer"
+          data-bsky-profile data-did="${did}" data-handle="${handle}"
+        >${init}${img}<div class="pdot">${bskyIcon.replace('viewBox', 'width="7" height="7" viewBox')}</div></div>`;
+      }
       return `<div class="av" style="width:${size}px;height:${size}px;background:${bg};font-size:${size < 32 ? 9 : 11}px;cursor:pointer"
         data-did="${did}" data-handle="${handle}"
         onmouseenter="hoverCardShow(event,'${did}','${handle}')"
@@ -34,7 +41,7 @@
       >${img}${img ? '' : init}<div class="pdot">${bskyIcon.replace('viewBox', 'width="7" height="7" viewBox')}</div></div>`;
     }
 
-    function formatText(text, facets) {
+    function formatText(text, facets, { delegated = false } = {}) {
       if (!facets || !facets.length) return esc(text).replace(/\n/g, '<br>');
       const enc = new TextEncoder();
       const bytes = enc.encode(text);
@@ -53,9 +60,13 @@
         if (feat?.$type === 'app.bsky.richtext.facet#link') {
           result += `<a href="${esc(feat.uri)}" target="_blank">${esc(seg)}</a>`;
         } else if (feat?.$type === 'app.bsky.richtext.facet#mention') {
-          result += `<a href="#" onclick="event.preventDefault();showProfile('${esc(feat.did)}')">${esc(seg)}</a>`;
+          result += delegated
+            ? `<a href="#" data-bsky-profile data-did="${esc(feat.did)}">${esc(seg)}</a>`
+            : `<a href="#" onclick="event.preventDefault();showProfile('${esc(feat.did)}')">${esc(seg)}</a>`;
         } else if (feat?.$type === 'app.bsky.richtext.facet#tag') {
-          result += `<a href="#" style="color:var(--accent)" onclick="event.preventDefault()">${esc(seg)}</a>`;
+          result += delegated
+            ? `<a href="#" style="color:var(--accent)" data-bsky-tag>${esc(seg)}</a>`
+            : `<a href="#" style="color:var(--accent)" onclick="event.preventDefault()">${esc(seg)}</a>`;
         } else {
           result += esc(seg);
         }

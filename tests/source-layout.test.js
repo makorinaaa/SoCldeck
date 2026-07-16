@@ -74,6 +74,25 @@ test('loads the Anime Schedule Runtime before renderer', () => {
   assert.match(renderer, /insertAnimeScheduleCol\(plan\.config\)/);
 });
 
+test('keeps API-backed Bluesky Columns behind their Runtime', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/bsky-columns-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckBlueskyColumnsRuntime\.createBlueskyColumnsRuntime\(\{/);
+  assert.match(renderer, /bskyColumnsRuntime\.mount\(\{/);
+  assert.match(renderer, /bskyColumnsRuntime\.refresh\(/);
+  assert.doesNotMatch(
+    renderer,
+    /\b(?:colCursors|renderBskyPost|renderBskyNotif|doSearch|toggleLike|toggleRepost|showRtMenu|openBskyPost)\b/,
+  );
+});
+
 test('keeps Compose Experience media Runtime State out of renderer globals', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
 

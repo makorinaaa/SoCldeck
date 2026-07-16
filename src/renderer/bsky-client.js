@@ -81,5 +81,89 @@
     return client;
   }
 
-  global.SocialDeckBskyClient = { BSKY, createBskyClient };
+  function createAuthenticatedBlueskyAdapter({ client, getAccount, updateAccount } = {}) {
+    if (!client || typeof getAccount !== 'function' || typeof updateAccount !== 'function') {
+      throw new Error('Authenticated Bluesky adapter requires account access');
+    }
+    let refreshPromise = null;
+
+    function requiresRefresh(error) {
+      const message = String(error?.message || '');
+      return /expired|token|unauthorized/i.test(message);
+    }
+
+    async function refreshAccount() {
+      if (refreshPromise) return refreshPromise;
+      const account = getAccount();
+      if (!account?.refreshJwt) throw new Error('Bluesky refresh token is unavailable');
+      refreshPromise = Promise.resolve(client.refresh(account.refreshJwt)).then(session => {
+        updateAccount(session);
+        return getAccount();
+      });
+      try {
+        return await refreshPromise;
+      } finally {
+        refreshPromise = null;
+      }
+    }
+
+    async function call(operation) {
+      const account = getAccount();
+      if (!account?.accessJwt) throw new Error('Bluesky account is unavailable');
+      try {
+        return await operation(account);
+      } catch (error) {
+        if (!requiresRefresh(error)) throw error;
+        return operation(await refreshAccount());
+      }
+    }
+
+    return {
+      getTimeline: ({ limit = 40, cursor = null } = {}) => call(account => (
+        client.timeline(account.accessJwt, limit, cursor)
+      )),
+      getFeed: ({ feedUri, limit = 40, cursor = null }) => call(account => (
+        client.feed(account.accessJwt, feedUri, limit, cursor)
+      )),
+      searchPosts: ({ query, limit = 40 }) => call(account => (
+        client.search(account.accessJwt, query, limit)
+      )),
+      listNotifications: ({ limit = 40 } = {}) => call(account => (
+        client.notifications(account.accessJwt, limit)
+      )),
+      markNotificationsSeen: ({ seenAt }) => call(account => (
+        client.updateSeen(account.accessJwt, seenAt)
+      )),
+      getProfile: ({ actor }) => call(account => (
+        client.getProfile(account.accessJwt, actor)
+      )),
+      follow: ({ targetDid }) => call(account => (
+        client.follow(account.accessJwt, account.did, targetDid)
+      )),
+      unfollow: ({ followUri }) => call(account => (
+        client.unfollow(account.accessJwt, account.did, followUri)
+      )),
+      getThread: ({ uri, depth = 6 }) => call(account => (
+        client.getThread(account.accessJwt, uri, depth)
+      )),
+      like: ({ uri, cid }) => call(account => (
+        client.like(account.accessJwt, account.did, uri, cid)
+      )),
+      unlike: ({ likeUri }) => call(account => (
+        client.unlike(account.accessJwt, account.did, likeUri)
+      )),
+      repost: ({ uri, cid }) => call(account => (
+        client.repost(account.accessJwt, account.did, uri, cid)
+      )),
+      unrepost: ({ repostUri }) => call(account => (
+        client.unrepost(account.accessJwt, account.did, repostUri)
+      )),
+    };
+  }
+
+  global.SocialDeckBskyClient = {
+    BSKY,
+    createAuthenticatedBlueskyAdapter,
+    createBskyClient,
+  };
 })(window);
