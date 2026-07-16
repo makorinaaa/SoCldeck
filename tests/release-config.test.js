@@ -21,3 +21,59 @@ test('the release workflow uploads every auto-update artifact explicitly', () =>
   assert.match(workflow, /dist\/\*\.exe\.blockmap/);
   assert.match(workflow, /dist\/latest\.yml/);
 });
+
+test('the release workflow validates its tag before running isolated test phases', () => {
+  const workflow = fs.readFileSync(
+    path.join(projectRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  );
+
+  assert.match(workflow, /name: Validate release tag/);
+  assert.match(workflow, /github\.ref_name/);
+  assert.match(workflow, /require\(['"]\.\/package\.json['"]\)\.version/);
+  assert.match(workflow, /name: Run unit tests/);
+  assert.match(workflow, /npm\.cmd test/);
+  assert.match(workflow, /name: Run Electron E2E tests/);
+  assert.match(workflow, /npm\.cmd run test:e2e/);
+  assert.doesNotMatch(workflow, /npm run test:all/);
+
+  const validationIndex = workflow.indexOf('name: Validate release tag');
+  const unitIndex = workflow.indexOf('name: Run unit tests');
+  const e2eIndex = workflow.indexOf('name: Run Electron E2E tests');
+  const buildIndex = workflow.indexOf('name: Build Windows release');
+  assert.ok(validationIndex < unitIndex);
+  assert.ok(unitIndex < e2eIndex);
+  assert.ok(e2eIndex < buildIndex);
+});
+
+test('the release workflow preserves diagnostics and bounds E2E retries', () => {
+  const workflow = fs.readFileSync(
+    path.join(projectRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  );
+
+  assert.match(workflow, /actions\/checkout@v5/);
+  assert.match(workflow, /actions\/setup-node@v5/);
+  assert.match(workflow, /actions\/upload-artifact@v5/);
+  assert.match(workflow, /if: always\(\)/);
+  assert.match(workflow, /test-results/);
+  assert.match(workflow, /e2e-attempt-\$attempt\.log/);
+  assert.match(workflow, /\$maxAttempts = 2/);
+  assert.match(workflow, /retention-days: 14/);
+});
+
+test('the release workflow verifies generated updater files before publishing', () => {
+  const workflow = fs.readFileSync(
+    path.join(projectRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  );
+
+  assert.match(workflow, /name: Verify release artifacts/);
+  assert.match(workflow, /SocialDeck-\$packageVersion-x64\.exe/);
+  assert.match(workflow, /latest\.yml/);
+  assert.match(workflow, /\.exe\.blockmap/);
+  assert.ok(
+    workflow.indexOf('name: Verify release artifacts')
+      < workflow.indexOf('softprops/action-gh-release@v2')
+  );
+});

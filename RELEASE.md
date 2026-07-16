@@ -11,6 +11,8 @@ To publish a Windows update:
 3. Create and push a matching tag such as `v2.1.2`.
 4. GitHub Actions publishes the installer, blockmap, and `latest.yml` to a public GitHub Release.
 
+The release workflow validates that the tag matches `package.json`, runs unit and Electron E2E tests as separate steps, and stores their logs in the `test-results-<attempt>` artifact for 14 days. Electron E2E tests retry once after a failure; a retry that succeeds is reported as a workflow warning and keeps both attempt logs for diagnosis.
+
 Do not upload `latest.yml` separately from its installer. They must come from the same build. Draft releases are not visible to installed applications.
 
 Version 2.1.2 is the first complete auto-update capable build, so it must be installed manually once. Later releases can update it automatically.
