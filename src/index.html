@@ -615,20 +615,20 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 </div>
 
 <!-- UNIFIED NOTIFICATION CENTER -->
-<div class="ov" id="notifCenterMod" onclick="closeOv('notifCenterMod',event)">
+<div class="ov" id="notifCenterMod">
   <div class="notif-center-modal">
     <div class="notif-center-head">
       <h2>通知センター</h2>
-      <button title="更新" onclick="loadNotificationCenter()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-      <button title="閉じる" onclick="closeOv('notifCenterMod')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <button title="更新" data-notification-action="refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+      <button title="閉じる" data-notification-action="close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="notif-center-tabs">
-      <button class="notif-center-tab on" data-network="all" onclick="setNotificationNetwork('all')">すべて</button>
-      <button class="notif-center-tab" data-network="x" onclick="setNotificationNetwork('x')">X</button>
-      <button class="notif-center-tab" data-network="b" onclick="setNotificationNetwork('b')">Bluesky</button>
+      <button class="notif-center-tab on" data-network="all">すべて</button>
+      <button class="notif-center-tab" data-network="x">X</button>
+      <button class="notif-center-tab" data-network="b">Bluesky</button>
     </div>
     <div class="notif-center-tools">
-      <select id="notif-center-reason" onchange="renderNotificationCenter()">
+      <select id="notif-center-reason">
         <option value="all">すべての種類</option>
         <option value="reply">返信</option>
         <option value="mention">メンション</option>
@@ -637,8 +637,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         <option value="follow">フォロー</option>
         <option value="quote">引用</option>
       </select>
-      <label><input type="checkbox" id="notif-center-unread" onchange="renderNotificationCenter()">未読のみ</label>
-      <button class="mark-read" onclick="markNotificationCenterRead()">Blueskyをすべて既読</button>
+      <label><input type="checkbox" id="notif-center-unread">未読のみ</label>
+      <button class="mark-read" data-notification-action="mark-read">Blueskyをすべて既読</button>
     </div>
     <div class="notif-center-x" id="notif-center-x"></div>
     <div class="notif-center-list" id="notif-center-list"><div class="notif-center-state">通知を読み込んでいます…</div></div>
@@ -827,6 +827,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/memory-cleaner.js"></script>
 <script src="renderer/file-drag-shield.js"></script>
 <script src="renderer/notification-center.js"></script>
+<script src="renderer/notification-center-runtime.js"></script>
 <script src="renderer/notification-runtime.js"></script>
 <script src="renderer/anime-schedule-runtime.js"></script>
 <script src="renderer/network-adapters.js"></script>

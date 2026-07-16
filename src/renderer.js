@@ -16,6 +16,7 @@ const notificationCenter = window.SocialDeckNotificationCenter;
 const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
 let xWebViewRuntime;
 let bskyColumnsRuntime;
+let notificationCenterRuntime;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -642,14 +643,13 @@ async function logoutAll() {
   // 全カラムの自動更新を停止
   columnLifecycle.clear({ removeElements: true });
   document.getElementById('notif-center-x-readers')?.replaceChildren();
-  notificationCenterItems = [];
-  xNotificationCenterItems = [];
   const composePreferences = state.composePreferences;
   state = {
     ...window.SocialDeckStateStore.defaultState(),
     composePreferences,
   };
   saveState();
+  await notificationCenterRuntime.reload();
   await syncXNetworkAccounts();
   columnRuntime.clearStoredLayout(); // カラムレイアウトもリセット
   closeAmenu();
@@ -747,6 +747,61 @@ xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
   createRefreshScript: destination => window.SocialDeckXTimelineRefresh.createRefreshScript(destination),
   getCanonicalUrl: getXNotificationColumnUrl,
   openImage: openImg,
+});
+const notificationCenterView = window.SocialDeckNotificationCenterRuntime.createNotificationCenterDomView({
+  documentRef: document,
+  ui: {
+    escape: esc,
+    renderAvatar,
+    relativeTime: relTime,
+    avatarBackground: avBgFor,
+  },
+});
+notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNotificationCenterRuntime({
+  model: notificationCenter,
+  getSession: () => ({
+    bluesky: Boolean(state.b),
+    xAccounts: state.xs || [],
+  }),
+  sources: {
+    listBluesky: async () => {
+      if (E2E_FIXTURES && E2E_FIXTURES.useNotificationReaders !== true) {
+        return E2E_FIXTURES.blueskyNotifications || [];
+      }
+      const data = await authenticatedBskyAdapter.listNotifications({ limit: 80 });
+      return data.notifications || [];
+    },
+    listX: async (account, accountIndex) => {
+      if (!IS_ELECTRON) return [];
+      if (E2E_FIXTURES && E2E_FIXTURES.useNotificationReaders !== true) {
+        return (E2E_FIXTURES.xNotifications || []).filter(item =>
+          (Number(item.accountIndex) || 0) === accountIndex
+        );
+      }
+      return xWebViewRuntime.listNotifications({
+        accountId: account.username || account.partition || `persist:x-${accountIndex}`,
+        host: document.getElementById('notif-center-x-readers'),
+        script: notificationCenter.buildXNotificationExtractionScript(40),
+      });
+    },
+    markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
+  },
+  view: notificationCenterView,
+  intents: {
+    close: () => closeOv('notifCenterMod'),
+    openXAccountNotifications: ({ accountIndex }) => goToNotifCol('x', accountIndex),
+    openXNotification: item => openXNotificationCenterItem(item),
+    openBlueskyPost: item => {
+      const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
+      return bskyColumnsRuntime.openPost({
+        uri: item.targetUri,
+        handle: handle || state.b?.handle || 'post',
+      });
+    },
+    openBlueskyProfile: item => showProfile(item.author.did),
+    clearUnread: () => notificationRuntime.clearUnread(),
+    toast,
+  },
 });
 
 async function silentRefreshBsky(cid, type, feedUri) {
@@ -2370,34 +2425,10 @@ function renderNotifIcons() {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <span id="bsky-notif-badge" style="position:absolute;top:-6px;right:-7px;min-width:14px;height:14px;border-radius:7px;background:var(--red);color:#fff;font-size:8px;font-weight:700;display:${unreadCount > 0 ? 'flex' : 'none'};align-items:center;justify-content:center;padding:0 2px;line-height:1">${unreadCount > 99 ? '99+' : unreadCount}</span>
     </span>`;
-  btn.onclick = openNotificationCenter;
+  btn.onclick = () => notificationCenterRuntime.open();
   el.appendChild(btn);
 
   if (state.b) startNotifPoll();
-}
-
-let notificationCenterItems = [];
-let xNotificationCenterItems = [];
-let visibleNotificationCenterItems = [];
-let xNotificationCenterErrors = [];
-let notificationCenterNetwork = 'all';
-
-function openNotificationCenter() {
-  notificationCenterNetwork = 'all';
-  document.querySelectorAll('.notif-center-tab').forEach(button => {
-    button.classList.toggle('on', button.dataset.network === 'all');
-  });
-  document.getElementById('notifCenterMod').classList.add('on');
-  renderNotificationCenter();
-  loadNotificationCenter();
-}
-
-function setNotificationNetwork(networkId) {
-  notificationCenterNetwork = networkId;
-  document.querySelectorAll('.notif-center-tab').forEach(button => {
-    button.classList.toggle('on', button.dataset.network === networkId);
-  });
-  renderNotificationCenter();
 }
 
 async function openAbout() {
@@ -2446,166 +2477,6 @@ function renderUpdateStatus(update) {
   status.textContent = messages[update.status] || '';
 }
 
-async function loadNotificationCenter() {
-  const list = document.getElementById('notif-center-list');
-  if (list) list.innerHTML = '<div class="notif-center-state">通知を読み込んでいます…</div>';
-  if (E2E_FIXTURES && E2E_FIXTURES.useNotificationReaders !== true) {
-    notificationCenterItems = (E2E_FIXTURES.blueskyNotifications || [])
-      .map(notificationCenter.normalizeBskyNotification);
-    xNotificationCenterItems = (E2E_FIXTURES.xNotifications || []).map(raw => {
-      const accountIndex = Number(raw.accountIndex) || 0;
-      return notificationCenter.normalizeXNotification(raw, {
-        accountIndex,
-        account: state.xs?.[accountIndex] || {},
-      });
-    });
-    xNotificationCenterErrors = [];
-    renderNotificationCenter();
-    return;
-  }
-  const blueskyTask = state.b
-    ? bskyCallWithRefresh(jwt => bsky.notifications(jwt, 80))
-      .then(data => { notificationCenterItems = (data.notifications || []).map(notificationCenter.normalizeBskyNotification); })
-    : Promise.resolve().then(() => { notificationCenterItems = []; });
-  const xTask = loadXNotificationCenter();
-  const [blueskyResult] = await Promise.allSettled([blueskyTask, xTask]);
-  renderNotificationCenter();
-  if (blueskyResult.status === 'rejected' && notificationCenterNetwork === 'b' && list) {
-    list.innerHTML = `<div class="notif-center-state">Bluesky通知を取得できませんでした<br>${esc(blueskyResult.reason?.message || '')}</div>`;
-  }
-}
-
-async function loadXNotificationsForAccount(account, accountIndex) {
-  const rawItems = await xWebViewRuntime.listNotifications({
-    accountId: account.username || account.partition || `persist:x-${accountIndex}`,
-    host: document.getElementById('notif-center-x-readers'),
-    script: notificationCenter.buildXNotificationExtractionScript(40),
-  });
-  return (rawItems || []).map(raw => notificationCenter.normalizeXNotification(raw, {
-    account,
-    accountIndex,
-  }));
-}
-
-async function loadXNotificationCenter() {
-  if (!IS_ELECTRON || !(state.xs || []).length) {
-    xNotificationCenterItems = [];
-    xNotificationCenterErrors = [];
-    return;
-  }
-  const results = await Promise.allSettled(
-    state.xs.map((account, index) => loadXNotificationsForAccount(account, index))
-  );
-  xNotificationCenterItems = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-  xNotificationCenterErrors = results.flatMap((result, index) => result.status === 'rejected'
-    ? [{ accountIndex: index, message: result.reason?.message || '取得できませんでした' }]
-    : []);
-}
-
-function renderNotificationCenter() {
-  const xArea = document.getElementById('notif-center-x');
-  const list = document.getElementById('notif-center-list');
-  if (!xArea || !list) return;
-
-  const showX = ['all', 'x'].includes(notificationCenterNetwork) && (state.xs || []).length > 0;
-  xArea.classList.toggle('show', showX);
-  xArea.innerHTML = showX
-    ? (state.xs || []).map((account, index) => `
-      <button class="notif-x-account" data-x-index="${index}">
-        <span style="background:${account.bg || 'var(--text2)'}">${esc(account.initials || 'X')}</span>
-        ${esc(account.username)} の通知カラム
-      </button>`).join('')
-    : '';
-  xArea.querySelectorAll('[data-x-index]').forEach(button => {
-    button.addEventListener('click', () => {
-      closeOv('notifCenterMod');
-      goToNotifCol('x', Number(button.dataset.xIndex));
-    });
-  });
-
-  const reasonSelect = document.getElementById('notif-center-reason');
-  const unreadInput = document.getElementById('notif-center-unread');
-  if (reasonSelect) reasonSelect.disabled = false;
-  if (unreadInput) {
-    unreadInput.disabled = notificationCenterNetwork === 'x' || !state.b;
-    if (notificationCenterNetwork === 'x') unreadInput.checked = false;
-  }
-  document.querySelector('.notif-center-tools .mark-read').disabled = notificationCenterNetwork === 'x' || !state.b;
-
-  if (notificationCenterNetwork === 'b' && !state.b) {
-    list.innerHTML = '<div class="notif-center-state">Blueskyにログインすると通知がここに表示されます</div>';
-    return;
-  }
-
-  const sourceItems = notificationCenterNetwork === 'x'
-    ? xNotificationCenterItems
-    : notificationCenterNetwork === 'b'
-      ? notificationCenterItems
-      : [...xNotificationCenterItems, ...notificationCenterItems].sort((left, right) => {
-          const leftTime = Date.parse(left.indexedAt) || 0;
-          const rightTime = Date.parse(right.indexedAt) || 0;
-          return rightTime - leftTime;
-        });
-  const filtered = notificationCenter.filterNotifications(sourceItems, {
-    reason: reasonSelect?.value || 'all',
-    unreadOnly: Boolean(unreadInput?.checked),
-  });
-  visibleNotificationCenterItems = filtered;
-  if (!filtered.length) {
-    const xFailed = ['all', 'x'].includes(notificationCenterNetwork) && xNotificationCenterErrors.length > 0;
-    list.innerHTML = xFailed
-      ? '<div class="notif-center-state">X通知を取得できませんでした。上のボタンから通知カラムを開いて確認できます</div>'
-      : '<div class="notif-center-state">条件に一致する通知はありません</div>';
-    return;
-  }
-
-  const labels = {
-    like: 'さんがあなたの投稿をいいねしました',
-    repost: 'さんがあなたの投稿をリポストしました',
-    follow: 'さんがあなたをフォローしました',
-    reply: 'さんがあなたに返信しました',
-    mention: 'さんがあなたをメンションしました',
-    quote: 'さんがあなたの投稿を引用しました',
-  };
-  list.innerHTML = filtered.map((item, index) => {
-    const actor = item.author || {};
-    const excerptText = item.networkId === 'x' ? item.text : item.raw?.record?.text;
-    const excerpt = excerptText ? `<div class="notif-handle">${esc(excerptText)}</div>` : `<div class="notif-handle">@${esc(actor.handle || '')}</div>`;
-    const avatar = item.networkId === 'x'
-      ? `<div class="av" style="width:32px;height:32px;background:${item.account?.bg || avBgFor(actor.handle)};font-size:9px">${actor.avatar ? `<img src="${esc(actor.avatar)}" loading="lazy">` : esc((actor.displayName || actor.handle || 'X').slice(0, 2).toUpperCase())}</div>`
-      : renderAvatar(actor, 32);
-    const timeLabel = item.indexedAt ? relTime(item.indexedAt) : (item.account?.username || 'X');
-    return `<div class="notif-center-item ${item.isRead === false ? 'unread' : ''}" data-notification-index="${index}" role="button" tabindex="0">
-      ${avatar}
-      <div class="notif-copy"><div class="notif-title"><strong>${esc(actor.displayName || actor.handle || 'ユーザー')}</strong>${esc(labels[item.reason] || 'さんから通知があります')}</div>${excerpt}</div>
-      <div class="notif-time">${esc(timeLabel)}</div>
-    </div>`;
-  }).join('');
-  list.querySelectorAll('[data-notification-index]').forEach(element => {
-    const activate = () => openNotificationCenterItem(Number(element.dataset.notificationIndex));
-    element.addEventListener('click', activate);
-    element.addEventListener('keydown', event => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); }
-    });
-  });
-}
-
-function openNotificationCenterItem(index) {
-  const item = visibleNotificationCenterItems[index];
-  if (!item) return;
-  closeOv('notifCenterMod');
-  if (item.networkId === 'x') {
-    openXNotificationCenterItem(item);
-    return;
-  }
-  if (item.targetUri) {
-    const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
-    bskyColumnsRuntime.openPost({ uri: item.targetUri, handle: handle || state.b?.handle || 'post' });
-    return;
-  }
-  if (item.author?.did) showProfile(item.author.did);
-}
-
 async function openXNotificationCenterItem(item) {
   const account = state.xs?.[item.accountIndex];
   if (!account) return;
@@ -2626,19 +2497,6 @@ async function openXNotificationCenterItem(item) {
   } catch (error) {
     console.warn('X notification target could not be opened:', error);
     toast('対象のポストを開けませんでした');
-  }
-}
-
-async function markNotificationCenterRead() {
-  if (!state.b) return;
-  try {
-    await bskyCallWithRefresh(jwt => bsky.updateSeen(jwt, new Date().toISOString()));
-    notificationCenterItems = notificationCenterItems.map(item => ({ ...item, isRead: true }));
-    notificationRuntime.clearUnread();
-    renderNotificationCenter();
-    toast('Bluesky通知をすべて既読にしました');
-  } catch (error) {
-    toast('既読にできませんでした: ' + error.message);
   }
 }
 

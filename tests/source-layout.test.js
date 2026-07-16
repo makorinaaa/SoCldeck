@@ -93,6 +93,30 @@ test('keeps API-backed Bluesky Columns behind their Runtime', () => {
   );
 });
 
+test('keeps Notification Center state and rendering behind its Runtime', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/notification-center-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(
+    renderer,
+    /SocialDeckNotificationCenterRuntime\.createNotificationCenterRuntime\(/,
+  );
+  assert.doesNotMatch(
+    renderer,
+    /\b(?:notificationCenterItems|xNotificationCenterItems|visibleNotificationCenterItems|xNotificationCenterErrors)\b/,
+  );
+  assert.doesNotMatch(
+    renderer,
+    /function (?:loadNotificationCenter|renderNotificationCenter|markNotificationCenterRead)\b/,
+  );
+});
+
 test('keeps Compose Experience media Runtime State out of renderer globals', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
 

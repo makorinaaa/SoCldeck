@@ -294,7 +294,6 @@ async function openXLikeNotification(page) {
         url: webview.getURL?.() || '',
         ready: webview.dataset.ready || '',
       })),
-      errors: typeof xNotificationCenterErrors === 'undefined' ? [] : xNotificationCenterErrors,
       warnings: window.__e2eWarnings || [],
     }));
     throw new Error(`${error.message}\n${JSON.stringify(diagnostics)}`);
