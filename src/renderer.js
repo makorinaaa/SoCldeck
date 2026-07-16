@@ -19,6 +19,7 @@ let bskyColumnsRuntime;
 let notificationCenterRuntime;
 let composeModalRuntime;
 let accountSessionRuntime;
+let desktopNotificationRuntime;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -580,6 +581,39 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
     toast,
   },
 });
+const desktopNotificationView = window.SocialDeckDesktopNotificationRuntime.createDesktopNotificationDomView({
+  documentRef: document,
+});
+desktopNotificationRuntime = window.SocialDeckDesktopNotificationRuntime.createDesktopNotificationRuntime({
+  storage: localStorage,
+  fetchItems: async () => {
+    await notificationCenterRuntime.reload();
+    return notificationCenterRuntime.getAllItems();
+  },
+  showNotification: payload => window.electronAPI?.showDesktopNotification?.(payload) ?? false,
+  isAppFocused: () => document.hasFocus(),
+  subscribeActivation: handler => window.electronAPI?.onDesktopNotificationActivated?.(handler) || (() => {}),
+  view: desktopNotificationView,
+  intents: {
+    saved: rules => toast(rules.enabled
+      ? 'デスクトップ通知を有効にしました'
+      : 'デスクトップ通知を無効にしました'),
+    activate: item => {
+      if (item.networkId === 'x') return openXNotificationCenterItem(item);
+      if (item.targetUri) {
+        const handle = ['like', 'repost'].includes(item.reason)
+          ? state.b?.handle
+          : item.author?.handle;
+        return bskyColumnsRuntime.openPost({
+          uri: item.targetUri,
+          handle: handle || state.b?.handle || 'post',
+        });
+      }
+      if (item.author?.did) return showProfile(item.author.did);
+      return null;
+    },
+  },
+});
 const accountSessionView = window.SocialDeckAccountSessionRuntime.createAccountSessionDomView({
   documentRef: document,
   escape: esc,
@@ -636,6 +670,7 @@ accountSessionRuntime = window.SocialDeckAccountSessionRuntime.createAccountSess
       document.getElementById('app').style.display = 'none';
     },
     accountsChanged: ({ network, kind, account }) => {
+      desktopNotificationRuntime.rebaseline().catch(() => {});
       if (network === 'all') {
         accountSessionRuntime.openSettings();
         toast('All accounts logged out');
@@ -2456,6 +2491,7 @@ if (state.x && !(state.xs && state.xs.length > 0)) {
   saveState();
 }
 const accountSessionReady = accountSessionRuntime.start();
+desktopNotificationRuntime.start().catch(() => {});
 initDnD();
 colObserver.observe(document.getElementById('cols'), { childList: true });
 

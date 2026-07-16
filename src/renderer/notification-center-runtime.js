@@ -175,14 +175,18 @@
       };
     }
 
-    function sourceItems() {
-      if (network === 'x') return xItems;
-      if (network === 'b') return blueskyItems;
+    function getAllItems() {
       return [...xItems, ...blueskyItems].sort((left, right) => {
         const leftTime = Date.parse(left.indexedAt) || 0;
         const rightTime = Date.parse(right.indexedAt) || 0;
         return rightTime - leftTime;
       });
+    }
+
+    function sourceItems() {
+      if (network === 'x') return xItems;
+      if (network === 'b') return blueskyItems;
+      return getAllItems();
     }
 
     function snapshot() {
@@ -342,6 +346,7 @@
     const runtime = {
       activate,
       dispose,
+      getAllItems,
       markAllRead,
       open,
       openXAccount,

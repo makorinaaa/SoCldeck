@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   setConfig: (data) => ipcRenderer.invoke('set-config', data),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  showDesktopNotification: payload => ipcRenderer.invoke('show-desktop-notification', payload),
+  onDesktopNotificationActivated: fn => {
+    if (typeof fn !== 'function') return () => {};
+    const listener = (_, key) => fn(key);
+    ipcRenderer.on('desktop-notification-activated', listener);
+    return () => ipcRenderer.removeListener('desktop-notification-activated', listener);
+  },
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   getAnimeSchedule: (force = false) => e2eFixtures?.animeSchedule

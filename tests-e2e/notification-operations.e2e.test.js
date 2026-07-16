@@ -414,6 +414,33 @@ test('Bluesky follow notifications reuse one profile column and switch its URL',
   assert.equal(await column.count(), 1);
 });
 
+test('desktop notification rules persist through the settings modal', async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  await page.locator('#desktop-notif-settings-btn').click();
+  await page.locator('#desktopNotifSettingsMod.on').waitFor();
+  await page.locator('#desktop-notif-enabled').check();
+  await page.locator('[data-desktop-notification-reason="like"]').check();
+  await page.locator('#desktop-notif-users').fill('@alice.test');
+  await page.locator('#desktop-notif-keywords').fill('release, 配信');
+  await page.locator('[data-desktop-notification-action="save"]').click();
+  await page.locator('#desktopNotifSettingsMod').waitFor({ state: 'hidden' });
+
+  const persisted = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('socialdeck_desktop_notification_rules'))
+  );
+  assert.equal(persisted.rules.enabled, true);
+  assert.equal(persisted.rules.reasons.like, true);
+  assert.deepEqual(persisted.rules.users, ['alice.test']);
+  assert.deepEqual(persisted.rules.keywords, ['release', '配信']);
+
+  await page.locator('#desktop-notif-settings-btn').click();
+  await page.locator('#desktopNotifSettingsMod.on').waitFor();
+  assert.equal(await page.locator('#desktop-notif-enabled').isChecked(), true);
+  assert.equal(await page.locator('#desktop-notif-users').inputValue(), 'alice.test');
+});
+
 test('Compose Experience retains media and executes Bluesky delivery through its Adapter', async t => {
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });

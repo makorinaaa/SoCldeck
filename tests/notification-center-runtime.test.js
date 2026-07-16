@@ -161,6 +161,11 @@ test('filters the loaded notifications without reloading their sources', async (
   assert.equal(xSnapshot.unreadOnly, false);
   assert.equal(xSnapshot.canMarkAllRead, false);
   assert.deepEqual(plain(xSnapshot.items.map(item => item.id)), ['x:0:x-like']);
+  assert.deepEqual(plain(runtime.getAllItems().map(item => item.id)), [
+    'x:0:x-like',
+    'b:unread-like',
+    'b:read-like',
+  ]);
 });
 
 test('activates notifications through semantic navigation intents', async () => {

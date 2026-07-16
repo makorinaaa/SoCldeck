@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -6,6 +6,7 @@ const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-s
 const { createAppUpdater } = require('./main/app-updater');
 const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
 const { createAnimeScheduleService } = require('./main/anime-schedule');
+const { createDesktopNotificationService } = require('./main/desktop-notification-service');
 const { autoUpdater } = require('electron-updater');
 
 // ── ffmpeg（メインプロセスで実行）──
@@ -142,6 +143,10 @@ function saveConfig(data) {
 let mainWindow;
 let widgetWindow = null;
 let appUpdaterController = null;
+const desktopNotificationService = createDesktopNotificationService({
+  NotificationClass: Notification,
+  getWindow: () => mainWindow,
+});
 
 // ── ウィジェットウィンドウ（デスクトップTL表示） ──
 function createWidgetWindow() {
@@ -275,6 +280,9 @@ app.on('web-contents-created', (_, contents) => {
 ipcMain.handle('get-config', () => loadConfig());
 ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('show-desktop-notification', (_, payload) =>
+  desktopNotificationService.show(payload)
+);
 ipcMain.handle('check-for-updates', () => appUpdaterController?.check({ manual: true }) ?? false);
 ipcMain.handle('install-update', () => appUpdaterController?.install() ?? false);
 ipcMain.handle('get-anime-schedule', (_, options = {}) =>

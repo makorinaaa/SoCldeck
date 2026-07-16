@@ -117,6 +117,33 @@ test('keeps Notification Center state and rendering behind its Runtime', () => {
   );
 });
 
+test('keeps desktop notification rules and settings behind their Runtime', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const main = fs.readFileSync(path.join(projectRoot, 'src', 'main.js'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/desktop-notification-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+  const modal = index.slice(
+    index.indexOf('<div class="ov" id="desktopNotifSettingsMod">'),
+    index.indexOf('<!-- ABOUT MODAL -->'),
+  );
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(
+    renderer,
+    /SocialDeckDesktopNotificationRuntime\.createDesktopNotificationRuntime\(\{/,
+  );
+  assert.match(main, /createDesktopNotificationService\(\{/);
+  assert.doesNotMatch(modal, /\son(?:click|change|input)=/i);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:matchesDesktopNotificationRules|pollDesktopNotifications|renderDesktopNotificationSettings)\b/,
+  );
+});
+
 test('keeps Compose Experience media Runtime State out of renderer globals', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
 

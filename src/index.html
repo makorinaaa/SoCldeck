@@ -264,6 +264,18 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .notif-center-item{padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:grid;grid-template-columns:32px 1fr auto;gap:9px;align-items:start}
 .notif-center-item:hover{background:rgba(255,255,255,.025)}
 .notif-center-item.unread{box-shadow:inset 3px 0 var(--accent);background:rgba(78,154,240,.035)}
+.desktop-notif-modal{width:min(520px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto}
+.desktop-notif-section{padding:12px 0;border-top:1px solid var(--border)}
+.desktop-notif-section:first-of-type{border-top:none;padding-top:0}
+.desktop-notif-label{display:block;font-size:11px;font-weight:700;color:var(--text2);margin-bottom:8px}
+.desktop-notif-checks{display:flex;flex-wrap:wrap;gap:8px 14px}
+.desktop-notif-checks label{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text1);cursor:pointer}
+.desktop-notif-field{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg2);color:var(--text1);font:inherit;font-size:11px;outline:none}
+.desktop-notif-field:focus{border-color:var(--accent)}
+.desktop-notif-help{font-size:10px;color:var(--text3);margin-top:6px;line-height:1.5}
+.desktop-notif-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:12px;border-top:1px solid var(--border)}
+.desktop-notif-status{margin-right:auto;font-size:10px;color:var(--text3)}
+.desktop-notif-actions .ptb.primary{border-color:var(--accent);background:var(--accent);color:#fff}
 .notif-center-item .notif-copy{min-width:0}
 .notif-center-item .notif-title{font-size:12px;color:var(--text1);line-height:1.4}
 .notif-center-item .notif-handle{font-size:10px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -584,6 +596,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
       <div id="sb-notif-icons"></div>
       <div class="ssep"></div>
       <button class="si" title="すべて更新" onclick="refreshAll()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+      <button class="si" id="desktop-notif-settings-btn" title="デスクトップ通知設定" data-desktop-notification-action="open"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><circle cx="18" cy="6" r="3" fill="var(--bg1)"/><path d="M18 4.8v2.4M16.8 6h2.4"/></svg></button>
       <button class="si" title="NGワード・ミュート" onclick="openNgSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></button>
       <button class="si" title="メモリ自動クリア設定" onclick="openMemSettings()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
       <button class="si" title="アカウント設定" onclick="openLoginScreen()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
@@ -645,6 +658,53 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
   </div>
 </div>
 <div class="notif-center-x-readers" id="notif-center-x-readers" aria-hidden="true"></div>
+
+<!-- DESKTOP NOTIFICATION SETTINGS -->
+<div class="ov" id="desktopNotifSettingsMod">
+  <div class="modal desktop-notif-modal">
+    <h2 style="margin-bottom:16px">デスクトップ通知設定</h2>
+    <div class="desktop-notif-section">
+      <div class="desktop-notif-checks">
+        <label><input type="checkbox" id="desktop-notif-enabled">デスクトップ通知を有効にする</label>
+        <label><input type="checkbox" id="desktop-notif-background-only">SocialDeckを操作していない時だけ通知</label>
+      </div>
+    </div>
+    <div class="desktop-notif-section">
+      <span class="desktop-notif-label">ネットワーク</span>
+      <div class="desktop-notif-checks">
+        <label><input type="checkbox" id="desktop-notif-network-x">X</label>
+        <label><input type="checkbox" id="desktop-notif-network-b">Bluesky</label>
+      </div>
+    </div>
+    <div class="desktop-notif-section">
+      <span class="desktop-notif-label">通知する種類</span>
+      <div class="desktop-notif-checks">
+        <label><input type="checkbox" data-desktop-notification-reason="reply">返信</label>
+        <label><input type="checkbox" data-desktop-notification-reason="mention">メンション</label>
+        <label><input type="checkbox" data-desktop-notification-reason="quote">引用</label>
+        <label><input type="checkbox" data-desktop-notification-reason="follow">フォロー</label>
+        <label><input type="checkbox" data-desktop-notification-reason="like">いいね</label>
+        <label><input type="checkbox" data-desktop-notification-reason="repost">リポスト</label>
+        <label><input type="checkbox" data-desktop-notification-reason="other">その他</label>
+      </div>
+    </div>
+    <div class="desktop-notif-section">
+      <label class="desktop-notif-label" for="desktop-notif-users">特定ユーザーだけ通知（任意）</label>
+      <input class="desktop-notif-field" id="desktop-notif-users" type="text" placeholder="@alice, @bob.bsky.social">
+      <div class="desktop-notif-help">空欄の場合はすべてのユーザーが対象です。カンマ区切りで指定できます。</div>
+    </div>
+    <div class="desktop-notif-section">
+      <label class="desktop-notif-label" for="desktop-notif-keywords">キーワードを含む通知だけ表示（任意）</label>
+      <input class="desktop-notif-field" id="desktop-notif-keywords" type="text" placeholder="配信, リリース">
+      <div class="desktop-notif-help">空欄の場合はキーワードで絞り込みません。いずれかを含む通知が対象です。</div>
+    </div>
+    <div class="desktop-notif-actions">
+      <span class="desktop-notif-status" id="desktop-notif-status"></span>
+      <button class="ptb" data-desktop-notification-action="close">キャンセル</button>
+      <button class="ptb primary" data-desktop-notification-action="save">保存</button>
+    </div>
+  </div>
+</div>
 
 <!-- ABOUT MODAL -->
 <div class="ov" id="aboutMod" onclick="closeOv('aboutMod',event)">
@@ -822,6 +882,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/notification-center.js"></script>
 <script src="renderer/notification-center-runtime.js"></script>
 <script src="renderer/notification-runtime.js"></script>
+<script src="renderer/desktop-notification-runtime.js"></script>
 <script src="renderer/anime-schedule-runtime.js"></script>
 <script src="renderer/network-adapters.js"></script>
 <script src="renderer/compose-request.js"></script>
