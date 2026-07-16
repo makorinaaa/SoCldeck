@@ -210,6 +210,31 @@ test('refreshes every registered plan exactly once and returns the results', asy
   ]);
 });
 
+test('forwards an explicit refresh context to every Column operation', async () => {
+  const contexts = [];
+  const lifecycle = loadFactory()({
+    createPlan: request => ({
+      kind: request.networkId,
+      refresh: { kind: request.networkId },
+      config: { id: request.id, network: request.networkId, definitionId: request.definitionId },
+    }),
+    insertPlan: () => true,
+    executeRefresh: async (_id, _plan, context) => {
+      contexts.push(context);
+      return { status: 'succeeded' };
+    },
+  });
+  lifecycle.create({ networkId: 'anime', definitionId: 'anime-today', id: 'schedule' });
+
+  await lifecycle.refreshNow('schedule', { force: true });
+  await lifecycle.refreshAll({ force: true });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(contexts)), [
+    { force: true },
+    { force: true },
+  ]);
+});
+
 test('clears refresh and Runtime State for every registered Column without persisting', async () => {
   const { lifecycle, events } = createHarness();
   lifecycle.create({ networkId: 'wv', definitionId: 'home', id: 'first' });

@@ -98,12 +98,19 @@ const SVG = {
   rt: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
   reply: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
   follow: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`,
+  calendar: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h2v2H8zM14 14h2v2h-2z"/></svg>`,
   gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>`,
 };
 
 // ─── COLUMN PERSISTENCE ──────────────────────────
 const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
 const COL_KEY = columnRuntime.layoutKey;
+const animeScheduleRuntime = window.SocialDeckAnimeScheduleRuntime.createAnimeScheduleRuntime({
+  documentRef: document,
+  fetchSchedule: force => window.electronAPI?.getAnimeSchedule
+    ? window.electronAPI.getAnimeSchedule(force)
+    : Promise.reject(new Error('Anime schedule API is unavailable')),
+});
 const xComposeExecutor = window.SocialDeckXComposeDelivery.createXComposeDelivery({
   createPreparationScript: () => xComposePreparation.createPreparationScript(),
   createConfirmationScript: options => xPostConfirmation.createConfirmationScript(options),
@@ -144,11 +151,12 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   insertPlan: insertColumnPlan,
   scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
   clearRefreshSchedule: id => refreshScheduler.remove(id),
-  executeRefresh: (id, plan) => networkAdapters.executeColumnRefresh(id, plan, {
+  executeRefresh: (id, plan, context) => networkAdapters.executeColumnRefresh(id, plan, {
     refreshXNavigation: (id, destination) => xWebViewRuntime.refreshNavigation(id, destination),
     reloadWebView: id => xWebViewRuntime.reload(id, { silent: true }),
     loadWebViewUrl: (id, url) => xWebViewRuntime.navigateToStart(id, url),
     refreshBlueskyFeed: silentRefreshBsky,
+    refreshAnimeSchedule: id => animeScheduleRuntime.load(id, { force: context?.force === true }),
   }),
   applyWidth: (id, width) => {
     const el = document.getElementById(`col-${id}`);
@@ -160,6 +168,7 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
     delete colCursors[id];
     collapsedCols.delete(id);
     xWebViewRuntime?.disposeColumn(id);
+    animeScheduleRuntime.dispose(id);
     localStorage.removeItem(`col_fs_${id}`);
   },
   listElementIds: () => [...document.querySelectorAll('#cols .col')]
@@ -208,6 +217,10 @@ function insertColumnPlan(plan) {
   }
   if (plan?.kind === 'bsky') {
     insertBskyCol(plan.config);
+    return true;
+  }
+  if (plan?.kind === 'schedule') {
+    insertAnimeScheduleCol(plan.config);
     return true;
   }
   return false;
@@ -672,6 +685,7 @@ async function initWvPreloadPath() {
 }
 const refreshScheduler = window.SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
+const ANIME_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
   documentRef: document,
   storage: localStorage,
@@ -951,6 +965,11 @@ function bskyScrollTop(cid) {
   if (feedEl) feedEl.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function animeScheduleScrollTop(cid) {
+  if (collapsedCols.has(cid)) { toggleColCollapse(cid); return; }
+  animeScheduleRuntime.scrollTop(cid);
+}
+
 
 async function refreshAfterCompose(target) {
   if (target.kind === 'x-account-columns') {
@@ -1020,6 +1039,41 @@ function insertBskyCol(cfg, before = null) {
     const feedEl = document.getElementById(`feed-${cid}`);
     if (feedEl) feedEl.style.fontSize = savedFs + 'px';
   }
+}
+
+function insertAnimeScheduleCol(cfg, before = null) {
+  const cols = document.getElementById('cols');
+  const addbtn = before || cols.querySelector('.add-col-btn');
+  const cid = cfg.id;
+  const div = document.createElement('div');
+  div.className = 'col';
+  div.id = `col-${cid}`;
+  div.dataset.kind = 'schedule';
+  div.dataset.network = cfg.network;
+  div.dataset.definitionId = cfg.definitionId;
+  div.innerHTML = `
+    <div class="col-head">
+      <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
+      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" onclick="animeScheduleScrollTop('${cid}')" ondblclick="if(collapsedCols.has('${cid}'))toggleColCollapse('${cid}')">
+        <div class="col-title">${esc(cfg.title)}</div>
+        <div class="col-sub"><div class="ldot" style="background:#ffd166"></div><span id="anime-sub-${cid}">${esc(cfg.sub)}</span></div>
+      </div>
+      <div class="col-actions">
+        <span class="col-refresh-state" id="refresh-state-${cid}"></span>
+        <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshColumn('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
+        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','schedule')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+    </div>
+    <div class="feed anime-schedule" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>放送予定を取得中…</div></div>
+  `;
+  cols.insertBefore(div, addbtn);
+  columnLifecycle.setRefreshInterval(cid, ANIME_REFRESH_INTERVAL_MS);
+  animeScheduleRuntime.load(cid).catch(() => {});
+
+  const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
+  if (savedFs) div.querySelector('.feed').style.fontSize = savedFs + 'px';
 }
 
 async function loadBskyFeed(cid, type, feedUri = null, append = false) {
@@ -1106,7 +1160,7 @@ function removeCol(id) {
 async function refreshColumn(id, button) {
   button?.classList.add('spin');
   try {
-    await columnLifecycle.refreshNow(id);
+    await columnLifecycle.refreshNow(id, { force: true });
   } finally {
     button?.classList.remove('spin');
   }
@@ -2423,6 +2477,11 @@ function buildOptGrid() {
       og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'b');
     });
   }
+
+  og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">情報</div>`;
+  networkAdapters.getColumnDefinitions('anime').filter(def => def.picker !== false).forEach(def => {
+    og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'anime');
+  });
 }
 
 function mkOptX(type, icon, name, desc, accountIdx) {
@@ -2926,7 +2985,7 @@ function scrollColsToStart() {
 }
 
 async function refreshAll() {
-  await columnLifecycle.refreshAll();
+  await columnLifecycle.refreshAll({ force: true });
   toast('Refreshing all feeds...');
 }
 

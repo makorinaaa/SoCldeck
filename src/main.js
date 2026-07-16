@@ -5,6 +5,7 @@ const os = require('os');
 const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-session-theme');
 const { createAppUpdater } = require('./main/app-updater');
 const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
+const { createAnimeScheduleService } = require('./main/anime-schedule');
 const { autoUpdater } = require('electron-updater');
 
 // ── ffmpeg（メインプロセスで実行）──
@@ -117,6 +118,7 @@ const xAccountRuntime = createXAccountRuntime({
   getSession: partition => session.fromPartition(partition),
   applyAdBlock: applyAdBlockToSession,
 });
+const animeScheduleService = createAnimeScheduleService();
 
 // ── 設定ファイルパス ──
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
@@ -275,6 +277,9 @@ ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
 ipcMain.handle('get-app-version', () => app.getVersion());
 ipcMain.handle('check-for-updates', () => appUpdaterController?.check({ manual: true }) ?? false);
 ipcMain.handle('install-update', () => appUpdaterController?.install() ?? false);
+ipcMain.handle('get-anime-schedule', (_, options = {}) =>
+  animeScheduleService.listToday({ force: options?.force === true })
+);
 ipcMain.handle('sync-x-network-accounts', (_, partitions) => {
   if (!Array.isArray(partitions)) return xAccountRuntime.getPartitions();
   return xAccountRuntime.sync(partitions);

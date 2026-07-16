@@ -71,21 +71,24 @@
           return;
         }
 
-        if (column.dataset.type) {
+        const columnKind = column.dataset.kind || (column.dataset.type ? 'bsky' : null);
+        if (columnKind) {
           const definition = resolveDefinition({
-            kind: 'bsky',
+            kind: columnKind,
             network: column.dataset.network,
             definitionId: column.dataset.definitionId,
             type: column.dataset.type,
             feedUri: column.dataset.feeduri || '',
           });
           layout.push({
-            kind: 'bsky',
+            kind: columnKind,
             ...(definition && { network: definition.network, definitionId: definition.id }),
             id,
-            type: column.dataset.type,
-            feedUri: column.dataset.feeduri || '',
-            ...captureCommonState(column, id, 'ic-b'),
+            ...(columnKind === 'bsky' && {
+              type: column.dataset.type,
+              feedUri: column.dataset.feeduri || '',
+            }),
+            ...captureCommonState(column, id, columnKind === 'schedule' ? 'ic-anime' : 'ic-b'),
           });
         }
       });

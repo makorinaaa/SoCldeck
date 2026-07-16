@@ -125,3 +125,37 @@ test('captures a Bluesky Column as durable Workspace State', () => {
     collapsed: false,
   }]);
 });
+
+test('captures an anime schedule Column without network account state', () => {
+  const runtime = createRuntime();
+  const column = createColumnElement({
+    id: 'col-anime-today-1',
+    dataset: {
+      kind: 'schedule',
+      network: 'anime',
+      definitionId: 'anime-today',
+    },
+    title: '本日のアニメ',
+    sub: '7月16日 · 12作品',
+    iconClass: 'col-ic ic-anime',
+  });
+
+  const layout = runtime.captureLayout([column], {
+    resolveDefinition: () => ({ network: 'anime', id: 'anime-today' }),
+    getInterval: () => 300000,
+    isCollapsed: () => false,
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(layout)), [{
+    kind: 'schedule',
+    network: 'anime',
+    definitionId: 'anime-today',
+    id: 'anime-today-1',
+    title: '本日のアニメ',
+    sub: '7月16日 · 12作品',
+    icCls: 'ic-anime',
+    width: '',
+    interval: 300000,
+    collapsed: false,
+  }]);
+});

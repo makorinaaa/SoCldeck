@@ -28,13 +28,13 @@
       return state;
     }
 
-    async function refreshNow(id) {
+    async function refreshNow(id, context = {}) {
       const plan = refreshPlans.get(id);
       if (!plan) return { status: 'failed', error: new Error('Column refresh plan is unavailable') };
 
       setRefreshState(id, 'refreshing', { error: null });
       try {
-        const outcome = await executeRefresh(id, plan);
+        const outcome = await executeRefresh(id, plan, context);
         const status = outcome?.status || 'succeeded';
         const details = status === 'succeeded'
           ? { lastUpdatedAt: now(), detail: outcome?.detail || null }
@@ -47,9 +47,9 @@
       }
     }
 
-    async function refreshAll() {
+    async function refreshAll(context = {}) {
       const ids = [...refreshPlans.keys()];
-      return Promise.all(ids.map(id => refreshNow(id)));
+      return Promise.all(ids.map(id => refreshNow(id, context)));
     }
 
     function setRefreshInterval(id, interval) {

@@ -12,7 +12,7 @@ function createRegistry(options = {}) {
   );
   vm.runInNewContext(source, context);
   return context.window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
-    icons: { x: 'x', bell: 'bell', gear: 'gear', bsky: 'bsky' },
+    icons: { x: 'x', bell: 'bell', gear: 'gear', bsky: 'bsky', calendar: 'calendar' },
     ...options,
   });
 }
@@ -283,4 +283,36 @@ test('Bluesky Column refresh delegates feed parameters to its adapter operation'
   });
 
   assert.deepEqual(calls, [['b-feed', 'feed', 'at://feed']]);
+});
+
+test('creates and refreshes an account-free anime schedule Column', async () => {
+  const registry = createRegistry();
+  const definition = registry.getColumnDefinition('anime', 'anime-today');
+  const plan = registry.createColumnPlan({
+    networkId: 'anime',
+    definitionId: 'anime-today',
+    id: 'anime-today-1',
+  });
+  const calls = [];
+
+  assert.equal(definition.requiresAccount, false);
+  assert.equal(plan.kind, 'schedule');
+  assert.equal(plan.config.title, '本日のアニメ');
+  assert.equal(plan.config.sub, 'AniList · 日本時間');
+  assert.equal(plan.config.icCls, 'ic-anime');
+  assert.deepEqual(plain(plan.refresh), { networkId: 'anime', kind: 'schedule' });
+
+  await registry.executeColumnRefresh('anime-today-1', plan.refresh, {
+    refreshAnimeSchedule: async id => {
+      calls.push(id);
+      return { status: 'succeeded', detail: 'schedule-updated' };
+    },
+  });
+
+  assert.deepEqual(calls, ['anime-today-1']);
+  assert.equal(registry.resolveColumnDefinition({
+    kind: 'schedule',
+    network: 'anime',
+    definitionId: 'anime-today',
+  }).id, 'anime-today');
 });

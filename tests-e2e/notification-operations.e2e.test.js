@@ -85,6 +85,49 @@ const NEW_X_ACCOUNT_FIXTURES = {
   },
 };
 
+const ANIME_SCHEDULE_FIXTURES = {
+  state: {
+    xs: [],
+    activeX: 0,
+    b: {
+      did: 'did:plc:anime',
+      handle: 'anime.test',
+      accessJwt: 'e2e-token',
+      refreshJwt: '',
+      initials: 'AN',
+      bg: '#336699',
+    },
+    composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
+  },
+  animeSchedule: {
+    date: '2026-07-16',
+    timezone: 'Asia/Tokyo',
+    fetchedAt: '2026-07-16T00:00:00.000Z',
+    items: [
+      {
+        id: '101:1:1',
+        mediaId: 101,
+        title: '朝のアニメ',
+        episode: 1,
+        airingAt: Date.parse('2026-07-16T01:00:00+09:00') / 1000,
+        format: 'TV',
+        coverImage: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/test-a.jpg',
+        siteUrl: 'https://anilist.co/anime/101',
+      },
+      {
+        id: '102:2:2',
+        mediaId: 102,
+        title: '夜のアニメ',
+        episode: 2,
+        airingAt: Date.parse('2026-07-16T23:59:00+09:00') / 1000,
+        format: 'ONA',
+        coverImage: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/test-b.jpg',
+        siteUrl: 'https://anilist.co/anime/102',
+      },
+    ],
+  },
+};
+
 function xFixture(url) {
   const pathname = new URL(url).pathname;
   if (pathname === '/notifications') {
@@ -126,10 +169,10 @@ async function launchApp(t, fixtures) {
           : network === 'b'
             ? url.hostname === 'bsky.app'
             : network === 'api'
-              ? url.hostname === 'bsky.social'
+              ? ['bsky.social', 's4.anilist.co'].includes(url.hostname)
               : url.hostname === 'pbs.twimg.com';
         if (!allowed) return callback({ error: -3 });
-        if (url.hostname === 'pbs.twimg.com') {
+        if (url.hostname === 'pbs.twimg.com' || url.hostname === 's4.anilist.co') {
           callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') });
           return;
         }
@@ -371,4 +414,38 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   await page.locator('#sndb').click();
   await page.locator('#compMod').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#b-img-preview').textContent(), '');
+});
+
+test('anime schedule Column can be added and persisted from the picker', async t => {
+  const { page } = await launchApp(t, ANIME_SCHEDULE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  await page.evaluate(() => openAddMod());
+  await page.locator('.opt').filter({ hasText: '本日のアニメ' }).click();
+
+  const column = page.locator('.col[data-definition-id="anime-today"]');
+  await column.waitFor();
+  await column.locator('.anime-item').nth(1).waitFor();
+  assert.equal(await column.locator('.anime-item').count(), 2);
+  assert.match(await column.locator('.col-sub').textContent(), /7月16日（木） · 2作品/);
+  assert.match(await column.locator('.anime-item').nth(1).textContent(), /夜のアニメ/);
+  assert.match(await column.locator('.anime-item').nth(1).textContent(), /第2話/);
+  assert.equal(await column.locator('.anime-cover img').count(), 2);
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_cols')));
+  const schedule = stored.find(item => item.definitionId === 'anime-today');
+  assert.equal(schedule.kind, 'schedule');
+  assert.equal(schedule.network, 'anime');
+  assert.equal(schedule.interval, 300000);
+
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const restored = page.locator('.col[data-definition-id="anime-today"]');
+  await restored.locator('.anime-item').nth(1).waitFor();
+  assert.equal(await restored.count(), 1);
+  assert.equal(await restored.locator('.anime-item').count(), 2);
+
+  if (process.env.SOCIALDECK_E2E_SCREENSHOT) {
+    await page.screenshot({ path: process.env.SOCIALDECK_E2E_SCREENSHOT });
+  }
 });

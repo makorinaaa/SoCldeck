@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
+  getAnimeSchedule: (force = false) => e2eFixtures?.animeSchedule
+    ? Promise.resolve(e2eFixtures.animeSchedule)
+    : ipcRenderer.invoke('get-anime-schedule', { force: force === true }),
   onUpdateStatus: (fn) => {
     if (typeof fn !== 'function') return () => {};
     const listener = (_, status) => fn(status);

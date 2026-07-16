@@ -16,6 +16,7 @@
   function getIconClass(columnType, network) {
     if (columnType === 'notifications') return 'ic-n';
     if (columnType === 'search' || columnType === 'settings') return 'ic-s';
+    if (network === 'anime') return 'ic-anime';
     return network === 'b' ? 'ic-b' : 'ic-x';
   }
 
@@ -87,6 +88,22 @@
         ...commonConfig,
         type,
         feedUri,
+      },
+    };
+  }
+
+  function createAnimeSchedulePlan({ definition, id, storedColumn, params = {} }) {
+    return {
+      kind: 'schedule',
+      refresh: { networkId: 'anime', kind: 'schedule' },
+      config: {
+        id,
+        title: getStoredValue(storedColumn, 'title', params.title || definition.label),
+        sub: getStoredValue(storedColumn, 'sub', params.sub || 'AniList · 日本時間'),
+        icCls: getIconClass(definition.columnType, definition.network),
+        icon: definition.icon,
+        network: definition.network,
+        definitionId: definition.id,
       },
     };
   }
@@ -194,6 +211,10 @@
     }
     return await operations.refreshBlueskyFeed(id, plan.type, plan.feedUri)
       || { status: 'succeeded' };
+  }
+
+  async function refreshAnimeScheduleColumn({ id, operations }) {
+    return await operations.refreshAnimeSchedule(id) || { status: 'succeeded' };
   }
 
   function createXAdapter({ icons, composeExecutor }) {
@@ -361,10 +382,35 @@
     };
   }
 
+  function createAnimeScheduleAdapter({ icons }) {
+    return {
+      id: 'anime',
+      label: 'スケジュール',
+      kind: 'api-backed',
+      capabilities: {
+        columns: {
+          createPlan: createAnimeSchedulePlan,
+          refresh: refreshAnimeScheduleColumn,
+          definitions: [
+            createDefinition({
+              id: 'anime-today',
+              network: 'anime',
+              columnType: 'schedule',
+              label: '本日のアニメ',
+              description: '日本時間の放送・配信予定',
+              icon: icons.calendar,
+            }),
+          ],
+        },
+      },
+    };
+  }
+
   function createNetworkAdapterRegistry({ icons, composeExecutors = {} }) {
     const adapters = [
       createXAdapter({ icons, composeExecutor: composeExecutors.x }),
       createBlueskyAdapter({ icons, composeExecutor: composeExecutors.b }),
+      createAnimeScheduleAdapter({ icons }),
     ];
 
     function getAdapter(id) {
@@ -387,6 +433,7 @@
 
     function inferNetwork(storedColumn) {
       if (storedColumn.network) return storedColumn.network;
+      if (storedColumn.kind === 'schedule') return 'anime';
       if (storedColumn.kind === 'bsky') return 'b';
       if (storedColumn.partition === 'persist:bsky') return 'b';
       return storedColumn.kind === 'wv' ? 'x' : null;

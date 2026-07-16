@@ -41,7 +41,7 @@ test('loads the X WebView Runtime before renderer and keeps X ownership behind i
   assert.match(renderer, /xWebViewRuntime\.executeCompose\(/);
   assert.match(renderer, /xWebViewRuntime\.listNotifications\(\{/);
   assert.match(renderer, /xWebViewRuntime\.openNotificationTarget\(\{/);
-  assert.match(renderer, /columnLifecycle\.refreshAll\(\)/);
+  assert.match(renderer, /columnLifecycle\.refreshAll\(\{ force: true \}\)/);
   assert.match(renderer, /columnLifecycle\.clear\(\{ removeElements: true \}\)/);
   assert.doesNotMatch(renderer, /document\.createElement\(\s*['"]webview['"]\s*\)/);
   assert.doesNotMatch(renderer, /<webview\b/i);
@@ -57,6 +57,21 @@ test('loads the X WebView Runtime before renderer and keeps X ownership behind i
     renderer,
     /querySelectorAll\(['"]webview['"]\)\.forEach\([^)]*\.reload\(/,
   );
+});
+
+test('loads the Anime Schedule Runtime before renderer', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/anime-schedule-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckAnimeScheduleRuntime\.createAnimeScheduleRuntime\(\{/);
+  assert.match(renderer, /networkAdapters\.getColumnDefinitions\('anime'\)/);
+  assert.match(renderer, /insertAnimeScheduleCol\(plan\.config\)/);
 });
 
 test('keeps Compose Experience media Runtime State out of renderer globals', () => {
