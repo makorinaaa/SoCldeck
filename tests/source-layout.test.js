@@ -147,6 +147,31 @@ test('keeps Compose modal presentation and events behind its Runtime', () => {
   );
 });
 
+test('keeps Account Session lifecycle and presentation behind its Runtime', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/account-session-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+  const loginScreen = index.slice(
+    index.indexOf('<div id="login-screen">'),
+    index.indexOf('<div id="app"'),
+  );
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckAccountSessionRuntime\.createAccountSessionRuntime\(\{/);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:updateLoginUI|loginX|loginBluesky|logoutBluesky|logoutAll|removeXAccount|renderNavChips|renderSbAvatars)\b/,
+  );
+  assert.doesNotMatch(
+    loginScreen,
+    /onclick="(?:loginX|loginBluesky|logoutBluesky|enterApp)\(/,
+  );
+});
+
 test('keeps network-specific Compose delivery behind Network Adapters', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');

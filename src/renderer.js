@@ -18,6 +18,7 @@ let xWebViewRuntime;
 let bskyColumnsRuntime;
 let notificationCenterRuntime;
 let composeModalRuntime;
+let accountSessionRuntime;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -465,185 +466,12 @@ function loadState() {
 }
 function saveState() { stateStore.save(state); }
 
-function getXAccountPartitions() {
-  return (state.xs || []).map(account => account.partition).filter(Boolean);
-}
-
-function syncXNetworkAccounts() {
-  xWebViewRuntime?.syncAccounts(state.xs || []);
-  if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
-    return Promise.resolve([]);
-  }
-  return window.electronAPI.syncXNetworkAccounts(getXAccountPartitions());
-}
-
-function nextXPartition() {
-  const used = new Set((state.xs || []).map(a => a.partition).filter(Boolean));
-  for (let i = 0; i < 100; i++) {
-    const partition = `persist:x-${i}`;
-    if (!used.has(partition)) return partition;
-  }
-  return `persist:x-${Date.now()}`;
-}
-
 // ─── AUTH ──────────────────────────────────────
 function switchTab(t) {
   document.querySelectorAll('.ltab').forEach(el => el.classList.remove('active'));
   document.querySelector(`.ltab.${t === 'x' ? 'xt' : 'bt'}`).classList.add('active');
   document.querySelectorAll('.lpanel').forEach(el => el.classList.remove('active'));
   document.getElementById(`panel-${t}`).classList.add('active');
-}
-
-function updateLoginUI() {
-  xWebViewRuntime?.syncAccounts(state.xs || []);
-  const xStatus = document.getElementById('x-status');
-  const bStatus = document.getElementById('b-status');
-  const xAccounts = state.xs || [];
-
-  if (xAccounts.length > 0) {
-    const listHtml = xAccounts.map((a, i) =>
-      '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">' +
-      '<div style="width:24px;height:24px;border-radius:50%;background:' + a.bg + ';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0">' + esc(a.initials) + '</div>' +
-      '<span style="flex:1;font-size:12px;color:var(--text1)">' + esc(a.username) + '</span>' +
-      '<button onclick="removeXAccount(' + i + ')" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">Remove</button>' +
-      '</div>'
-    ).join('');
-    xStatus.className = 'lsbar ok';
-    xStatus.innerHTML = '<div style="width:100%"><div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:12px">' + xAccounts.length + ' X account(s) connected</span></div>' + listHtml + '</div>';
-  } else {
-    xStatus.className = 'lsbar none';
-    xStatus.textContent = 'X account is not connected';
-  }
-
-  if (state.b) {
-    bStatus.className = 'lsbar ok';
-    bStatus.innerHTML = 'Connected: <span class="sname">@' + esc(state.b.handle) + '</span>';
-    document.getElementById('b-login-btn').style.display = 'none';
-    document.getElementById('b-logout-btn').style.display = 'block';
-  } else {
-    bStatus.className = 'lsbar none';
-    bStatus.textContent = 'Bluesky account is not connected';
-    document.getElementById('b-login-btn').style.display = 'flex';
-    document.getElementById('b-logout-btn').style.display = 'none';
-  }
-
-  const lenter = document.getElementById('lenter');
-  const msg = document.getElementById('lfoot-msg');
-  const canEnter = xAccounts.length > 0 || state.b;
-  lenter.disabled = !canEnter;
-  msg.textContent = canEnter ? [xAccounts.length > 0 ? 'X(' + xAccounts.length + ')' : '', state.b ? 'Bluesky' : ''].filter(Boolean).join(' + ') + ' connected' : 'Add an account to continue';
-}
-
-async function loginX() {
-  const user = document.getElementById('x-user').value.trim();
-  const err = document.getElementById('x-err');
-  err.textContent = '';
-  if (!user) { err.textContent = 'Enter a display name'; return; }
-  const clean = user.replace(/^@/, '');
-  const username = '@' + clean;
-
-  if ((state.xs || []).some(a => a.username === username)) {
-    err.textContent = 'This account is already registered';
-    return;
-  }
-
-  const loginButton = document.getElementById('x-login-btn');
-  if (loginButton?.disabled) return;
-  const idx = (state.xs || []).length;
-  const partition = nextXPartition();
-  const bg = AVBG[idx % AVBG.length];
-  if (loginButton) loginButton.disabled = true;
-  try {
-    if (IS_ELECTRON) {
-      await window.electronAPI?.initializeXSessionTheme?.(partition);
-    }
-  } catch {} finally {
-    if (loginButton) loginButton.disabled = false;
-  }
-  if (!state.xs) state.xs = [];
-  state.xs.push({ username, initials: clean.slice(0, 2).toUpperCase(), bg, partition, loginPending: true });
-  state.activeX = idx;
-  saveState();
-  await syncXNetworkAccounts();
-  document.getElementById('x-user').value = '';
-  updateLoginUI();
-  toast(username + ' added');
-  const app = document.getElementById('app');
-  if (!app.style.display || app.style.display === 'none') enterApp();
-  else renderApp();
-}
-
-async function removeXAccount(idx) {
-  const account = state.xs[idx];
-  if (!account) return;
-  if (!confirm('Log out ' + account.username + '?')) return;
-  const partition = account.partition || `persist:x-${idx}`;
-  if (IS_ELECTRON && window.electronAPI?.clearXSession) {
-    await window.electronAPI.clearXSession(partition);
-  }
-  state.xs.splice(idx, 1);
-  if (state.activeX >= state.xs.length) state.activeX = Math.max(0, state.xs.length - 1);
-  saveState();
-  await syncXNetworkAccounts();
-  updateLoginUI();
-  const app = document.getElementById('app');
-  if (app.style.display !== 'none' && app.style.display !== '') renderApp();
-  toast('X account removed');
-}
-
-function logoutX() {
-  if (state.xs && state.xs.length > 0) removeXAccount(0);
-}
-
-async function loginBluesky() {
-  const handle = document.getElementById('b-user').value.trim();
-  const pass = document.getElementById('b-pass').value.trim();
-  const err = document.getElementById('b-err');
-  const btn = document.getElementById('b-login-btn');
-  err.textContent = '';
-  if (!handle || !pass) { err.textContent = 'Enter handle and app password'; return; }
-  btn.disabled = true;
-  const originalHtml = btn.innerHTML;
-  btn.textContent = 'Authenticating...';
-
-  try {
-    const session = await bsky.login(handle, pass);
-    const bg = avBgFor(session.handle);
-    state.b = {
-      handle: session.handle,
-      did: session.did,
-      accessJwt: session.accessJwt,
-      refreshJwt: session.refreshJwt,
-      displayName: session.handle,
-      avatar: null,
-      initials: session.handle.slice(0, 2).toUpperCase(),
-      bg,
-    };
-    try {
-      const profile = await bsky.getProfile(session.accessJwt, session.did);
-      state.b.avatar = profile.avatar || null;
-      state.b.displayName = profile.displayName || session.handle;
-    } catch {}
-    saveState();
-    updateLoginUI();
-    toast('@' + session.handle + ' logged in');
-    const app = document.getElementById('app');
-    if (!app.style.display || app.style.display === 'none') enterApp();
-    else renderApp();
-  } catch (e) {
-    err.textContent = e.message || 'Login failed';
-    document.getElementById('b-status').textContent = err.textContent;
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalHtml;
-  }
-}
-
-function logoutBluesky() {
-  state.b = null;
-  saveState();
-  updateLoginUI();
-  toast('Bluesky logged out');
 }
 
 function enterApp() {
@@ -655,93 +483,17 @@ function enterApp() {
 
 function openLoginScreen() {
   closeAmenu();
-  updateLoginUI();
-  document.getElementById('login-screen').classList.remove('hidden');
-}
-
-async function logoutAll() {
-  if (!confirm('Log out all accounts?')) return;
-  // Xの全WebViewセッションをクリア
-  if (IS_ELECTRON && window.electronAPI?.clearAllXSessions) {
-    await window.electronAPI.clearAllXSessions();
-  }
-  // 全カラムの自動更新を停止
-  columnLifecycle.clear({ removeElements: true });
-  document.getElementById('notif-center-x-readers')?.replaceChildren();
-  const composePreferences = state.composePreferences;
-  state = {
-    ...window.SocialDeckStateStore.defaultState(),
-    composePreferences,
-  };
-  saveState();
-  await notificationCenterRuntime.reload();
-  await syncXNetworkAccounts();
-  columnRuntime.clearStoredLayout(); // カラムレイアウトもリセット
-  closeAmenu();
-  notificationRuntime.stopPoll();
-  notificationRuntime.clearUnread();
-  document.getElementById('cols').innerHTML = addColBtnHTML();
-  document.getElementById('app').style.display = 'none';
-  updateLoginUI();
-  document.getElementById('login-screen').classList.remove('hidden');
-  toast('All accounts logged out');
+  accountSessionRuntime.openSettings();
 }
 
 // ─── APP RENDER ────────────────────────────────
 function renderApp() {
   xWebViewRuntime.syncAccounts(state.xs || []);
-  renderNavChips();
-  renderSbAvatars();
+  accountSessionRuntime.refresh();
   renderDefaultCols();
   renderCompUI();
   buildOptGrid();
 }
-
-function renderNavChips() {
-  const el = document.getElementById('nav-chips');
-  el.innerHTML = '';
-  (state.xs || []).forEach(a => {
-    el.innerHTML += `<div class="chip live"><div class="cav" style="background:${a.bg}">${a.initials}</div><div class="cdot"></div>${esc(a.username)}</div>`;
-  });
-  if (state.b) {
-    const avHtml = state.b.avatar ? `<img src="${state.b.avatar}">` : state.b.initials;
-    el.innerHTML += `<div class="chip live"><div class="cav" style="background:${state.b.bg}">${avHtml}</div><div class="cdot"></div>@${state.b.handle}</div>`;
-  }
-}
-
-function renderSbAvatars() {
-  const el = document.getElementById('sb-avs');
-  el.innerHTML = '';
-  if ((state.xs || []).length > 0) {
-    const first = state.xs[0];
-    el.innerHTML += '<div class="sbav" style="background:' + first.bg + '" title="X accounts" onclick="toggleAmenu()">' + esc(first.initials) + '<div class="adot x"></div></div>';
-  }
-  if (state.b) {
-    const inner = state.b.avatar ? '<img src="' + state.b.avatar + '">' : esc(state.b.initials);
-    el.innerHTML += '<div class="sbav" style="background:' + state.b.bg + '" title="@' + esc(state.b.handle) + '" onclick="toggleAmenu()">' + inner + '<div class="adot b"></div></div>';
-  }
-
-  const mi = document.getElementById('amenu-items');
-  mi.innerHTML = '';
-  if ((state.xs || []).length > 0) {
-    mi.innerHTML += '<div style="padding:6px 13px;font-size:10px;font-weight:600;color:var(--text3)">X accounts</div>';
-    state.xs.forEach((a, i) => {
-      mi.innerHTML += '<div class="aitem">' +
-        '<div class="aiav" style="background:' + a.bg + '">' + esc(a.initials) + '</div>' +
-        '<div class="aiinfo"><div class="ainame">' + esc(a.username) + '</div><div class="aihandle">X WebView</div></div>' +
-        '<button onclick="event.stopPropagation();removeXAccount(' + i + ')" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit">Remove</button>' +
-        '</div>';
-    });
-  }
-  if (state.b) {
-    if ((state.xs || []).length > 0) mi.innerHTML += '<div class="amenu-sep"></div>';
-    mi.innerHTML += '<div style="padding:6px 13px;font-size:10px;font-weight:600;color:var(--text3)">Bluesky</div>';
-    const avHtml = state.b.avatar ? '<img src="' + state.b.avatar + '">' : esc(state.b.initials);
-    mi.innerHTML += '<div class="aitem"><div class="aiav" style="background:' + state.b.bg + ';overflow:hidden;padding:0">' + avHtml + '</div><div class="aiinfo"><div class="ainame">' + esc(state.b.displayName) + '</div><div class="aihandle">@' + esc(state.b.handle) + '</div></div><span class="aplat b">Bluesky</span></div>';
-  }
-}
-
-function toggleAmenu() { document.getElementById('amenu').classList.toggle('open'); }
 function closeAmenu() { document.getElementById('amenu').classList.remove('open'); }
 document.addEventListener('click', e => { if (!e.target.closest('.sb')) closeAmenu(); });
 
@@ -826,6 +578,79 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
     openBlueskyProfile: item => showProfile(item.author.did),
     clearUnread: () => notificationRuntime.clearUnread(),
     toast,
+  },
+});
+const accountSessionView = window.SocialDeckAccountSessionRuntime.createAccountSessionDomView({
+  documentRef: document,
+  escape: esc,
+});
+accountSessionRuntime = window.SocialDeckAccountSessionRuntime.createAccountSessionRuntime({
+  state: {
+    get: () => state,
+    commit: nextState => {
+      state = nextState;
+      saveState();
+      return state;
+    },
+  },
+  xSession: {
+    initializeTheme: partition => IS_ELECTRON
+      ? window.electronAPI?.initializeXSessionTheme?.(partition)
+      : Promise.resolve(false),
+    clear: partition => IS_ELECTRON
+      ? window.electronAPI?.clearXSession?.(partition)
+      : Promise.resolve(false),
+    clearAll: () => IS_ELECTRON
+      ? window.electronAPI?.clearAllXSessions?.()
+      : Promise.resolve(false),
+    sync: accounts => {
+      xWebViewRuntime.syncAccounts(accounts);
+      if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
+        return Promise.resolve([]);
+      }
+      const partitions = accounts.map(account => account.partition).filter(Boolean);
+      return window.electronAPI.syncXNetworkAccounts(partitions);
+    },
+  },
+  bluesky: {
+    login: (handle, password) => bsky.login(handle, password),
+    getProfile: (accessJwt, did) => bsky.getProfile(accessJwt, did),
+  },
+  getAvatarBackground: index => AVBG[index % AVBG.length],
+  getBlueskyBackground: avBgFor,
+  createDefaultState: window.SocialDeckStateStore.defaultState,
+  view: accountSessionView,
+  intents: {
+    confirmLogout: account => confirm(`Log out ${account.username}?`),
+    confirmLogoutAll: () => confirm('Log out all accounts?'),
+    enterRequested: () => enterApp(),
+    workspaceResetRequested: async () => {
+      columnLifecycle.clear({ removeElements: true });
+      document.getElementById('notif-center-x-readers')?.replaceChildren();
+      await notificationCenterRuntime.reload();
+      columnRuntime.clearStoredLayout();
+      closeAmenu();
+      notificationRuntime.stopPoll();
+      notificationRuntime.clearUnread();
+      document.getElementById('cols').innerHTML = addColBtnHTML();
+      document.getElementById('app').style.display = 'none';
+    },
+    accountsChanged: ({ network, kind, account }) => {
+      if (network === 'all') {
+        accountSessionRuntime.openSettings();
+        toast('All accounts logged out');
+        return;
+      }
+      const app = document.getElementById('app');
+      const appIsOpen = app.style.display && app.style.display !== 'none';
+      if (kind === 'login' && !appIsOpen) enterApp();
+      else if (appIsOpen) renderApp();
+      if (network === 'x') {
+        toast(kind === 'login' ? `${account.username} added` : 'X account removed');
+      } else {
+        toast(kind === 'login' ? `@${account.handle} logged in` : 'Bluesky logged out');
+      }
+    },
   },
 });
 
@@ -2454,8 +2279,8 @@ document.addEventListener('keydown', e => {
   }
 
   if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
-    if (document.querySelector('.ltab.xt.active')) loginX();
-    else loginBluesky();
+    const buttonId = document.querySelector('.ltab.xt.active') ? 'x-login-btn' : 'b-login-btn';
+    document.getElementById(buttonId)?.click();
   }
   if (e.key === 'Escape') {
     document.querySelectorAll('.ov.on').forEach(o => {
@@ -2630,7 +2455,7 @@ if (state.x && !(state.xs && state.xs.length > 0)) {
   delete state.x;
   saveState();
 }
-updateLoginUI();
+const accountSessionReady = accountSessionRuntime.start();
 initDnD();
 colObserver.observe(document.getElementById('cols'), { childList: true });
 
@@ -2638,7 +2463,7 @@ if ((state.xs && state.xs.length > 0) || state.b) {
   if (state.b?.refreshJwt) {
     refreshBskyToken().catch(() => {});
   }
-  Promise.all([syncXNetworkAccounts(), initWvPreloadPath(), initializeXLoginStates()]).finally(() => {
+  Promise.all([accountSessionReady, initWvPreloadPath(), initializeXLoginStates()]).finally(() => {
     enterApp();
     if (state.b) {
       setTimeout(() => fetchBskyUnreadCount(), 3000);

@@ -90,7 +90,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .si .bdg{position:absolute;top:4px;right:4px;width:14px;height:14px;border-radius:50%;background:var(--red);font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff}
 .ssep{width:30px;height:1px;background:var(--border);margin:6px 0}
 .sb-bot{margin-top:auto;display:flex;flex-direction:column;align-items:center;gap:5px;padding-bottom:6px}
-.sbav{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;cursor:pointer;border:2px solid transparent;transition:border-color .12s;position:relative;overflow:hidden}
+.sbav{width:30px;height:30px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:inherit;font-size:10px;font-weight:700;color:#fff;cursor:pointer;border:2px solid transparent;transition:border-color .12s;position:relative;overflow:hidden}
 .sbav:hover{border-color:var(--accent)}
 .sbav img{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
 .sbav .adot{position:absolute;bottom:-1px;right:-1px;width:10px;height:10px;border-radius:50%;border:2px solid var(--bg1)}
@@ -471,7 +471,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         <div class="lhint">X は WebView でそのまま表示します。ここはナビ表示用です。</div>
       </div>
       <div class="lerr" id="x-err"></div>
-      <button class="lbtn xbtn" id="x-login-btn" onclick="loginX()">
+      <button class="lbtn xbtn" id="x-login-btn" disabled>
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.389 6.231H2.763l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
         Xアカウントを追加
       </button>
@@ -493,16 +493,16 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         <div class="lhint"><a href="https://bsky.app/settings/app-passwords" target="_blank">→ アプリパスワードを発行する</a></div>
       </div>
       <div class="lerr" id="b-err"></div>
-      <button class="lbtn bbtn" id="b-login-btn" onclick="loginBluesky()">
+      <button class="lbtn bbtn" id="b-login-btn" disabled>
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>
         Bluesky でログイン
       </button>
-      <button class="lbtn-sm" id="b-logout-btn" style="display:none" onclick="logoutBluesky()">Bluesky からログアウト</button>
+      <button class="lbtn-sm" id="b-logout-btn" style="display:none">Bluesky からログアウト</button>
     </div>
 
     <div class="lfoot">
       <span class="lfoot-msg" id="lfoot-msg">アカウントを追加してください</span>
-      <button class="lenter" id="lenter" disabled onclick="enterApp()">開く →</button>
+      <button class="lenter" id="lenter" disabled>開く →</button>
     </div>
   </div>
 </div>
@@ -594,11 +594,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
           <div class="amenu-head">アカウント</div>
           <div id="amenu-items"></div>
           <div class="amenu-sep"></div>
-          <div class="amenu-act" onclick="openLoginScreen()">
+          <div class="amenu-act" data-account-action="open-settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             アカウントを管理
           </div>
-          <div class="amenu-act danger" onclick="logoutAll()">
+          <div class="amenu-act danger" data-account-action="logout-all">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
             すべてログアウト
           </div>
@@ -807,6 +807,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/bsky-client.js"></script>
 <script src="renderer/bsky-columns-runtime.js"></script>
 <script src="renderer/state-store.js"></script>
+<script src="renderer/account-session-runtime.js"></script>
 <script src="renderer/mute-rules.js"></script>
 <script src="renderer/column-runtime.js"></script>
 <script src="renderer/column-lifecycle.js"></script>

@@ -334,7 +334,6 @@ test('X notification journey reuses the account column and returns to notificati
 test('new X accounts use one login WebView and default to the black theme', async t => {
   const { electronApp, page } = await launchApp(t, NEW_X_ACCOUNT_FIXTURES);
   await page.locator('#login-screen').waitFor({ state: 'visible' });
-  await page.waitForFunction(() => typeof window.loginX === 'function');
   await page.evaluate(() => {
     localStorage.setItem('socialdeck_cols', JSON.stringify([
       { kind: 'wv', network: 'x', definitionId: 'x-home-new', id: 'login-home', url: 'https://x.com/home', partition: 'persist:x-0' },
@@ -344,8 +343,24 @@ test('new X accounts use one login WebView and default to the black theme', asyn
   });
 
   await page.locator('#x-user').fill('new-account');
-  await page.evaluate(() => window.loginX());
-  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#x-login-btn').click();
+  try {
+    await page.locator('#app').waitFor({ state: 'visible' });
+  } catch (error) {
+    const diagnostics = await page.evaluate(() => ({
+      snapshot: typeof accountSessionRuntime !== 'undefined'
+        ? accountSessionRuntime.getSnapshot()
+        : null,
+      input: document.getElementById('x-user')?.value || '',
+      loginDisabled: document.getElementById('x-login-btn')?.disabled,
+      loginError: document.getElementById('x-err')?.textContent || '',
+      appDisplay: document.getElementById('app')?.style.display || '',
+      loginHidden: document.getElementById('login-screen')?.classList.contains('hidden'),
+      persistedState: localStorage.getItem('socialdeck_state'),
+      warnings: window.__e2eWarnings || [],
+    }));
+    throw new Error(`${error.message}\n${JSON.stringify(diagnostics)}`);
+  }
   await page.waitForFunction(() =>
     document.querySelectorAll('webview[data-sd-login-parked="true"]').length === 2
   );
