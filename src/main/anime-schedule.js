@@ -1,6 +1,6 @@
 const ANILIST_ENDPOINT = 'https://graphql.anilist.co';
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const BROADCAST_DAY_MS = 27 * 60 * 60 * 1000;
 const DEFAULT_CACHE_MS = 5 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 10000;
 const ALLOWED_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
@@ -30,7 +30,7 @@ const TODAY_SCHEDULE_QUERY = `
   }
 `;
 
-function getJstDayRange(now = new Date()) {
+function getJstBroadcastDayRange(now = new Date()) {
   const shifted = new Date(now.getTime() + JST_OFFSET_MS);
   const year = shifted.getUTCFullYear();
   const month = shifted.getUTCMonth();
@@ -42,7 +42,7 @@ function getJstDayRange(now = new Date()) {
   return {
     date,
     start: Math.floor(startMs / 1000),
-    end: Math.floor((startMs + DAY_MS) / 1000),
+    end: Math.floor((startMs + BROADCAST_DAY_MS) / 1000),
   };
 }
 
@@ -137,7 +137,7 @@ function createAnimeScheduleService({
 
   async function requestToday() {
     const requestedAt = now();
-    const range = getJstDayRange(requestedAt);
+    const range = getJstBroadcastDayRange(requestedAt);
     const entries = [];
     let page = 1;
     let hasNextPage = false;
@@ -158,7 +158,7 @@ function createAnimeScheduleService({
 
   async function listToday({ force = false } = {}) {
     const currentTime = now().getTime();
-    const today = getJstDayRange(new Date(currentTime)).date;
+    const today = getJstBroadcastDayRange(new Date(currentTime)).date;
     if (!force && cache && cache.value.date === today && currentTime - cache.storedAt < cacheMs) {
       return cache.value;
     }
@@ -183,6 +183,6 @@ module.exports = {
   ANILIST_ENDPOINT,
   TODAY_SCHEDULE_QUERY,
   createAnimeScheduleService,
-  getJstDayRange,
+  getJstBroadcastDayRange,
   normalizeSchedules,
 };

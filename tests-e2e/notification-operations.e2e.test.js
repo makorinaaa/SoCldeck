@@ -124,6 +124,16 @@ const ANIME_SCHEDULE_FIXTURES = {
         coverImage: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/test-b.jpg',
         siteUrl: 'https://anilist.co/anime/102',
       },
+      {
+        id: '103:3:3',
+        mediaId: 103,
+        title: '深夜のアニメ',
+        episode: 3,
+        airingAt: Date.parse('2026-07-17T02:30:00+09:00') / 1000,
+        format: 'TV',
+        coverImage: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/test-c.jpg',
+        siteUrl: 'https://anilist.co/anime/103',
+      },
     ],
   },
 };
@@ -425,12 +435,14 @@ test('anime schedule Column can be added and persisted from the picker', async t
 
   const column = page.locator('.col[data-definition-id="anime-today"]');
   await column.waitFor();
-  await column.locator('.anime-item').nth(1).waitFor();
-  assert.equal(await column.locator('.anime-item').count(), 2);
-  assert.match(await column.locator('.col-sub').textContent(), /7月16日（木） · 2作品/);
+  await column.locator('.anime-item').nth(2).waitFor();
+  assert.equal(await column.locator('.anime-item').count(), 3);
+  assert.match(await column.locator('.col-sub').textContent(), /7月16日（木） · 3作品/);
   assert.match(await column.locator('.anime-item').nth(1).textContent(), /夜のアニメ/);
   assert.match(await column.locator('.anime-item').nth(1).textContent(), /第2話/);
-  assert.equal(await column.locator('.anime-cover img').count(), 2);
+  assert.match(await column.locator('.anime-item').nth(2).textContent(), /26:30/);
+  assert.match(await column.locator('.anime-item').nth(2).textContent(), /深夜のアニメ/);
+  assert.equal(await column.locator('.anime-cover img').count(), 3);
 
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_cols')));
   const schedule = stored.find(item => item.definitionId === 'anime-today');
@@ -441,9 +453,9 @@ test('anime schedule Column can be added and persisted from the picker', async t
   await page.reload();
   await page.locator('#app').waitFor({ state: 'visible' });
   const restored = page.locator('.col[data-definition-id="anime-today"]');
-  await restored.locator('.anime-item').nth(1).waitFor();
+  await restored.locator('.anime-item').nth(2).waitFor();
   assert.equal(await restored.count(), 1);
-  assert.equal(await restored.locator('.anime-item').count(), 2);
+  assert.equal(await restored.locator('.anime-item').count(), 3);
 
   if (process.env.SOCIALDECK_E2E_SCREENSHOT) {
     await page.screenshot({ path: process.env.SOCIALDECK_E2E_SCREENSHOT });

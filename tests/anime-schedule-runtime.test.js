@@ -41,6 +41,15 @@ function scheduleFixture() {
         coverImage: '',
         siteUrl: 'https://anilist.co/anime/2',
       },
+      {
+        id: '3:3:3',
+        title: '深夜のアニメ',
+        episode: 3,
+        airingAt: Date.parse('2026-07-17T02:30:00+09:00') / 1000,
+        format: 'TV',
+        coverImage: '',
+        siteUrl: 'https://anilist.co/anime/3',
+      },
     ],
   };
 }
@@ -57,6 +66,8 @@ test('renders aired items and highlights the next Japanese schedule safely', () 
   assert.match(html, /朝の&lt;アニメ&gt;/);
   assert.match(html, /第2話/);
   assert.match(html, /次の予定/);
+  assert.match(html, /26:30/);
+  assert.match(html, /深夜のアニメ/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.doesNotMatch(html, /朝の<アニメ>/);
 });
@@ -88,7 +99,7 @@ test('loads a schedule into its Column and updates the subtitle', async () => {
     detail: 'schedule-updated',
   });
   assert.match(feed.innerHTML, /午後のアニメ/);
-  assert.equal(sub.textContent, '7月16日（木） · 2作品');
+  assert.equal(sub.textContent, '7月16日（木） · 3作品');
   assert.equal(runtime.scrollTop('anime-1'), true);
 });
 

@@ -23,7 +23,16 @@
     }
   }
 
-  function formatJstTime(airingAt) {
+  function formatJstTime(airingAt, broadcastDate) {
+    const startMs = Date.parse(`${broadcastDate || ''}T00:00:00+09:00`);
+    const airingMs = Number(airingAt) * 1000;
+    const broadcastMinutes = Math.floor((airingMs - startMs) / 60000);
+    if (Number.isFinite(startMs) && Number.isFinite(broadcastMinutes)
+      && broadcastMinutes >= 0 && broadcastMinutes <= 27 * 60) {
+      const hour = Math.floor(broadcastMinutes / 60);
+      const minute = broadcastMinutes % 60;
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    }
     return new Intl.DateTimeFormat('ja-JP', {
       timeZone: 'Asia/Tokyo',
       hour: '2-digit',
@@ -63,7 +72,7 @@
       const coverImage = safeHttpUrl(item.coverImage);
       const content = `
         <div class="anime-time">
-          <time datetime="${new Date(Number(item.airingAt) * 1000).toISOString()}">${escapeHtml(formatJstTime(item.airingAt))}</time>
+          <time datetime="${new Date(Number(item.airingAt) * 1000).toISOString()}">${escapeHtml(formatJstTime(item.airingAt, schedule?.date))}</time>
           <span>${escapeHtml(FORMAT_LABELS[item.format] || item.format || '')}</span>
         </div>
         <div class="anime-cover">${coverImage ? `<img src="${escapeHtml(coverImage)}" alt="" loading="lazy">` : ''}</div>

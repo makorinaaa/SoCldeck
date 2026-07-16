@@ -4,17 +4,17 @@ const test = require('node:test');
 const {
   ANILIST_ENDPOINT,
   createAnimeScheduleService,
-  getJstDayRange,
+  getJstBroadcastDayRange,
   normalizeSchedules,
 } = require('../src/main/anime-schedule');
 
-test('creates an exact calendar-day range in Japan Standard Time', () => {
-  const range = getJstDayRange(new Date('2026-07-16T12:34:00+09:00'));
+test('creates a Japanese broadcast-day range through 27:00', () => {
+  const range = getJstBroadcastDayRange(new Date('2026-07-16T12:34:00+09:00'));
 
   assert.deepEqual(range, {
     date: '2026-07-16',
     start: Date.parse('2026-07-16T00:00:00+09:00') / 1000,
-    end: Date.parse('2026-07-17T00:00:00+09:00') / 1000,
+    end: Date.parse('2026-07-17T03:00:00+09:00') / 1000,
   });
 });
 
@@ -119,8 +119,8 @@ test('caches today schedule and allows an explicit refresh', async () => {
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].url, ANILIST_ENDPOINT);
-  assert.equal(calls[0].body.variables.start, getJstDayRange(clock).start - 1);
-  assert.equal(calls[0].body.variables.end, getJstDayRange(clock).end);
+  assert.equal(calls[0].body.variables.start, getJstBroadcastDayRange(clock).start - 1);
+  assert.equal(calls[0].body.variables.end, getJstBroadcastDayRange(clock).end);
 });
 
 test('reports upstream failures without returning a partial schedule', async () => {
