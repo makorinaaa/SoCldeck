@@ -404,8 +404,10 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   await page.locator('#app').waitFor({ state: 'visible' });
 
   await page.evaluate(() => openXPost());
-  await page.evaluate(() => {
-    addXImgFiles([new File(['x-image'], 'x-image.png', { type: 'image/png' })]);
+  await page.locator('#x-img-file').setInputFiles({
+    name: 'x-image.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('x-image'),
   });
   await page.locator('#x-alt-0').fill('X image description');
   assert.equal(await page.locator('#x-sndb').isEnabled(), true);
@@ -414,8 +416,10 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   assert.equal(await page.locator('#x-img-preview').textContent(), '');
 
   await page.evaluate(() => openComp());
-  await page.evaluate(() => {
-    addBImgFiles([new File(['b-image'], 'b-image.png', { type: 'image/png' })]);
+  await page.locator('#b-img-file').setInputFiles({
+    name: 'b-image.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('b-image'),
   });
   await page.locator('#b-alt-0').fill('Bluesky image description');
   assert.equal(await page.locator('#sndb').isEnabled(), true);

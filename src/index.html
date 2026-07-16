@@ -665,7 +665,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 </div>
 
 <!-- X POST MODAL -->
-<div class="ov" id="xPostMod" onclick="closeOv('xPostMod',event)">
+<div class="ov" id="xPostMod">
   <div class="cmodal">
     <div class="chead">
       <h2 style="display:flex;align-items:center;gap:8px">
@@ -677,22 +677,19 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     <div id="x-acc-select" style="display:none;gap:6px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)"></div>
     <div id="x-cross-post-controls" style="display:none;align-items:center;gap:9px;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:var(--text2)">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="x-cross-post-b" onchange="toggleXCrossPost()">
+        <input type="checkbox" id="x-cross-post-b">
         Blueskyにも投稿
       </label>
       <span id="x-cross-post-note" style="color:var(--text3)"></span>
     </div>
     <div class="comp-wrap">
       <div class="comp-av" id="x-post-av"><span id="x-post-av-txt">X</span></div>
-      <textarea class="comp-ta" id="x-cta" placeholder="いまどうしてる？" maxlength="280" oninput="updXCC()"></textarea>
+      <textarea class="comp-ta" id="x-cta" placeholder="いまどうしてる？" maxlength="280"></textarea>
     </div>
     <!-- 画像・動画添付エリア -->
     <div id="x-img-area" style="margin:0 0 10px">
       <div id="x-img-drop"
-        ondragover="event.preventDefault();event.dataTransfer.dropEffect='copy';this.classList.add('drag-on')"
-        ondragleave="this.classList.remove('drag-on')"
-        ondrop="handleXImgDrop(event)"
-        onclick="document.getElementById('x-img-file').click()"
+        data-compose-action="pick-media" data-compose-drop="x"
         style="border:1.5px dashed var(--border2);border-radius:8px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;color:var(--text3);font-size:11px;transition:border-color .15s,background .15s,color .15s;min-height:72px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:22px;height:22px;flex-shrink:0">
           <rect x="3" y="3" width="18" height="18" rx="3"/>
@@ -701,8 +698,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         </svg>
         クリックまたはドロップで画像（最大4枚）または動画（1本）を追加
       </div>
-      <input type="file" id="x-img-file" accept="image/*,video/*" multiple style="display:none"
-        onchange="addXImgFiles(this.files)">
+      <input type="file" id="x-img-file" accept="image/*,video/*" multiple style="display:none">
       <div id="x-img-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px"></div>
       <!-- 動画プレビュー＋トリムUI -->
       <div id="x-video-wrap" style="display:none;margin-top:8px">
@@ -719,26 +715,24 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
             <div id="x-trim-highlight" style="position:absolute;top:8px;height:4px;background:var(--accent);border-radius:2px;pointer-events:none"></div>
             <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
             <input type="range" id="x-trim-in" min="0" max="100" value="0" step="0.1"
-              oninput="onTrimIn(this.value)"
               style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
           </div>
           <!-- out点スライダー -->
           <div style="position:relative;height:20px;margin-bottom:6px">
             <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
             <input type="range" id="x-trim-out" min="0" max="100" value="100" step="0.1"
-              oninput="onTrimOut(this.value)"
               style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
           </div>
           <div id="x-ffmpeg-status" style="font-size:10px;color:var(--text3);text-align:center;min-height:14px"></div>
         </div>
       </div>
     </div>
-    <button class="compose-preview-toggle" onclick="toggleComposePreview('x')"><span>投稿プレビュー</span><span>表示／非表示</span></button>
+    <button class="compose-preview-toggle" data-compose-action="toggle-preview"><span>投稿プレビュー</span><span>表示／非表示</span></button>
     <div class="compose-preview" id="x-compose-preview"></div>
     <div class="comp-foot">
       <span class="compose-shortcut">Ctrl+Enterで投稿</span>
       <span class="cc" id="x-cct">0 / 280</span>
-      <button class="send-btn" id="x-sndb" onclick="doXPost()" disabled>ポスト</button>
+      <button class="send-btn" id="x-sndb" data-compose-action="submit" disabled>ポスト</button>
     </div>
   </div>
 </div>
@@ -754,7 +748,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 </div>
 
 <!-- COMPOSE MODAL -->
-<div class="ov" id="compMod" onclick="closeOv('compMod',event)">
+<div class="ov" id="compMod">
   <div class="cmodal">
     <div class="chead">
       <h2 style="display:flex;align-items:center;gap:8px">
@@ -764,22 +758,20 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     </div>
     <div id="cross-post-controls" style="display:none;align-items:center;gap:9px;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:11px;color:var(--text2)">
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="cross-post-x" onchange="toggleCrossPost()">
+        <input type="checkbox" id="cross-post-x">
         Xにも投稿
       </label>
-      <select id="cross-post-x-account" onchange="crossPostRuntime.reset()" style="display:none;min-width:0;flex:1;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:5px 7px;color:var(--text1);font-family:inherit;font-size:11px"></select>
+      <select id="cross-post-x-account" style="display:none;min-width:0;flex:1;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:5px 7px;color:var(--text1);font-family:inherit;font-size:11px"></select>
     </div>
+    <div id="b-reply-preview" class="bsky-reply-preview" style="display:none;border:1px solid var(--border2);border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:11px;color:var(--text3);align-items:center;gap:7px"></div>
     <div class="comp-wrap">
       <div class="comp-av" id="comp-av"><span id="comp-av-txt">?</span></div>
-      <textarea class="comp-ta" id="cta" placeholder="いまどうしてる？" maxlength="300" oninput="onCompTextareaInput(event)"></textarea>
+      <textarea class="comp-ta" id="cta" placeholder="いまどうしてる？" maxlength="300"></textarea>
     </div>
     <!-- Bluesky画像添付エリア -->
     <div id="b-img-area" style="margin:0 0 10px">
       <div id="b-img-drop"
-        ondragover="event.preventDefault();event.dataTransfer.dropEffect='copy';this.classList.add('drag-on')"
-        ondragleave="this.classList.remove('drag-on')"
-        ondrop="handleBImgDrop(event)"
-        onclick="document.getElementById('b-img-file').click()"
+        data-compose-action="pick-media" data-compose-drop="b"
         style="border:1.5px dashed var(--border2);border-radius:8px;padding:18px 12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;cursor:pointer;color:var(--text3);font-size:11px;transition:border-color .15s,background .15s,color .15s;min-height:72px">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:22px;height:22px;flex-shrink:0">
           <rect x="3" y="3" width="18" height="18" rx="3"/>
@@ -788,16 +780,15 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         </svg>
         クリックまたはドロップで画像を追加（最大4枚）
       </div>
-      <input type="file" id="b-img-file" accept="image/*" multiple style="display:none"
-        onchange="addBImgFiles(this.files)">
+      <input type="file" id="b-img-file" accept="image/*" multiple style="display:none">
       <div id="b-img-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px"></div>
     </div>
-    <button class="compose-preview-toggle" onclick="toggleComposePreview('b')"><span>投稿プレビュー</span><span>表示／非表示</span></button>
+    <button class="compose-preview-toggle" data-compose-action="toggle-preview"><span>投稿プレビュー</span><span>表示／非表示</span></button>
     <div class="compose-preview" id="b-compose-preview"></div>
     <div class="comp-foot">
       <span class="compose-shortcut">Ctrl+Enterで投稿</span>
       <span class="cc" id="cct">0 / 300</span>
-      <button class="send-btn" id="sndb" onclick="doSend()" disabled>投稿</button>
+      <button class="send-btn" id="sndb" data-compose-action="submit" disabled>投稿</button>
     </div>
   </div>
 </div>
@@ -820,6 +811,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/column-runtime.js"></script>
 <script src="renderer/column-lifecycle.js"></script>
 <script src="renderer/compose-media.js"></script>
+<script src="renderer/compose-modal-runtime.js"></script>
 <script src="renderer/refresh-scheduler.js"></script>
 <script src="renderer/ui-utils.js"></script>
 <script src="renderer/bsky-richtext.js"></script>

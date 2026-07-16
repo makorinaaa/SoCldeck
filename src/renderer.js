@@ -17,6 +17,7 @@ const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
 let xWebViewRuntime;
 let bskyColumnsRuntime;
 let notificationCenterRuntime;
+let composeModalRuntime;
 
 // ─── Bluesky API ───────────────────────────────
 const BSKY = 'https://bsky.social/xrpc';
@@ -385,6 +386,30 @@ const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
 });
 const notificationRuntime = window.SocialDeckNotificationRuntime.createNotificationRuntime();
 const xLoginGate = window.SocialDeckXLoginGate.createXLoginGate();
+const composeModalView = window.SocialDeckComposeModalRuntime.createComposeModalDomView({
+  documentRef: document,
+  ui: { escape: esc, formatSeconds: fmtSec },
+  maxVideoSeconds: composeMedia.MAX_VIDEO_SECONDS,
+});
+composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRuntime({
+  getAccounts: () => ({ x: state.xs || [], b: state.b }),
+  getPreferences: () => state.composePreferences || {},
+  mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
+  coordinator: composeCoordinator,
+  view: composeModalView,
+  intents: {
+    submit: networkId => networkId === 'x' ? doXPost() : doSend(),
+    closed: networkId => {
+      if (networkId === 'b') replyTarget = null;
+    },
+    toast,
+    updatePreference: (name, value) => {
+      state.composePreferences = { ...(state.composePreferences || {}), [name]: value };
+      saveState();
+    },
+    onBlueskyTextInput: onCompTextareaInput,
+  },
+});
 const authenticatedBskyAdapter = window.SocialDeckBskyClient.createAuthenticatedBlueskyAdapter({
   client: bsky,
   getAccount: () => state.b,
@@ -1330,19 +1355,7 @@ async function doQuotePost() {
 let replyTarget = null; // { uri, cid, rootUri, rootCid }
 
 async function openReply(uri, cid, handle) {
-  replyTarget = { uri, cid, rootUri: uri, rootCid: cid };
-
-  // 返信先プレビューを表示
-  const mod = document.getElementById('compMod');
-  let preview = mod.querySelector('.bsky-reply-preview');
-  if (!preview) {
-    preview = document.createElement('div');
-    preview.className = 'bsky-reply-preview';
-    preview.style.cssText = 'border:1px solid var(--border2);border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:11px;color:var(--text3);display:flex;align-items:center;gap:7px';
-    const compWrap = mod.querySelector('.comp-wrap');
-    compWrap.parentNode.insertBefore(preview, compWrap);
-  }
-  preview.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;flex-shrink:0"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg><span style="color:var(--text2)">@${esc(handle)}</span> への返信`;
+  replyTarget = { uri, cid, rootUri: uri, rootCid: cid, handle };
 
   openComp();
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
@@ -1439,67 +1452,13 @@ function renderCompUI() {
 }
 
 function openComp() {
-  composeCoordinator.resetCrossPost();
-  updateCrossPostControls();
-  renderComposePreview('b');
-  document.getElementById('compMod').classList.add('on');
+  composeModalRuntime.open('b', { reply: replyTarget });
   setTimeout(() => document.getElementById('cta')?.focus(), 50);
 }
 
-let selectedXIdx = 0; // 投稿に使うXアカウントのindex
-
 function openXPost() {
-  composeCoordinator.resetCrossPost();
-  const sel = document.getElementById('x-acc-select');
-  const xs = state.xs || [];
-
-  if (xs.length <= 1) {
-    // 1アカウントのみなら選択UIを非表示
-    sel.style.display = 'none';
-    selectedXIdx = 0;
-  } else {
-    // 複数アカウントならボタンを表示
-    sel.style.display = 'flex';
-    sel.innerHTML = xs.map((a, i) => `
-      <button id="x-acc-btn-${i}" onclick="selectXAcc(${i})"
-        style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;border:2px solid ${i === selectedXIdx ? 'var(--accent)' : 'var(--border2)'};background:${i === selectedXIdx ? 'var(--accent-dim)' : 'transparent'};color:${i === selectedXIdx ? 'var(--accent)' : 'var(--text2)'};cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .12s">
-        <span style="width:20px;height:20px;border-radius:50%;background:${a.bg};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000;flex-shrink:0">${a.initials}</span>
-        ${esc(a.username)}
-      </button>`).join('');
-  }
-
-  // アバターを選択中アカウントに更新
-  updateXPostAv();
-  updateXCrossPostControls();
-  renderComposePreview('x');
-  document.getElementById('xPostMod').classList.add('on');
+  composeModalRuntime.open('x');
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
-}
-
-function selectXAcc(idx) {
-  selectedXIdx = idx;
-  // ボタンのスタイルを更新
-  const xs = state.xs || [];
-  xs.forEach((_, i) => {
-    const btn = document.getElementById(`x-acc-btn-${i}`);
-    if (!btn) return;
-    const active = i === idx;
-    btn.style.borderColor = active ? 'var(--accent)' : 'var(--border2)';
-    btn.style.background = active ? 'var(--accent-dim)' : 'transparent';
-    btn.style.color = active ? 'var(--accent)' : 'var(--text2)';
-  });
-  updateXPostAv();
-}
-
-function updateXPostAv() {
-  const acc = state.xs?.[selectedXIdx];
-  if (!acc) return;
-  const avEl = document.getElementById('x-post-av');
-  if (avEl) {
-    avEl.style.background = acc.bg;
-    avEl.innerHTML = `<span id="x-post-av-txt">${acc.initials}</span>`;
-  }
-  renderComposePreview('x');
 }
 
 // ─── X投稿 画像・動画管理 ────────────────────────
@@ -1516,319 +1475,6 @@ function fmtSec(s) {
 }
 
 // ── 画像追加 ──
-function handleXImgDrop(e) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('drag-on');
-  const files = [...e.dataTransfer.files];
-  addXImgFiles(files);
-}
-
-function addXImgFiles(files) {
-  const result = xComposeMediaDraft.addFiles(files);
-  if (result.status === 'rejected') {
-    toast(result.reason === 'mixed-media'
-      ? 'Cannot attach images and video together'
-      : 'Up to 4 images can be attached');
-    return;
-  }
-  if (result.status === 'video-added') {
-    setXVideo(result.file);
-    const fi = document.getElementById('x-img-file');
-    if (fi) fi.value = '';
-    return;
-  }
-  if (result.status !== 'images-added') return;
-  renderXImgPreviews();
-  const drop = document.getElementById('x-img-drop');
-  if (drop) drop.style.opacity = result.limitReached ? '0.4' : '1';
-  const fi = document.getElementById('x-img-file');
-  if (fi) fi.value = '';
-  updXCC();
-}
-
-function removeXImg(idx) {
-  xComposeMediaDraft.removeImage(idx);
-  renderXImgPreviews();
-  const drop = document.getElementById('x-img-drop');
-  if (drop) drop.style.opacity = '1';
-  updXCC();
-}
-
-function renderXImgPreviews() {
-  const container = document.getElementById('x-img-preview');
-  if (!container) return;
-  container.querySelectorAll('img').forEach(img => {
-    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-  });
-  const { images } = xComposeMediaDraft.getSnapshot();
-  container.innerHTML = images.map((image, i) => {
-    const url = URL.createObjectURL(image.file);
-    return `<div style="display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3)">
-      <img src="${url}" style="width:52px;height:52px;object-fit:cover;display:block;border-radius:4px;flex-shrink:0">
-      <input type="text" placeholder="画像の説明（Bluesky同時投稿に使用）" maxlength="1000"
-        value="${esc(image.altText)}" id="x-alt-${i}"
-        oninput="updateXImgAlt(${i},this.value)"
-        style="flex:1;min-width:0;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:11px;outline:none">
-      <button onclick="removeXImg(${i})"
-        style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:11px;line-height:1;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">x</button>
-    </div>`;
-  }).join('');
-}
-
-function updateXImgAlt(index, value) {
-  xComposeMediaDraft.updateAlt(index, value);
-  renderComposePreview('x');
-}
-
-// ── 動画追加・UI ──
-function setXVideo(file) {
-  const wrap = document.getElementById('x-video-wrap');
-  const vid  = document.getElementById('x-video-preview');
-  if (!wrap || !vid) return;
-
-  if (vid.src?.startsWith('blob:')) URL.revokeObjectURL(vid.src);
-  vid.src = URL.createObjectURL(file);
-
-  vid.onloadedmetadata = () => {
-    const dur = vid.duration;
-    xComposeMediaDraft.setVideoDuration(dur);
-    const inEl  = document.getElementById('x-trim-in');
-    const outEl = document.getElementById('x-trim-out');
-    if (inEl)  inEl.value  = 0;
-    if (outEl) outEl.value = 100;
-    updateTrimLabels();
-    updateTrimHighlight();
-    if (dur > composeMedia.MAX_VIDEO_SECONDS) {
-      setFFmpegStatus(`⚠ 動画が ${fmtSec(dur)} あります。スライダーで2分20秒以内にトリミングしてください`);
-    } else {
-      setFFmpegStatus('');
-    }
-  };
-  wrap.style.display = 'block';
-
-  // ドロップエリアをdim
-  const drop = document.getElementById('x-img-drop');
-  if (drop) { drop.style.opacity = '0.4'; drop.style.pointerEvents = 'none'; }
-
-  // ファイル名＋削除ボタンをプレビューエリアに表示
-  const preview = document.getElementById('x-img-preview');
-  if (preview) {
-    preview.innerHTML = `<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2);width:100%">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:14px;height:14px;flex-shrink:0"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(file.name)}</span>
-      <button onclick="removeXVideo()" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit;flex-shrink:0">削除</button>
-    </div>`;
-  }
-  updateXCrossPostControls();
-  updXCC();
-}
-
-function removeXVideo() {
-  xComposeMediaDraft.removeVideo();
-  clearXVideoUI();
-  updateXCrossPostControls();
-  updXCC();
-}
-
-function clearXVideoUI() {
-  const vid = document.getElementById('x-video-preview');
-  if (vid) {
-    vid.pause();
-    vid.currentTime = 0;
-    if (vid.src?.startsWith('blob:')) URL.revokeObjectURL(vid.src);
-    vid.src = '';
-    vid.load();
-  }
-  const wrap = document.getElementById('x-video-wrap');
-  if (wrap) wrap.style.display = 'none';
-  const drop = document.getElementById('x-img-drop');
-  if (drop) { drop.style.opacity = '1'; drop.style.pointerEvents = ''; }
-  const preview = document.getElementById('x-img-preview');
-  if (preview) preview.innerHTML = '';
-  setFFmpegStatus('');
-}
-
-function onTrimIn(val) {
-  const vid = document.getElementById('x-video-preview');
-  if (!vid?.duration) return;
-  const result = xComposeMediaDraft.setTrimPercent('start', val);
-  if (!result) return;
-  if (result.percent !== parseFloat(val)) {
-    document.getElementById('x-trim-in').value = result.percent;
-  }
-  vid.currentTime = result.trim.startSeconds;
-  updateTrimLabels();
-  updateTrimHighlight();
-}
-
-function onTrimOut(val) {
-  const vid = document.getElementById('x-video-preview');
-  if (!vid?.duration) return;
-  const result = xComposeMediaDraft.setTrimPercent('end', val);
-  if (!result) return;
-  if (result.percent !== parseFloat(val)) {
-    document.getElementById('x-trim-out').value = result.percent;
-  }
-  vid.currentTime = result.trim.endSeconds;
-  updateTrimLabels();
-  updateTrimHighlight();
-  const trimDur = result.trimDurationSeconds;
-  if (trimDur > composeMedia.MAX_VIDEO_SECONDS) {
-    setFFmpegStatus(`⚠ トリム後の長さが ${fmtSec(trimDur)} です。2分20秒（140秒）以内にしてください`);
-  } else {
-    setFFmpegStatus('');
-  }
-}
-
-function updateTrimLabels() {
-  const vid = document.getElementById('x-video-preview');
-  const dur = vid?.duration || 0;
-  const video = xComposeMediaDraft.getSnapshot().video;
-  const trimStart = video?.trim.startSeconds || 0;
-  const trimEnd = video?.trim.endSeconds || dur;
-  const trimDur = video?.trimDurationSeconds || dur;
-  const startEl = document.getElementById('x-trim-start-label');
-  const endEl   = document.getElementById('x-trim-end-label');
-  const durEl   = document.getElementById('x-trim-dur-label');
-  if (startEl) startEl.textContent = fmtSec(trimStart);
-  if (endEl)   endEl.textContent   = fmtSec(trimEnd);
-  if (durEl) {
-    durEl.textContent = fmtSec(trimDur || dur);
-    durEl.style.color = (trimDur || dur) > 140 ? 'var(--red)' : 'inherit';
-  }
-}
-
-function updateTrimHighlight() {
-  const inEl  = document.getElementById('x-trim-in');
-  const outEl = document.getElementById('x-trim-out');
-  const hl    = document.getElementById('x-trim-highlight');
-  if (!inEl || !outEl || !hl) return;
-  const inPct  = parseFloat(inEl.value);
-  const outPct = parseFloat(outEl.value);
-  hl.style.left  = inPct + '%';
-  hl.style.width = (outPct - inPct) + '%';
-}
-
-// ── リセット ──
-function resetXImgUI() {
-  const container = document.getElementById('x-img-preview');
-  if (container) {
-    container.querySelectorAll('img').forEach(img => {
-      if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-    });
-    container.innerHTML = '';
-  }
-  xComposeMediaDraft.clear();
-  const drop = document.getElementById('x-img-drop');
-  if (drop) { drop.style.opacity = '1'; drop.style.pointerEvents = ''; }
-  const fi = document.getElementById('x-img-file');
-  if (fi) fi.value = '';
-  clearXVideoUI();
-  updateXCrossPostControls();
-  updXCC();
-}
-
-function updXCC() {
-  const media = xComposeMediaDraft.getSnapshot();
-  const n = document.getElementById('x-cta').value.length;
-  const el = document.getElementById('x-cct');
-  el.textContent = n + ' / 280';
-  el.className = 'cc' + (n > 250 ? ' w' : '') + (n > 280 ? ' over' : '');
-  // テキストが空でも画像か動画があれば投稿可能
-  document.getElementById('x-sndb').disabled = (n === 0 && media.images.length === 0 && !media.video) || n > 280;
-  renderComposePreview('x');
-}
-
-function toggleComposePreview(networkId) {
-  const preview = document.getElementById(networkId === 'x' ? 'x-compose-preview' : 'b-compose-preview');
-  if (!preview) return;
-  preview.classList.toggle('on');
-  renderComposePreview(networkId);
-}
-
-function renderComposePreview(networkId) {
-  const isX = networkId === 'x';
-  const media = isX
-    ? xComposeMediaDraft.getSnapshot()
-    : bskyComposeMediaDraft.getSnapshot();
-  const preview = document.getElementById(isX ? 'x-compose-preview' : 'b-compose-preview');
-  if (!preview) return;
-
-  const text = document.getElementById(isX ? 'x-cta' : 'cta')?.value || '';
-  const account = isX ? state.xs?.[selectedXIdx] : state.b;
-  const crossPosting = isX
-    ? Boolean(document.getElementById('x-cross-post-b')?.checked && !media.video)
-    : Boolean(!replyTarget && document.getElementById('cross-post-x')?.checked);
-  const targets = isX
-    ? ['X', ...(crossPosting ? ['Bluesky'] : [])]
-    : ['Bluesky', ...(crossPosting ? ['X'] : [])];
-  const imageCount = media.images.length;
-  const altCount = media.images.filter(image => image.altText).length;
-  const hasVideo = isX && Boolean(media.video);
-  const accountName = isX
-    ? (account?.username || 'Xアカウント')
-    : (account?.displayName || account?.handle || 'Blueskyアカウント');
-  const initials = account?.initials || (isX ? 'X' : 'B');
-  const avatar = !isX && account?.avatar
-    ? `<img src="${esc(account.avatar)}" alt="">`
-    : esc(initials);
-  const attachmentText = hasVideo
-    ? '動画 1本'
-    : imageCount > 0
-      ? `画像 ${imageCount}枚 / ALT入力 ${altCount}枚`
-      : '添付なし';
-
-  preview.innerHTML = `
-    <div class="compose-preview-head">
-      <div class="compose-preview-avatar" style="background:${account?.bg || 'var(--bg3)'}">${avatar}</div>
-      <div class="compose-preview-account">${esc(accountName)}</div>
-      <div class="compose-preview-targets">${targets.map(target => `<span class="compose-preview-target">${target}</span>`).join('')}</div>
-    </div>
-    <div class="compose-preview-text">${text ? esc(text) : '<span style="color:var(--text3)">本文なし</span>'}</div>
-    <div class="compose-preview-attachments">${attachmentText}</div>`;
-}
-
-function updateXCrossPostControls() {
-  const controls = document.getElementById('x-cross-post-controls');
-  const checkbox = document.getElementById('x-cross-post-b');
-  const note = document.getElementById('x-cross-post-note');
-  if (!controls || !checkbox || !note) return;
-
-  const available = Boolean(state.b);
-  controls.style.display = available ? 'flex' : 'none';
-  if (!available) {
-    checkbox.checked = false;
-    checkbox.disabled = false;
-    note.textContent = '';
-    return;
-  }
-
-  const videoUnsupported = Boolean(xComposeMediaDraft.getSnapshot().video);
-  checkbox.disabled = videoUnsupported;
-  checkbox.checked = videoUnsupported
-    ? false
-    : Boolean(state.composePreferences?.crossPostFromX);
-  note.textContent = videoUnsupported ? '動画の同時投稿は未対応です' : '';
-}
-
-function toggleXCrossPost() {
-  composeCoordinator.resetCrossPost();
-  state.composePreferences.crossPostFromX = document.getElementById('x-cross-post-b').checked;
-  saveState();
-  updXCC();
-}
-
-function setXCrossPostDraftLocked(locked) {
-  const textarea = document.getElementById('x-cta');
-  const checkbox = document.getElementById('x-cross-post-b');
-  const imageArea = document.getElementById('x-img-area');
-  const accountSelect = document.getElementById('x-acc-select');
-  if (textarea) textarea.readOnly = locked;
-  if (checkbox) checkbox.disabled = locked || Boolean(xComposeMediaDraft.getSnapshot().video);
-  if (imageArea) imageArea.style.pointerEvents = locked ? 'none' : '';
-  if (accountSelect) accountSelect.style.pointerEvents = locked ? 'none' : '';
-}
-
 function executeXComposeDelivery(delivery, context = {}) {
   return xWebViewRuntime.executeCompose(
     delivery,
@@ -1839,8 +1485,9 @@ function executeXComposeDelivery(delivery, context = {}) {
 }
 
 async function doXOriginCrossPost(text) {
-  const media = xComposeMediaDraft.getSnapshot();
-  const account = state.xs?.[selectedXIdx];
+  const compose = composeModalRuntime.getSnapshot('x');
+  const media = compose.media;
+  const account = compose.selectedAccount;
   if (!account) { toast('Xアカウントを選択してください'); return; }
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
 
@@ -1895,8 +1542,12 @@ async function doXOriginCrossPost(text) {
     return;
   }
 
-  setXCrossPostDraftLocked(true);
-  setComposeButtonLabel('x-sndb', result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行');
+  composeModalRuntime.setBusy(
+    'x',
+    false,
+    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
+    { locked: true },
+  );
   const failed = result.results.filter(target => target.status !== 'succeeded')
     .map(target => target.id === 'x' ? 'X' : 'Bluesky')
     .join(' / ');
@@ -1906,8 +1557,9 @@ async function doXOriginCrossPost(text) {
 }
 
 async function doXPost() {
-  const media = xComposeMediaDraft.getSnapshot();
-  const crossPosting = Boolean(document.getElementById('x-cross-post-b')?.checked && state.b && !media.video);
+  const compose = composeModalRuntime.getSnapshot('x');
+  const media = compose.media;
+  const crossPosting = compose.crossPost;
   const composeStatus = composeCoordinator.getStatus('x');
   if (composeStatus.isSending) return;
   if (!crossPosting && composeStatus.hasUnknownSingle) {
@@ -1916,14 +1568,14 @@ async function doXPost() {
     );
     if (!confirmedMissing) return;
   }
-  const text = document.getElementById('x-cta').value.trim();
+  const text = compose.text.trim();
   if (!text && media.images.length === 0 && !media.video) return;
   if (crossPosting) {
     await doXOriginCrossPost(text);
     return;
   }
 
-  const acc = state.xs?.[selectedXIdx];
+  const acc = compose.selectedAccount;
   if (!acc) { toast('Xアカウントを選択してください'); return; }
 
   // 動画の長さチェック
@@ -1968,142 +1620,14 @@ async function doXPost() {
   }
 
   if (result.status === 'unknown') {
-    setComposeButtonLabel('x-sndb', '確認後に再試行');
+    composeModalRuntime.setBusy('x', false, '確認後に再試行');
     toast('投稿結果を確認できませんでした。X上で投稿状況を確認してください');
     return;
   }
 
   setFFmpegStatus('');
-  setComposeButtonLabel('x-sndb', '再試行');
+  composeModalRuntime.setBusy('x', false, '再試行');
   toast('X post error: ' + result.error.message);
-}
-
-function updateCrossPostControls() {
-  const controls = document.getElementById('cross-post-controls');
-  const checkbox = document.getElementById('cross-post-x');
-  const select = document.getElementById('cross-post-x-account');
-  const accounts = state.xs || [];
-  const available = !replyTarget && accounts.length > 0;
-  controls.style.display = available ? 'flex' : 'none';
-  if (!available) {
-    checkbox.checked = false;
-    select.style.display = 'none';
-    composeCoordinator.resetCrossPost();
-    updCC();
-    return;
-  }
-
-  checkbox.checked = Boolean(state.composePreferences?.crossPostFromBluesky);
-  select.innerHTML = accounts.map((account, index) => (
-    `<option value="${index}">${esc(account.username)}</option>`
-  )).join('');
-  select.style.display = checkbox.checked ? 'block' : 'none';
-  updCC();
-}
-
-function toggleCrossPost() {
-  composeCoordinator.resetCrossPost();
-  const checked = document.getElementById('cross-post-x').checked;
-  state.composePreferences.crossPostFromBluesky = checked;
-  saveState();
-  document.getElementById('cross-post-x-account').style.display = checked
-    ? 'block'
-    : 'none';
-  updCC();
-}
-
-function setCrossPostDraftLocked(locked) {
-  const textarea = document.getElementById('cta');
-  const checkbox = document.getElementById('cross-post-x');
-  const select = document.getElementById('cross-post-x-account');
-  const imageArea = document.getElementById('b-img-area');
-  if (textarea) textarea.readOnly = locked;
-  if (checkbox) checkbox.disabled = locked;
-  if (select) select.disabled = locked;
-  if (imageArea) imageArea.style.pointerEvents = locked ? 'none' : '';
-}
-
-function updCC() {
-  const media = bskyComposeMediaDraft.getSnapshot();
-  const n = document.getElementById('cta').value.length;
-  const el = document.getElementById('cct');
-  const crossPosting = !replyTarget && document.getElementById('cross-post-x')?.checked;
-  const limit = crossPosting ? 280 : 300;
-  document.getElementById('cta').maxLength = limit;
-  el.textContent = `${n} / ${limit}`;
-  el.className = 'cc' + (n > limit - 40 ? ' w' : '') + (n > limit ? ' over' : '');
-  document.getElementById('sndb').disabled = (n === 0 && media.images.length === 0) || n > limit;
-  renderComposePreview('b');
-}
-
-// ─── BLUESKY 画像添付 ────────────────────────────
-function handleBImgDrop(e) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('drag-on');
-  const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
-  addBImgFiles(files);
-}
-
-function addBImgFiles(files) {
-  const result = bskyComposeMediaDraft.addFiles(files);
-  if (result.status === 'rejected') { toast('画像は最大4枚まで'); return; }
-  if (result.status !== 'images-added') return;
-  renderBImgPreviews();
-  const fi = document.getElementById('b-img-file');
-  if (fi) fi.value = '';
-  updCC();
-}
-
-function removeBImg(idx) {
-  bskyComposeMediaDraft.removeImage(idx);
-  renderBImgPreviews();
-  updCC();
-}
-
-function renderBImgPreviews() {
-  const container = document.getElementById('b-img-preview');
-  if (!container) return;
-  container.querySelectorAll('img').forEach(img => {
-    if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-  });
-  const { images } = bskyComposeMediaDraft.getSnapshot();
-  container.innerHTML = images.map((image, i) => {
-    const url = URL.createObjectURL(image.file);
-    return `<div style="position:relative;width:100%;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg3);margin-bottom:5px;border:1px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:8px;padding:5px 8px">
-        <img src="${url}" style="width:52px;height:52px;object-fit:cover;border-radius:4px;flex-shrink:0">
-        <input type="text" placeholder="Alt テキスト（画像の説明）" maxlength="1000"
-          id="b-alt-${i}"
-          style="flex:1;background:transparent;border:none;color:var(--text2);font-size:11px;font-family:inherit;outline:none;min-width:0"
-          value="${esc(image.altText)}"
-          oninput="updateBImgAlt(${i},this.value)">
-        <button onclick="removeBImg(${i})"
-          style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:10px;padding:0;font-family:inherit;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
-      </div>
-    </div>`;
-  }).join('');
-  const drop = document.getElementById('b-img-drop');
-  if (drop) drop.style.opacity = images.length >= composeMedia.MAX_IMAGE_COUNT ? '0.4' : '1';
-}
-
-function updateBImgAlt(index, value) {
-  bskyComposeMediaDraft.updateAlt(index, value);
-  renderComposePreview('b');
-}
-
-function resetBImgUI() {
-  const container = document.getElementById('b-img-preview');
-  if (container) {
-    container.querySelectorAll('img').forEach(img => {
-      if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-    });
-    container.innerHTML = '';
-  }
-  bskyComposeMediaDraft.clear();
-  const drop = document.getElementById('b-img-drop');
-  if (drop) { drop.style.opacity = '1'; }
-  const fi = document.getElementById('b-img-file');
-  if (fi) fi.value = '';
 }
 
 function openImg(urls, startIndex = 0) {
@@ -2126,9 +1650,9 @@ async function resolveMentionDids(facets, jwt) {
 }
 
 async function doCrossPost(text) {
-  const media = bskyComposeMediaDraft.getSnapshot();
-  const accountIndex = Number(document.getElementById('cross-post-x-account')?.value || 0);
-  const account = state.xs?.[accountIndex];
+  const compose = composeModalRuntime.getSnapshot('b');
+  const media = compose.media;
+  const account = compose.crossPostXAccount;
   if (!account) { toast('Xアカウントを選択してください'); return; }
 
   const bRequest = composeRequests.createComposeRequest({
@@ -2180,8 +1704,12 @@ async function doCrossPost(text) {
     return;
   }
 
-  setCrossPostDraftLocked(true);
-  setComposeButtonLabel('sndb', result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行');
+  composeModalRuntime.setBusy(
+    'b',
+    false,
+    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
+    { locked: true },
+  );
   const failed = result.results.filter(target => target.status !== 'succeeded')
     .map(target => target.id === 'x' ? 'X' : 'Bluesky')
     .join(' / ');
@@ -2191,12 +1719,13 @@ async function doCrossPost(text) {
 }
 
 async function doSend() {
-  const media = bskyComposeMediaDraft.getSnapshot();
+  const compose = composeModalRuntime.getSnapshot('b');
+  const media = compose.media;
   if (composeCoordinator.getStatus('b').isSending) return;
-  const text = document.getElementById('cta').value.trim();
+  const text = compose.text.trim();
   if (!text && media.images.length === 0) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
-  if (!replyTarget && document.getElementById('cross-post-x')?.checked) {
+  if (!replyTarget && compose.crossPost) {
     await doCrossPost(text);
     return;
   }
@@ -2233,7 +1762,7 @@ async function doSend() {
     return;
   }
 
-  setComposeButtonLabel('sndb', '再試行');
+  composeModalRuntime.setBusy('b', false, '再試行');
   toast(`Post error: ${result.error.message}`);
 }
 
@@ -2797,7 +2326,6 @@ let _mentionTimer = null;
 let _mentionLastQ = '';
 
 async function onCompTextareaInput(e) {
-  updCC();
   const ta = e.target;
   const val = ta.value;
   const pos = ta.selectionStart;
@@ -2865,7 +2393,7 @@ function insertMention(handle) {
   ta.value = replaced + after;
   ta.selectionStart = ta.selectionEnd = replaced.length;
   ta.focus();
-  updCC();
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
   const suggest = document.getElementById('mention-suggest');
   if (suggest) suggest.style.display = 'none';
   _mentionLastQ = '';
@@ -2878,64 +2406,20 @@ document.addEventListener('click', e => {
   }
 });
 
-function setComposeButtonLabel(buttonId, label = null) {
-  const button = document.getElementById(buttonId);
-  if (!button) return;
-  if (!button.dataset.defaultLabel) button.dataset.defaultLabel = button.textContent;
-  button.textContent = label || button.dataset.defaultLabel;
-}
-
 function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
-  const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.setAttribute('aria-busy', String(busy));
-    const content = modal.querySelector('.cmodal');
-    if (content) content.style.pointerEvents = busy ? 'none' : '';
-  }
-
-  const button = document.getElementById(buttonId);
-  if (button) button.disabled = busy;
-  setComposeButtonLabel(buttonId, busy ? busyLabel : null);
-  if (!busy) {
-    if (buttonId === 'x-sndb') updXCC();
-    if (buttonId === 'sndb') updCC();
-  }
-}
-
-function isComposeSending(modalId) {
-  if (modalId === 'xPostMod') {
-    return composeCoordinator.getStatus('x').isSending;
-  }
-  if (modalId === 'compMod') {
-    return composeCoordinator.getStatus('b').isSending;
-  }
-  return false;
+  const networkId = modalId === 'xPostMod' ? 'x' : 'b';
+  composeModalRuntime.setBusy(networkId, busy, busy ? busyLabel : null);
 }
 
 function closeOv(id, e) {
-  if (isComposeSending(id)) return;
+  if (id === 'xPostMod' || id === 'compMod') {
+    if (!e || e.target.classList.contains('ov')) {
+      composeModalRuntime.close(id === 'xPostMod' ? 'x' : 'b');
+    }
+    return;
+  }
   if (!e || e.target.classList.contains('ov')) {
     document.getElementById(id).classList.remove('on');
-    if (id === 'xPostMod') {
-      composeCoordinator.reset('x');
-      setXCrossPostDraftLocked(false);
-      resetXImgUI();
-      document.getElementById('x-cta').value = '';
-      updateXCrossPostControls();
-      setComposeButtonLabel('x-sndb');
-      updXCC();
-    }
-    if (id === 'compMod') {
-      composeCoordinator.reset('b');
-      setCrossPostDraftLocked(false);
-      resetBImgUI();
-      const cta = document.getElementById('cta');
-      if (cta) { cta.value = ''; updCC(); }
-      replyTarget = null;
-      updateCrossPostControls();
-      document.querySelector('.bsky-reply-preview')?.remove();
-      setComposeButtonLabel('sndb');
-    }
   }
 }
 

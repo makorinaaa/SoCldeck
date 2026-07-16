@@ -127,6 +127,26 @@ test('keeps Compose Experience media Runtime State out of renderer globals', () 
   );
 });
 
+test('keeps Compose modal presentation and events behind its Runtime', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/compose-modal-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+  const xModal = index.slice(index.indexOf('<div class="ov" id="xPostMod">'), index.indexOf('<div class="ov" id="addMod"'));
+  const bModal = index.slice(index.indexOf('<div class="ov" id="compMod">'), index.indexOf('<div id="lightbox"'));
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckComposeModalRuntime\.createComposeModalRuntime\(\{/);
+  assert.doesNotMatch(`${xModal}${bModal}`, /\son(?:click|input|change|drop|dragover|dragleave)=/i);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:renderXImgPreviews|renderBImgPreviews|updateXCrossPostControls|updateCrossPostControls|updXCC|updCC)\b/,
+  );
+});
+
 test('keeps network-specific Compose delivery behind Network Adapters', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
