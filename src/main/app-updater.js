@@ -1,5 +1,46 @@
 const AUTO_CHECK_DELAY_MS = 10_000;
 const AUTO_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const RELEASE_SUMMARY_FALLBACK = '変更内容はリリースページで確認できます。';
+const MAX_RELEASE_SUMMARY_ITEMS = 3;
+const MAX_RELEASE_SUMMARY_ITEM_LENGTH = 100;
+
+function summarizeReleaseNotes(releaseNotes) {
+  const sources = Array.isArray(releaseNotes)
+    ? releaseNotes.map(item => item?.note)
+    : [releaseNotes];
+  const items = [];
+
+  for (const source of sources) {
+    if (typeof source !== 'string') continue;
+    for (const rawLine of source.replace(/<[^>]*>/g, ' ').split(/\r?\n/)) {
+      const trimmed = rawLine.trim();
+      if (!trimmed || /^#{1,6}\s/.test(trimmed)) continue;
+      if (/^(?:\*{1,2})?(?:full changelog|what's changed|new contributors)/i.test(trimmed)) {
+        continue;
+      }
+
+      let item = trimmed
+        .replace(/^[-*+]\s+/, '')
+        .replace(/\[([^\]]+)]\([^)]+\)/g, '$1')
+        .replace(/[*_`]/g, '')
+        .replace(/\s+by\s+@\S+\s+in\s+https?:\/\/\S+\s*$/i, '')
+        .replace(/https?:\/\/\S+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!item || items.includes(item)) continue;
+      if (item.length > MAX_RELEASE_SUMMARY_ITEM_LENGTH) {
+        item = `${item.slice(0, MAX_RELEASE_SUMMARY_ITEM_LENGTH - 3)}...`;
+      }
+      items.push(item);
+      if (items.length === MAX_RELEASE_SUMMARY_ITEMS) break;
+    }
+    if (items.length === MAX_RELEASE_SUMMARY_ITEMS) break;
+  }
+
+  return items.length > 0
+    ? items.map(item => `- ${item}`).join('\n')
+    : RELEASE_SUMMARY_FALLBACK;
+}
 
 function createAppUpdater({
   autoUpdater,
@@ -31,7 +72,10 @@ function createAppUpdater({
     if (typeof showUpdatePrompt !== 'function' || promptedVersion === info.version) return;
     promptedVersion = info.version;
     try {
-      if (await showUpdatePrompt({ version: info.version })) install();
+      if (await showUpdatePrompt({
+        version: info.version,
+        releaseSummary: summarizeReleaseNotes(info.releaseNotes),
+      })) install();
     } catch (error) {
       console.error('[Updater] Update prompt failed', error);
     }

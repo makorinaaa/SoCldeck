@@ -20,6 +20,10 @@ test('the release workflow uploads every auto-update artifact explicitly', () =>
   assert.match(workflow, /dist\/\*\.exe/);
   assert.match(workflow, /dist\/\*\.exe\.blockmap/);
   assert.match(workflow, /dist\/latest\.yml/);
+  assert.match(workflow, /fetch-depth:\s*0/);
+  assert.match(workflow, /name: Generate release notes/);
+  assert.match(workflow, /git log/);
+  assert.match(workflow, /body_path:\s*release-notes\.md/);
 });
 
 test('the release workflow validates its tag before running isolated test phases', () => {

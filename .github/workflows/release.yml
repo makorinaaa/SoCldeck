@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -107,10 +109,28 @@ jobs:
           }
           Get-Item $expectedArtifacts | Select-Object Name, Length
 
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $currentTag = "${{ github.ref_name }}"
+          $previousTag = git describe --tags --abbrev=0 "$currentTag^" 2>$null
+          if ($LASTEXITCODE -eq 0 -and $previousTag) {
+            $range = "$previousTag..$currentTag"
+          } else {
+            $range = $currentTag
+          }
+          $subjects = @(git log $range --pretty=format:"%s")
+          if ($subjects.Count -eq 0) {
+            $subjects = @("Maintenance update")
+          }
+          $notes = @("# What's Changed", "") + @($subjects | ForEach-Object { "- $_" })
+          $notes | Set-Content -LiteralPath release-notes.md -Encoding utf8
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           fail_on_unmatched_files: true
+          body_path: release-notes.md
           files: |
             dist/*.exe
             dist/*.exe.blockmap

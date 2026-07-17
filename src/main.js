@@ -544,13 +544,18 @@ app.whenReady().then(async () => {
     autoUpdater,
     app,
     getWindow: () => mainWindow,
-    showUpdatePrompt: async ({ version }) => {
+    showUpdatePrompt: async ({ version, releaseSummary }) => {
       if (!mainWindow || mainWindow.isDestroyed()) return false;
       const result = await dialog.showMessageBox(mainWindow, {
         type: 'info',
         title: 'SocialDeck の更新',
         message: `新しいバージョン ${version} を利用できます。`,
-        detail: '更新の準備ができました。今すぐ再起動して適用しますか？',
+        detail: [
+          '更新の準備ができました。今すぐ再起動して適用しますか？',
+          '',
+          '主な変更:',
+          releaseSummary,
+        ].join('\n'),
         buttons: ['再起動して更新', 'あとで'],
         defaultId: 0,
         cancelId: 1,

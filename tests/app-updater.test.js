@@ -64,11 +64,30 @@ test('reports a downloaded update and installs only after download', () => {
 test('prompts once for a downloaded startup update and installs only when accepted', async () => {
   const accepted = setup({ shouldInstallFromPrompt: true });
   accepted.controller.start();
-  accepted.updater.emit('update-downloaded', { version: '2.4.5' });
-  accepted.updater.emit('update-downloaded', { version: '2.4.5' });
+  const update = {
+    version: '2.4.5',
+    releaseNotes: `
+## What's Changed
+- Prompt to install downloaded updates
+- [Install application updates silently](https://github.com/example/repo/commit/1)
+- Fix Bluesky session refresh by @user in https://github.com/example/repo/pull/2
+- This fourth item is intentionally omitted
+
+**Full Changelog**: https://github.com/example/repo/compare/v2.4.4...v2.4.5
+`,
+  };
+  accepted.updater.emit('update-downloaded', update);
+  accepted.updater.emit('update-downloaded', update);
   await new Promise(resolve => setImmediate(resolve));
 
-  assert.deepEqual(accepted.prompts, [{ version: '2.4.5' }]);
+  assert.deepEqual(accepted.prompts, [{
+    version: '2.4.5',
+    releaseSummary: [
+      '- Prompt to install downloaded updates',
+      '- Install application updates silently',
+      '- Fix Bluesky session refresh',
+    ].join('\n'),
+  }]);
   assert.equal(accepted.updater.installed, true);
 
   const deferred = setup();
@@ -76,7 +95,10 @@ test('prompts once for a downloaded startup update and installs only when accept
   deferred.updater.emit('update-downloaded', { version: '2.4.5' });
   await new Promise(resolve => setImmediate(resolve));
 
-  assert.deepEqual(deferred.prompts, [{ version: '2.4.5' }]);
+  assert.deepEqual(deferred.prompts, [{
+    version: '2.4.5',
+    releaseSummary: '変更内容はリリースページで確認できます。',
+  }]);
   assert.equal(deferred.updater.installed, undefined);
   assert.equal(deferred.controller.install(), true);
 });
