@@ -1,10 +1,24 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
   createDesktopNotificationService,
   sanitizeDesktopNotification,
 } = require('../src/main/desktop-notification-service');
+
+test('configures the packaged Windows notification identity before creating a window', () => {
+  const projectRoot = path.join(__dirname, '..');
+  const source = fs.readFileSync(path.join(projectRoot, 'src', 'main.js'), 'utf8');
+  const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+  const setIdentity = source.indexOf('app.setAppUserModelId(APP_USER_MODEL_ID)');
+  const createWindow = source.indexOf('app.whenReady().then');
+
+  assert.match(source, new RegExp(`const APP_USER_MODEL_ID = ['"]${pkg.build.appId}['"]`));
+  assert.ok(setIdentity >= 0);
+  assert.ok(setIdentity < createWindow);
+});
 
 test('sanitizes bounded desktop notification payloads', () => {
   assert.deepEqual(sanitizeDesktopNotification({

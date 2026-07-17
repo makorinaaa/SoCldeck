@@ -21,6 +21,9 @@ const {
 } = require('./main/electron-trust-policy');
 const { autoUpdater } = require('electron-updater');
 
+const APP_USER_MODEL_ID = 'com.socialdeck.app';
+if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
+
 // ── アドブロック（@cliqz/adblocker-electron）──
 const { ElectronBlocker } = require('@cliqz/adblocker-electron');
 const fetch = (...args) => import('node-fetch').then(m => m.default(...args)).catch(() => null);

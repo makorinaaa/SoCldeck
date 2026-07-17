@@ -30,13 +30,17 @@ function createAtprotoClient({ fetchImpl = global.fetch, service = DEFAULT_SERVI
   }
 
   async function post(endpoint, body, token) {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = {};
     if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetchImpl(`${service}/${endpoint}`, {
+    const options = {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
-    });
+    };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(body);
+    }
+    const response = await fetchImpl(`${service}/${endpoint}`, options);
     return parseResponse(response, endpoint);
   }
 
@@ -51,7 +55,7 @@ function createAtprotoClient({ fetchImpl = global.fetch, service = DEFAULT_SERVI
       { identifier, password },
       null,
     ),
-    refresh: refreshJwt => post('com.atproto.server.refreshSession', {}, refreshJwt),
+    refresh: refreshJwt => post('com.atproto.server.refreshSession', undefined, refreshJwt),
     timeline: (jwt, limit, cursor) => get(
       'app.bsky.feed.getTimeline',
       cursor ? { limit, cursor } : { limit },

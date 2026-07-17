@@ -5,6 +5,7 @@ const {
   AtprotoError,
   createBlueskyGateway,
 } = require('../src/main/bluesky-gateway');
+const { createAtprotoClient } = require('../src/main/bluesky-atproto-client');
 
 function createVault(initial = null) {
   let session = initial;
@@ -112,6 +113,68 @@ test('refreshes an expired session, persists it, and retries once', async () => 
     ['notifications', 'access-refreshed', 40],
   ]);
   assert.equal(vault.getSession().accessJwt, 'access-refreshed');
+});
+
+test('refreshes an expired session without sending an unexpected request body', async () => {
+  const calls = [];
+  const client = createAtprotoClient({
+    fetchImpl: async (url, options) => {
+      calls.push([url, options]);
+      const endpoint = new URL(url).pathname;
+      if (endpoint.endsWith('/app.bsky.notification.listNotifications')) {
+        const token = options.headers.Authorization;
+        if (token === `Bearer ${SESSION.accessJwt}`) {
+          return {
+            ok: false,
+            status: 401,
+            async text() {
+              return JSON.stringify({ error: 'ExpiredToken', message: 'Token has expired' });
+            },
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          async text() { return JSON.stringify({ notifications: [] }); },
+        };
+      }
+      if (endpoint.endsWith('/com.atproto.server.refreshSession')) {
+        if (options.body !== undefined) {
+          return {
+            ok: false,
+            status: 400,
+            async text() {
+              return JSON.stringify({
+                error: 'InvalidRequest',
+                message: 'A request body was provided when none was expected',
+              });
+            },
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return JSON.stringify({
+              ...SESSION,
+              accessJwt: 'access-refreshed',
+              refreshJwt: 'refresh-refreshed',
+            });
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    },
+  });
+  const gateway = createBlueskyGateway({ vault: createVault(SESSION), client });
+
+  const result = await gateway.execute('listNotifications', { limit: 40 });
+
+  assert.deepEqual(result, { notifications: [] });
+  const refreshCall = calls.find(([url]) => (
+    new URL(url).pathname.endsWith('/com.atproto.server.refreshSession')
+  ));
+  assert.equal(refreshCall[1].body, undefined);
 });
 
 test('forces post creation to use the Vault account DID', async () => {
