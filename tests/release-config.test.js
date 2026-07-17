@@ -52,13 +52,15 @@ test('the release workflow preserves diagnostics and bounds E2E retries', () => 
     'utf8'
   );
 
-  assert.match(workflow, /actions\/checkout@v5/);
-  assert.match(workflow, /actions\/setup-node@v5/);
-  assert.match(workflow, /actions\/upload-artifact@v5/);
+  assert.match(workflow, /actions\/checkout@v6/);
+  assert.match(workflow, /actions\/setup-node@v6/);
+  assert.match(workflow, /actions\/upload-artifact@v6/);
   assert.match(workflow, /if: always\(\)/);
   assert.match(workflow, /test-results/);
   assert.match(workflow, /e2e-attempt-\$attempt\.log/);
   assert.match(workflow, /\$maxAttempts = 2/);
+  assert.match(workflow, /GITHUB_STEP_SUMMARY/);
+  assert.match(workflow, /Get-Content -LiteralPath \$logPath -Tail 80/);
   assert.match(workflow, /retention-days: 14/);
 });
 
