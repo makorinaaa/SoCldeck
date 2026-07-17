@@ -14,7 +14,10 @@ function setup({ packaged = true, shouldInstallFromPrompt = false } = {}) {
   const timeouts = [];
   const intervals = [];
   updater.checkForUpdates = async () => {};
-  updater.quitAndInstall = () => { updater.installed = true; };
+  updater.quitAndInstall = (...args) => {
+    updater.installed = true;
+    updater.installArgs = args;
+  };
   const controller = createAppUpdater({
     autoUpdater: updater,
     app: { isPackaged: packaged },
@@ -55,6 +58,7 @@ test('reports a downloaded update and installs only after download', () => {
   });
   assert.equal(controller.install(), true);
   assert.equal(updater.installed, true);
+  assert.deepEqual(updater.installArgs, [true, true]);
 });
 
 test('prompts once for a downloaded startup update and installs only when accepted', async () => {

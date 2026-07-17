@@ -84,7 +84,7 @@ function createAppUpdater({
 
   function install() {
     if (!updateDownloaded) return false;
-    autoUpdater.quitAndInstall(false, true);
+    autoUpdater.quitAndInstall(true, true);
     return true;
   }
 
