@@ -9,7 +9,9 @@ test('pins and verifies the Windows FFmpeg distribution', () => {
   const installer = fs.readFileSync(path.join(root, 'scripts', 'install-ffmpeg.ps1'), 'utf8');
   assert.match(installer, /releases\/download\/\$version\/ffmpeg-\$version-essentials_build\.zip/);
   assert.match(installer, /db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec/);
-  assert.match(installer, /Get-FileHash[^\n]+SHA256/);
+  assert.match(installer, /System\.Security\.Cryptography\.SHA256/);
+  assert.match(installer, /Get-Sha256Hash \$archivePath/);
+  assert.doesNotMatch(installer, /Get-FileHash/);
 });
 
 test('packages only the verified binary and no deprecated FFmpeg wrappers', () => {

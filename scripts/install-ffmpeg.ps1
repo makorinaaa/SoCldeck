@@ -11,6 +11,17 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $targetDirectory = Join-Path $repoRoot 'vendor\ffmpeg\win32-x64'
 $targetPath = Join-Path $targetDirectory 'ffmpeg.exe'
 
+function Get-Sha256Hash([string]$Path) {
+  $stream = [System.IO.File]::OpenRead($Path)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return (($sha256.ComputeHash($stream) | ForEach-Object { $_.ToString('x2') }) -join '')
+  } finally {
+    $sha256.Dispose()
+    $stream.Dispose()
+  }
+}
+
 function Test-InstalledVersion {
   if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) { return $false }
   try {
@@ -37,7 +48,7 @@ try {
   Write-Host "Downloading FFmpeg $version..."
   Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -OutFile $archivePath
 
-  $actualSha256 = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $actualSha256 = Get-Sha256Hash $archivePath
   if ($actualSha256 -ne $archiveSha256) {
     throw "FFmpeg archive checksum mismatch. Expected $archiveSha256, received $actualSha256."
   }
