@@ -1,6 +1,6 @@
 {
   "name": "socialdeck",
-  "version": "2.1.6",
+  "version": "2.2.0",
   "description": "TweetDeck風マルチカラムクライアント (X + Bluesky)",
   "main": "src/main.js",
   "scripts": {
@@ -8,11 +8,14 @@
     "test:e2e": "node --test --test-concurrency=1 tests-e2e/*.e2e.test.js",
     "test:all": "npm run test && npm run test:e2e",
     "icons": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-icons.ps1",
-    "release:check": "npm run test:all && electron-builder --win --dir --publish never",
-    "release:win": "npm run test:all && electron-builder --win --publish never",
+    "ffmpeg:install:win": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-ffmpeg.ps1",
+    "release:check": "npm run ffmpeg:install:win && npm run test:all && electron-builder --win --dir --publish never",
+    "release:win": "npm run ffmpeg:install:win && npm run test:all && electron-builder --win --publish never",
+    "prestart": "npm run ffmpeg:install:win",
     "start": "electron .",
+    "predev": "npm run ffmpeg:install:win",
     "dev": "electron . --dev",
-    "build-win": "electron-builder --win --publish never",
+    "build-win": "npm run ffmpeg:install:win && electron-builder --win --publish never",
     "build-mac": "electron-builder --mac --publish never",
     "build-linux": "electron-builder --linux --publish never"
   },
@@ -33,7 +36,17 @@
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "vendor/ffmpeg/win32-x64/ffmpeg.exe",
+          "to": "ffmpeg/ffmpeg.exe"
+        },
+        {
+          "from": "vendor/ffmpeg/README.md",
+          "to": "ffmpeg/README.md"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -52,7 +65,6 @@
     },
     "asar": true,
     "asarUnpack": [
-      "**/ffmpeg-static/**",
       "**/node_modules/@cliqz/adblocker-electron/**",
       "**/node_modules/@cliqz/adblocker/**",
       "**/node_modules/node-fetch/**"
@@ -81,8 +93,6 @@
   "dependencies": {
     "@cliqz/adblocker-electron": "1.34.0",
     "electron-updater": "^6.8.9",
-    "ffmpeg-static": "5.3.0",
-    "fluent-ffmpeg": "2.1.3",
     "node-fetch": "3.3.2"
   }
 }

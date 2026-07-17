@@ -11,6 +11,8 @@
     defaultRefreshInterval = 60000,
     createRefreshScript,
     getCanonicalUrl = () => null,
+    getPreloadPath = () => '',
+    allowDevTools = false,
     openImage = () => {},
     setTimeoutFn = global.setTimeout,
     clearTimeoutFn = global.clearTimeout,
@@ -360,6 +362,7 @@
     }
 
     function openDevTools() {
+      if (!allowDevTools) return false;
       let target = null;
       documentRef.querySelectorAll('webview').forEach(webview => {
         const source = webview.src || '';
@@ -431,6 +434,8 @@
       webview.id = id;
       webview.setAttribute('partition', account.partition);
       webview.setAttribute('webpreferences', 'backgroundThrottling=false');
+      const preloadPath = getPreloadPath();
+      if (preloadPath) webview.setAttribute('preload', preloadPath);
       webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
       webview.src = 'https://x.com/notifications';
       host.appendChild(webview);

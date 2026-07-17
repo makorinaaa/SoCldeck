@@ -11,3 +11,6 @@ yarn-error.log*
 
 coverage/
 .nyc_output/
+
+# Downloaded and SHA-256-verified by scripts/install-ffmpeg.ps1
+/vendor/ffmpeg/win32-x64/ffmpeg.exe

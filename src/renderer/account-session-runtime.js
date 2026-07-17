@@ -277,18 +277,11 @@
         const account = {
           handle: session.handle,
           did: session.did,
-          accessJwt: session.accessJwt,
-          refreshJwt: session.refreshJwt,
-          displayName: session.handle,
-          avatar: null,
+          displayName: session.displayName || session.handle,
+          avatar: session.avatar || null,
           initials: session.handle.slice(0, 2).toUpperCase(),
           bg: getBlueskyBackground(session.handle),
         };
-        try {
-          const profile = await bluesky.getProfile?.(session.accessJwt, session.did);
-          account.avatar = profile?.avatar || null;
-          account.displayName = profile?.displayName || session.handle;
-        } catch {}
         const current = state.get();
         state.commit({ ...current, b: account });
         view.clearCredentials?.('b');
@@ -314,6 +307,7 @@
         operation.error = null;
         refresh();
         try {
+          await bluesky.clearSession?.();
           state.commit({ ...current, b: null });
           await intents.accountsChanged?.({ network: 'b', kind: 'logout', account });
           return { status: 'logged-out', account, snapshot: getSnapshot() };
@@ -360,6 +354,7 @@
       refresh();
       try {
         await xSession.clearAll?.();
+        await bluesky.clearSession?.();
         const current = state.get();
         state.commit({
           ...createDefaultState(),

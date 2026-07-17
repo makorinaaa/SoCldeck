@@ -371,7 +371,7 @@ test('removes an X account only after confirmation and resynchronizes sessions',
   ]);
 });
 
-test('authenticates Bluesky and commits its enriched session without the password', async () => {
+test('authenticates Bluesky and commits only its public Network Account', async () => {
   const events = [];
   const stateAdapter = createStateAdapter({
     xs: [],
@@ -387,13 +387,9 @@ test('authenticates Bluesky and commits its enriched session without the passwor
         return {
           handle: 'alice.test',
           did: 'did:plc:alice',
-          accessJwt: 'access-token',
-          refreshJwt: 'refresh-token',
+          displayName: 'Alice',
+          avatar: 'https://cdn.test/alice.jpg',
         };
-      },
-      async getProfile(accessJwt, did) {
-        events.push(['profile', accessJwt, did]);
-        return { displayName: 'Alice', avatar: 'https://cdn.test/alice.jpg' };
       },
     },
     getBlueskyBackground: handle => `background:${handle}`,
@@ -416,8 +412,6 @@ test('authenticates Bluesky and commits its enriched session without the passwor
   assert.deepEqual(plain(stateAdapter.get().b), {
     handle: 'alice.test',
     did: 'did:plc:alice',
-    accessJwt: 'access-token',
-    refreshJwt: 'refresh-token',
     displayName: 'Alice',
     avatar: 'https://cdn.test/alice.jpg',
     initials: 'AL',
@@ -426,7 +420,6 @@ test('authenticates Bluesky and commits its enriched session without the passwor
   assert.equal(JSON.stringify(stateAdapter.get()).includes('app-password'), false);
   assert.deepEqual(events, [
     ['login', 'alice.test', 'app-password'],
-    ['profile', 'access-token', 'did:plc:alice'],
     ['clear-credentials', 'b'],
     ['changed', 'b', 'login'],
   ]);
@@ -442,6 +435,9 @@ test('logs out Bluesky while preserving X accounts and preferences', async () =>
   });
   const runtime = loadModule().createAccountSessionRuntime({
     state: stateAdapter,
+    bluesky: {
+      clearSession: async () => events.push(['clear-vault']),
+    },
     view: { render() {} },
     intents: {
       accountsChanged: detail => events.push([detail.network, detail.kind]),
@@ -455,7 +451,7 @@ test('logs out Bluesky while preserving X accounts and preferences', async () =>
   assert.equal(stateAdapter.get().b, null);
   assert.equal(stateAdapter.get().xs[0].username, '@alice');
   assert.equal(stateAdapter.get().composePreferences.crossPostFromX, true);
-  assert.deepEqual(events, [['b', 'logout']]);
+  assert.deepEqual(events, [['clear-vault'], ['b', 'logout']]);
 });
 
 test('logs out every account and requests host workspace cleanup', async () => {
@@ -475,6 +471,9 @@ test('logs out every account and requests host workspace cleanup', async () => {
     xSession: {
       clearAll: async () => events.push('clear-all-sessions'),
       sync: async accounts => events.push(['sync', accounts.length]),
+    },
+    bluesky: {
+      clearSession: async () => events.push('clear-vault'),
     },
     view: { render() {} },
     intents: {
@@ -499,6 +498,7 @@ test('logs out every account and requests host workspace cleanup', async () => {
   assert.deepEqual(events, [
     'confirm',
     'clear-all-sessions',
+    'clear-vault',
     ['sync', 0],
     'reset-workspace',
     ['changed', 'all', 'logout'],

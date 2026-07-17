@@ -1,23 +1,25 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, Notification, safeStorage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { randomUUID } = require('crypto');
+const { pathToFileURL } = require('url');
 const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-session-theme');
 const { createAppUpdater } = require('./main/app-updater');
 const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
 const { createAnimeScheduleService } = require('./main/anime-schedule');
 const { createDesktopNotificationService } = require('./main/desktop-notification-service');
+const { resolveFfmpegPath, runFfmpegTrim } = require('./main/ffmpeg-runtime');
+const { denyWebviewPermissions } = require('./main/webview-permission-policy');
+const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
+const { createAtprotoClient } = require('./main/bluesky-atproto-client');
+const { createBlueskyGateway } = require('./main/bluesky-gateway');
+const {
+  registerTrustedIpcHandler,
+  secureApplicationWebContents,
+  secureWebviewContents,
+} = require('./main/electron-trust-policy');
 const { autoUpdater } = require('electron-updater');
-
-// ── ffmpeg（メインプロセスで実行）──
-const ffmpeg = require('fluent-ffmpeg');
-let ffmpegPath = require('ffmpeg-static');
-
-// パッケージ化（.exe化）時は app.asar 内のパスを app.asar.unpacked に差し替える
-if (ffmpegPath && ffmpegPath.includes('app.asar')) {
-  ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
-}
-ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ── アドブロック（@cliqz/adblocker-electron）──
 const { ElectronBlocker } = require('@cliqz/adblocker-electron');
@@ -30,14 +32,15 @@ let blocker = null;
 
 const X_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-const ALLOWED_WEBVIEW_HOSTS = new Set(['x.com', 'twitter.com', 'bsky.app', 'bsky.social']);
-const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
-  'clipboard-read',
-  'media',
-  'notifications',
-  'display-capture',
-]);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm']);
+const INDEX_PATH = path.join(__dirname, 'index.html');
+const APP_PRELOAD_PATH = path.join(__dirname, 'preload.js');
+const WEBVIEW_PRELOAD_PATH = path.join(__dirname, 'webview-preload.js');
+const isDevelopment = process.argv.includes('--dev');
+
+function handleTrustedIpc(channel, handler) {
+  return registerTrustedIpcHandler({ ipcMain, indexPath: INDEX_PATH, channel, handler });
+}
 
 function parseHttpUrl(value) {
   try {
@@ -47,12 +50,6 @@ function parseHttpUrl(value) {
   } catch {
     return null;
   }
-}
-
-function isAllowedWebviewUrl(value) {
-  const url = parseHttpUrl(value);
-  if (!url) return false;
-  return ALLOWED_WEBVIEW_HOSTS.has(url.hostname.replace(/^www\./, ''));
 }
 
 function openExternalUrl(value) {
@@ -123,6 +120,15 @@ const animeScheduleService = createAnimeScheduleService();
 
 // ── 設定ファイルパス ──
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const BLUESKY_SESSION_PATH = path.join(app.getPath('userData'), 'bluesky-session.vault');
+const blueskySessionVault = createBlueskySessionVault({
+  filePath: BLUESKY_SESSION_PATH,
+  safeStorage,
+});
+const blueskyGateway = createBlueskyGateway({
+  vault: blueskySessionVault,
+  client: createAtprotoClient({ fetchImpl: (...args) => net.fetch(...args) }),
+});
 
 function loadConfig() {
   try {
@@ -173,14 +179,20 @@ function createWidgetWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       webviewTag: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: APP_PRELOAD_PATH,
       spellcheck: false,
     },
     show: false,
   });
 
-  widgetWindow.loadFile(path.join(__dirname, 'index.html'), { query: { widget: '1' } });
+  secureApplicationWebContents(widgetWindow.webContents, {
+    indexPath: INDEX_PATH,
+    webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
+    openExternalUrl,
+  });
+  widgetWindow.loadFile(INDEX_PATH, { query: { widget: '1' } });
 
   widgetWindow.once('ready-to-show', () => widgetWindow.show());
 
@@ -194,10 +206,6 @@ function createWidgetWindow() {
 
   widgetWindow.on('closed', () => { widgetWindow = null; });
 
-  widgetWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
-    return { action: 'deny' };
-  });
 }
 
 function createWindow() {
@@ -216,8 +224,9 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       webviewTag: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: APP_PRELOAD_PATH,
       spellcheck: false,
     },
     frame: false,        // フレームレス化
@@ -225,7 +234,12 @@ function createWindow() {
     show: false,
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  secureApplicationWebContents(mainWindow.webContents, {
+    indexPath: INDEX_PATH,
+    webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
+    openExternalUrl,
+  });
+  mainWindow.loadFile(INDEX_PATH);
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -240,12 +254,7 @@ function createWindow() {
     saveConfig(cfg);
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalUrl(url);
-    return { action: 'deny' };
-  });
-
-  if (process.argv.includes('--dev')) {
+  if (isDevelopment) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
@@ -256,9 +265,8 @@ function createWindow() {
 // ── webview の権限設定 ──
 app.on('web-contents-created', (_, contents) => {
   if (contents.getType() === 'webview') {
-    contents.session.setPermissionRequestHandler((wc, permission, callback) => {
-      callback(ALLOWED_WEBVIEW_PERMISSIONS.has(permission) && isAllowedWebviewUrl(wc.getURL()));
-    });
+    denyWebviewPermissions(contents.session);
+    secureWebviewContents(contents, { openExternalUrl });
 
     contents.session.webRequest.onBeforeSendHeaders((details, callback) => {
       details.requestHeaders['User-Agent'] = X_USER_AGENT;
@@ -268,61 +276,64 @@ app.on('web-contents-created', (_, contents) => {
       callback({ requestHeaders: details.requestHeaders });
     });
 
-    contents.setWindowOpenHandler(({ url }) => {
-      openExternalUrl(url);
-      return { action: 'deny' };
-    });
   }
 });
 
 // ── IPC ハンドラ ──
 
-ipcMain.handle('get-config', () => loadConfig());
-ipcMain.handle('set-config', (_, data) => { saveConfig(data); return true; });
-ipcMain.handle('get-app-version', () => app.getVersion());
-ipcMain.handle('show-desktop-notification', (_, payload) =>
+handleTrustedIpc('get-config', () => loadConfig());
+handleTrustedIpc('set-config', (_, data) => { saveConfig(data); return true; });
+handleTrustedIpc('get-app-version', () => app.getVersion());
+handleTrustedIpc('load-bluesky-session', () => blueskyGateway.restoreAccount());
+handleTrustedIpc('store-bluesky-session', (_, credentials) => blueskyGateway.migrateSession(credentials));
+handleTrustedIpc('clear-bluesky-session', () => blueskyGateway.clear());
+handleTrustedIpc('bluesky-login', (_, credentials) => blueskyGateway.login(credentials));
+handleTrustedIpc('bluesky-operation', (_, operation, payload) =>
+  blueskyGateway.execute(operation, payload)
+);
+handleTrustedIpc('show-desktop-notification', (_, payload) =>
   desktopNotificationService.show(payload)
 );
-ipcMain.handle('check-for-updates', () => appUpdaterController?.check({ manual: true }) ?? false);
-ipcMain.handle('install-update', () => appUpdaterController?.install() ?? false);
-ipcMain.handle('get-anime-schedule', (_, options = {}) =>
+handleTrustedIpc('check-for-updates', () => appUpdaterController?.check({ manual: true }) ?? false);
+handleTrustedIpc('install-update', () => appUpdaterController?.install() ?? false);
+handleTrustedIpc('get-anime-schedule', (_, options = {}) =>
   animeScheduleService.listToday({ force: options?.force === true })
 );
-ipcMain.handle('sync-x-network-accounts', (_, partitions) => {
+handleTrustedIpc('sync-x-network-accounts', (_, partitions) => {
   if (!Array.isArray(partitions)) return xAccountRuntime.getPartitions();
   return xAccountRuntime.sync(partitions);
 });
-ipcMain.handle('initialize-x-session-theme', async (_, partition) => {
+handleTrustedIpc('initialize-x-session-theme', async (_, partition) => {
   if (!xAccountRuntime.register(partition)) return false;
   return ensureDefaultXDarkTheme(session.fromPartition(partition));
 });
-ipcMain.handle('is-x-session-authenticated', async (_, partition) => {
+handleTrustedIpc('is-x-session-authenticated', async (_, partition) => {
   if (!xAccountRuntime.register(partition)) return false;
   return isXSessionAuthenticated(session.fromPartition(partition));
 });
 
 // webview-preloadのパスを返す（X画像ライトボックス用）
-ipcMain.handle('get-webview-preload-path', () =>
-  `file://${path.join(app.getAppPath(), 'src', 'webview-preload.js')}`
+handleTrustedIpc('get-webview-preload-path', () =>
+  pathToFileURL(WEBVIEW_PRELOAD_PATH).toString()
 );
 
-ipcMain.handle('clear-x-session', async (_, partition) => {
+handleTrustedIpc('clear-x-session', async (_, partition) => {
   if (!isXPartition(partition)) return false;
   return xAccountRuntime.clearPartitionData(partition);
 });
 
-ipcMain.handle('clear-all-x-sessions', () => xAccountRuntime.clearAll());
+handleTrustedIpc('clear-all-x-sessions', () => xAccountRuntime.clearAll());
 
-ipcMain.handle('minimize', () => mainWindow.minimize());
+handleTrustedIpc('minimize', () => mainWindow.minimize());
 
 // ── ウィジェットウィンドウ制御 ──
-ipcMain.handle('open-widget', () => { createWidgetWindow(); return true; });
-ipcMain.handle('close-widget', (e) => {
+handleTrustedIpc('open-widget', () => { createWidgetWindow(); return true; });
+handleTrustedIpc('close-widget', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (win && win !== mainWindow) win.close();
   return true;
 });
-ipcMain.handle('widget-toggle-top', (e) => {
+handleTrustedIpc('widget-toggle-top', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win === mainWindow) return false;
   const next = !win.isAlwaysOnTop();
@@ -332,11 +343,11 @@ ipcMain.handle('widget-toggle-top', (e) => {
   saveConfig(cfg);
   return next;
 });
-ipcMain.handle('widget-get-top', (e) => {
+handleTrustedIpc('widget-get-top', (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   return win ? win.isAlwaysOnTop() : false;
 });
-ipcMain.handle('widget-set-opacity', (e, value) => {
+handleTrustedIpc('widget-set-opacity', (e, value) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win || win === mainWindow) return false;
   const opacity = Number(value);
@@ -348,27 +359,31 @@ ipcMain.handle('widget-set-opacity', (e, value) => {
   saveConfig(cfg);
   return true;
 });
-ipcMain.handle('widget-get-opacity', () => loadConfig().widgetOpacity ?? 1);
-ipcMain.handle('maximize', () => {
+handleTrustedIpc('widget-get-opacity', () => loadConfig().widgetOpacity ?? 1);
+handleTrustedIpc('maximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
   else mainWindow.maximize();
 });
-ipcMain.handle('close', () => mainWindow.close());
-ipcMain.handle('zoom-in', () => {
+handleTrustedIpc('close', () => mainWindow.close());
+handleTrustedIpc('zoom-in', () => {
   const wc = mainWindow.webContents;
   wc.setZoomLevel(wc.getZoomLevel() + 0.5);
 });
-ipcMain.handle('zoom-out', () => {
+handleTrustedIpc('zoom-out', () => {
   const wc = mainWindow.webContents;
   wc.setZoomLevel(wc.getZoomLevel() - 0.5);
 });
-ipcMain.handle('zoom-reset', () => mainWindow.webContents.setZoomLevel(0));
-ipcMain.handle('toggle-fullscreen', () => mainWindow.setFullScreen(!mainWindow.isFullScreen()));
-ipcMain.handle('open-dev-tools', () => mainWindow.webContents.openDevTools({ mode: 'detach' }));
+handleTrustedIpc('zoom-reset', () => mainWindow.webContents.setZoomLevel(0));
+handleTrustedIpc('toggle-fullscreen', () => mainWindow.setFullScreen(!mainWindow.isFullScreen()));
+handleTrustedIpc('open-dev-tools', () => {
+  if (!isDevelopment) return false;
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
+  return true;
+});
 
-ipcMain.handle('get-useragent', () => X_USER_AGENT);
+handleTrustedIpc('get-useragent', () => X_USER_AGENT);
 
-ipcMain.handle('clear-memory', async () => {
+handleTrustedIpc('clear-memory', async () => {
   try {
     await session.defaultSession.clearCache();
     await session.fromPartition('persist:bsky').clearCache();
@@ -378,8 +393,8 @@ ipcMain.handle('clear-memory', async () => {
   } catch (e) { return false; }
 });
 
-// ── 動画トリミング（fluent-ffmpeg / メインプロセスで実行）──
-ipcMain.handle('trim-video', async (_, { filePath, startSec, endSec }) => {
+// ── 動画トリミング（検証済みFFmpeg / メインプロセスで実行）──
+handleTrustedIpc('trim-video', async (_, { filePath, startSec, endSec }) => {
   if (typeof filePath !== 'string') throw new Error('Invalid video file');
   const inputPath = path.resolve(filePath);
   const ext = path.extname(inputPath).toLowerCase() || '.mp4';
@@ -395,32 +410,26 @@ ipcMain.handle('trim-video', async (_, { filePath, startSec, endSec }) => {
   if (duration <= 0) throw new Error('トリム範囲が不正です');
   if (duration > 140) throw new Error('動画が2分20秒を超えています');
 
-  const outPath = path.join(os.tmpdir(), `socialdeck_trim_${Date.now()}${ext}`);
+  const outPath = path.join(os.tmpdir(), `socialdeck_trim_${randomUUID()}${ext}`);
 
-  return new Promise((resolve, reject) => {
-    ffmpeg(inputPath)
-      .setStartTime(start)
-      .setDuration(duration)
-      .outputOptions([
-        '-c copy',
-        '-avoid_negative_ts make_zero',
-        '-movflags +faststart',
-      ])
-      .output(outPath)
-      .on('end', () => resolve(outPath))
-      .on('error', (err) => reject(new Error('ffmpegエラー: ' + err.message)))
-      .run();
+  const ffmpegPath = resolveFfmpegPath({ isPackaged: app.isPackaged });
+  return runFfmpegTrim({
+    ffmpegPath,
+    inputPath,
+    outputPath: outPath,
+    startSeconds: start,
+    durationSeconds: duration,
   });
 });
 
-ipcMain.handle('delete-temp-file', (_, filePath) => {
+handleTrustedIpc('delete-temp-file', (_, filePath) => {
   try {
     if (isSocialDeckTempFile(filePath)) fs.unlinkSync(path.resolve(filePath));
     return true;
   } catch (e) { return false; }
 });
 
-ipcMain.handle('read-file-base64', (_, filePath) => {
+handleTrustedIpc('read-file-base64', (_, filePath) => {
   try {
     if (!isSocialDeckTempFile(filePath)) throw new Error('Invalid temp file');
     const resolved = path.resolve(filePath);
@@ -475,7 +484,15 @@ function buildMenu() {
       ]
     }
   ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  const securedTemplate = isDevelopment
+    ? template
+    : template.map(item => ({
+      ...item,
+      submenu: Array.isArray(item.submenu)
+        ? item.submenu.filter(entry => entry.role !== 'toggleDevTools')
+        : item.submenu,
+    }));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(securedTemplate));
 }
 
 // ── アプリ起動 ──
@@ -484,7 +501,7 @@ app.whenReady().then(async () => {
     const headers = details.responseHeaders || {};
     for (const key of Object.keys(headers)) {
       const lower = key.toLowerCase();
-      if (lower === 'x-frame-options' || lower === 'content-security-policy' || lower === 'x-content-type-options') {
+      if (lower === 'x-frame-options' || lower === 'x-content-type-options') {
         delete headers[key];
       }
     }
@@ -496,7 +513,7 @@ app.whenReady().then(async () => {
     const headers = details.responseHeaders || {};
     for (const key of Object.keys(headers)) {
       const lower = key.toLowerCase();
-      if (lower === 'x-frame-options' || lower === 'content-security-policy') {
+      if (lower === 'x-frame-options') {
         delete headers[key];
       }
     }

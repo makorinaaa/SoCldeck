@@ -45,3 +45,23 @@ test('persists cross-post preferences across app restarts', () => {
     { crossPostFromX: true, crossPostFromBluesky: true },
   );
 });
+
+test('never persists Bluesky credentials in Workspace State', () => {
+  const { stateStore, readSaved } = createStore();
+  const state = stateStore.load();
+  state.b = {
+    handle: 'alice.test',
+    did: 'did:plc:alice',
+    displayName: 'Alice',
+    accessJwt: 'access-secret',
+    refreshJwt: 'refresh-secret',
+  };
+
+  stateStore.save(state);
+
+  assert.deepEqual(readSaved().b, {
+    handle: 'alice.test',
+    did: 'did:plc:alice',
+    displayName: 'Alice',
+  });
+});

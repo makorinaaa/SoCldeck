@@ -19,12 +19,32 @@ function getE2EFixtures() {
 }
 
 const e2eFixtures = getE2EFixtures();
+const isDevelopment = process.argv.includes('--dev');
+const BLUESKY_OPERATIONS = new Set([
+  'getTimeline', 'getFeed', 'searchPosts', 'listNotifications',
+  'markNotificationsSeen', 'getProfile', 'follow', 'unfollow',
+  'getThread', 'like', 'unlike', 'repost', 'unrepost',
+  'getUnreadCount', 'searchActors', 'resolveHandle',
+  'createPostRecord', 'uploadBlob',
+]);
+
+function invokeBluesky(operation, payload = {}) {
+  if (!BLUESKY_OPERATIONS.has(operation)) {
+    return Promise.reject(new Error('Unsupported Bluesky operation'));
+  }
+  return ipcRenderer.invoke('bluesky-operation', operation, payload);
+}
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // 設定
   getConfig: () => ipcRenderer.invoke('get-config'),
   setConfig: (data) => ipcRenderer.invoke('set-config', data),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  loadBlueskySession: () => ipcRenderer.invoke('load-bluesky-session'),
+  storeBlueskySession: credentials => ipcRenderer.invoke('store-bluesky-session', credentials),
+  clearBlueskySession: () => ipcRenderer.invoke('clear-bluesky-session'),
+  loginBluesky: credentials => ipcRenderer.invoke('bluesky-login', credentials),
+  invokeBluesky,
   showDesktopNotification: payload => ipcRenderer.invoke('show-desktop-notification', payload),
   onDesktopNotificationActivated: fn => {
     if (typeof fn !== 'function') return () => {};
@@ -113,5 +133,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Electron環境かどうかの判定
   isElectron: true,
+  devToolsEnabled: isDevelopment,
   ...(e2eFixtures ? { e2eFixtures } : {}),
 });

@@ -20,27 +20,7 @@ let notificationCenterRuntime;
 let composeModalRuntime;
 let accountSessionRuntime;
 let desktopNotificationRuntime;
-
-// ─── Bluesky API ───────────────────────────────
-const BSKY = 'https://bsky.social/xrpc';
-
-async function apiPost(endpoint, body, token = null) {
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${BSKY}/${endpoint}`, { method: 'POST', headers, body: JSON.stringify(body) });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || e.error || `${endpoint} failed`); }
-  // 空レスポンス（updateSeen等）の場合は {} を返す
-  const text = await res.text();
-  return text ? JSON.parse(text) : {};
-}
-async function apiGet(endpoint, params = {}, token = null) {
-  const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const q = new URLSearchParams(params).toString();
-  const res = await fetch(`${BSKY}/${endpoint}${q ? '?' + q : ''}`, { headers });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.message || e.error || `${endpoint} failed`); }
-  return res.json();
-}
+let delegatedActionRuntime;
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -51,49 +31,13 @@ function readFileAsDataUrl(file) {
   });
 }
 
-let _refreshPromise = null;
-async function refreshBskyToken() {
-  if (_refreshPromise) return _refreshPromise; // 既に実行中なら同じPromiseを返す
-  _refreshPromise = (async () => {
-    if (!state.b?.refreshJwt) throw new Error('リフレッシュトークンがありません');
-    const res = await fetch(`${BSKY}/com.atproto.server.refreshSession`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${state.b.refreshJwt}` }
-    });
-    if (!res.ok) throw new Error('トークン更新失敗。再ログインしてください');
-    const data = await res.json();
-    state.b.accessJwt = data.accessJwt;
-    state.b.refreshJwt = data.refreshJwt;
-    saveState();
-    return data.accessJwt;
-  })();
-  try {
-    return await _refreshPromise;
-  } finally {
-    _refreshPromise = null;
-  }
-}
-
-// トークン切れを検知して自動リフレッシュ後に再試行するラッパー
-async function bskyCallWithRefresh(fn) {
-  try {
-    return await fn(state.b.accessJwt);
-  } catch (e) {
-    if (e.message.includes('expired') || e.message.includes('Token') || e.message.includes('Unauthorized')) {
-      try {
-        const newJwt = await refreshBskyToken();
-        return await fn(newJwt);
-      } catch (e2) {
-        throw e2;
-      }
-    }
-    throw e;
-  }
-}
-
-const bsky = window.SocialDeckBskyClient.createBskyClient();
 const bskyRichText = window.SocialDeckBskyRichText.createBskyRichText();
 const buildFacets = bskyRichText.buildFacets;
+const bskyGateway = window.SocialDeckBlueskyGatewayAdapter.createBlueskyGatewayAdapter({
+  invoke: (operation, payload) => window.electronAPI.invokeBluesky(operation, payload),
+  login: credentials => window.electronAPI.loginBluesky(credentials),
+  clearSession: () => window.electronAPI.clearBlueskySession(),
+});
 
 const SVG = {
   x: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.389 6.231H2.763l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`,
@@ -127,25 +71,15 @@ const xComposeExecutor = window.SocialDeckXComposeDelivery.createXComposeDeliver
 });
 const bskyComposeExecutor = window.SocialDeckBskyComposeDelivery.createBlueskyComposeDelivery({
   uploadBlob: async file => {
-    const response = await fetch(`${BSKY}/com.atproto.repo.uploadBlob`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': file.type,
-        'Authorization': `Bearer ${state.b.accessJwt}`,
-      },
-      body: await file.arrayBuffer(),
+    const response = await bskyGateway.uploadBlob({
+      mimeType: file.type,
+      bytes: new Uint8Array(await file.arrayBuffer()),
     });
-    if (!response.ok) throw new Error('Image upload failed');
-    return (await response.json()).blob;
+    return response.blob;
   },
   buildFacets,
-  resolveFacets: facets => resolveMentionDids(facets, state.b.accessJwt),
-  createRecord: ({ repoDid, record }) => bskyCallWithRefresh(jwt =>
-    apiPost('com.atproto.repo.createRecord', {
-      repo: repoDid,
-      collection: 'app.bsky.feed.post',
-      record,
-    }, jwt)),
+  resolveFacets: facets => resolveMentionDids(facets),
+  createRecord: ({ record }) => bskyGateway.createPostRecord({ record }),
 });
 const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
   icons: SVG,
@@ -242,7 +176,7 @@ function insertColumnRestoreError(col, error) {
         <div class="col-sub">Workspace State was preserved</div>
       </div>
       <div class="col-actions">
-        <button class="cbtn" title="削除" onclick="removeCol('${esc(col.id)}')">&times;</button>
+        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(col.id)}">&times;</button>
       </div>
     </div>
     <div class="feed-empty">${esc(error.message || 'Column Definition could not be resolved')}</div>`;
@@ -299,13 +233,13 @@ function openNgSettings() {
   const wordsList = ngData.words.map((w, i) =>
     `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
       <span style="flex:1;font-size:12px;color:var(--text1)">${esc(w)}</span>
-      <button onclick="removeNg('word',${i})" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
+      <button data-action="remove-ng-rule" data-rule-kind="word" data-rule-index="${i}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
     </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
 
   const usersList = ngData.users.map((u, i) =>
     `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
       <span style="flex:1;font-size:12px;color:var(--text1)">@${esc(u)}</span>
-      <button onclick="removeNg('user',${i})" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
+      <button data-action="remove-ng-rule" data-rule-kind="user" data-rule-index="${i}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
     </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
 
   ov.innerHTML = `<div class="modal" style="width:380px;max-height:80vh;overflow-y:auto">
@@ -315,7 +249,7 @@ function openNgSettings() {
       ${wordsList}
       <div style="display:flex;gap:6px;margin-top:8px">
         <input id="ng-word-input" type="text" placeholder="キーワードを追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button onclick="addNg('word')" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
+        <button data-action="add-ng-rule" data-rule-kind="word" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
       </div>
     </div>
     <div style="margin-bottom:18px">
@@ -323,10 +257,10 @@ function openNgSettings() {
       ${usersList}
       <div style="display:flex;gap:6px;margin-top:8px">
         <input id="ng-user-input" type="text" placeholder="@handle を追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button onclick="addNg('user')" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
+        <button data-action="add-ng-rule" data-rule-kind="user" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
       </div>
     </div>
-    <button onclick="document.getElementById('ng-modal-ov').remove()" class="btn-cancel">閉じる</button>
+    <button data-action="remove-element" data-target-id="ng-modal-ov" class="btn-cancel">閉じる</button>
   </div>`;
   document.body.appendChild(ov);
   setTimeout(() => document.getElementById('ng-word-input')?.focus(), 50);
@@ -366,6 +300,19 @@ const MEM_KEY = 'socialdeck_mem_interval'; // メモリクリア間隔設定キ�
 // state.activeX: アクティブなXアカウントのindex
 // state.b: Blueskyアカウント（単一）
 const stateStore = window.SocialDeckStateStore.createStateStore();
+const blueskySessionRuntime = window.SocialDeckBlueskySessionRuntime.createBlueskySessionRuntime({
+  vault: {
+    load: () => IS_ELECTRON && window.electronAPI?.loadBlueskySession
+      ? window.electronAPI.loadBlueskySession()
+      : Promise.resolve(null),
+    store: credentials => IS_ELECTRON && window.electronAPI?.storeBlueskySession
+      ? window.electronAPI.storeBlueskySession(credentials)
+      : Promise.resolve(credentials),
+    clear: () => IS_ELECTRON && window.electronAPI?.clearBlueskySession
+      ? window.electronAPI.clearBlueskySession()
+      : Promise.resolve(true),
+  },
+});
 let state = {
   xs: [],
   activeX: 0,
@@ -412,15 +359,7 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
     onBlueskyTextInput: onCompTextareaInput,
   },
 });
-const authenticatedBskyAdapter = window.SocialDeckBskyClient.createAuthenticatedBlueskyAdapter({
-  client: bsky,
-  getAccount: () => state.b,
-  updateAccount: session => {
-    if (!state.b) return;
-    state.b = { ...state.b, ...session };
-    saveState();
-  },
-});
+const authenticatedBskyAdapter = bskyGateway;
 bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumnsRuntime({
   adapter: authenticatedBskyAdapter,
   muteRules,
@@ -467,6 +406,20 @@ function loadState() {
 }
 function saveState() { stateStore.save(state); }
 
+async function initializeBlueskySession() {
+  try {
+    const result = await blueskySessionRuntime.initialize(state.b);
+    state = { ...state, b: result.account };
+    if (['migrated', 'missing', 'mismatch'].includes(result.status)) saveState();
+    return result;
+  } catch (error) {
+    console.error('Bluesky Session Vault initialization failed:', error);
+    state = { ...state, b: null };
+    saveState();
+    return { status: 'failed', account: null, error };
+  }
+}
+
 // ─── AUTH ──────────────────────────────────────
 function switchTab(t) {
   document.querySelectorAll('.ltab').forEach(el => el.classList.remove('active'));
@@ -476,10 +429,17 @@ function switchTab(t) {
 }
 
 function enterApp() {
-  document.getElementById('login-screen').classList.add('hidden');
-  const app = document.getElementById('app');
-  app.style.display = 'flex';
-  renderApp();
+  if (enterAppPending) return enterAppPending;
+  enterAppPending = webviewPreloadReady
+    .catch(error => console.error('WebView preload could not be initialized:', error))
+    .then(() => {
+      document.getElementById('login-screen').classList.add('hidden');
+      const app = document.getElementById('app');
+      app.style.display = 'flex';
+      renderApp();
+    })
+    .finally(() => { enterAppPending = null; });
+  return enterAppPending;
 }
 
 function openLoginScreen() {
@@ -504,6 +464,8 @@ let colIdSeq = 0;
 // X画像ライトボックス用WebViewプリロードパス
 // enterApp前に確定させてカラム生成時に確実に使えるようにする
 let wvPreloadPath = '';
+let webviewPreloadReady = Promise.resolve();
+let enterAppPending = null;
 async function initWvPreloadPath() {
   if (IS_ELECTRON && window.electronAPI?.getWebviewPreloadPath) {
     wvPreloadPath = await window.electronAPI.getWebviewPreloadPath() || '';
@@ -524,6 +486,8 @@ xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
   defaultRefreshInterval: DEFAULT_INTERVAL_MS,
   createRefreshScript: destination => window.SocialDeckXTimelineRefresh.createRefreshScript(destination),
   getCanonicalUrl: getXNotificationColumnUrl,
+  getPreloadPath: () => wvPreloadPath,
+  allowDevTools: window.electronAPI?.devToolsEnabled === true,
   openImage: openImg,
 });
 const notificationCenterView = window.SocialDeckNotificationCenterRuntime.createNotificationCenterDomView({
@@ -647,8 +611,8 @@ accountSessionRuntime = window.SocialDeckAccountSessionRuntime.createAccountSess
     },
   },
   bluesky: {
-    login: (handle, password) => bsky.login(handle, password),
-    getProfile: (accessJwt, did) => bsky.getProfile(accessJwt, did),
+    login: (handle, password) => bskyGateway.login(handle, password),
+    clearSession: () => bskyGateway.clearSession(),
   },
   getAvatarBackground: index => AVBG[index % AVBG.length],
   getBlueskyBackground: avBgFor,
@@ -701,7 +665,7 @@ async function silentRefreshBsky(cid, type, feedUri) {
 }
 
 function addColBtnHTML() {
-  return `<button class="add-col-btn" onclick="openAddMod()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>追加</button>`;
+  return `<button class="add-col-btn" data-action="open-add-column"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>追加</button>`;
 }
 
 function renderDefaultCols() {
@@ -761,17 +725,17 @@ function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
   div.innerHTML = `
     <div class="col-head">
       <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" onclick="wvScrollTop('${cfg.id}')" ondblclick="if(collapsedCols.has('${cfg.id}'))toggleColCollapse('${cfg.id}')">
+      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" data-action="scroll-column-top" data-dblclick-action="expand-collapsed-column" data-column-kind="x" data-column-id="${esc(cfg.id)}">
         <div class="col-title">${cfg.title}</div>
         <div class="col-sub"><div class="ldot" style="background:#e7e9ea"></div>${cfg.sub}</div>
       </div>
       <div class="col-actions">
         <span class="col-refresh-state" id="refresh-state-${cfg.id}"></span>
-        <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="戻る" onclick="wvBack('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <button class="cbtn" id="rfr-${cfg.id}" title="更新" onclick="refreshColumn('${cfg.id}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cfg.id}','wv')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="削除" onclick="removeCol('${cfg.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <button class="cbtn col-collapse-btn" title="折りたたむ" data-action="toggle-column" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
+        <button class="cbtn" title="戻る" data-action="x-column-back" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+        <button class="cbtn" id="rfr-${cfg.id}" title="更新" data-action="refresh-column" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn" title="自動更新設定" data-action="open-column-settings" data-column-id="${esc(cfg.id)}" data-column-type="wv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
     <div class="col-webview" style="position:relative">
@@ -925,17 +889,17 @@ function insertBskyCol(cfg, before = null) {
   div.innerHTML = `
     <div class="col-head">
       <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" onclick="bskyScrollTop('${cid}')" ondblclick="if(collapsedCols.has('${cid}'))toggleColCollapse('${cid}')">
+      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" data-action="scroll-column-top" data-dblclick-action="expand-collapsed-column" data-column-kind="bsky" data-column-id="${esc(cid)}">
         <div class="col-title">${cfg.title}</div>
         <div class="col-sub"><div class="ldot"></div>${cfg.sub}</div>
       </div>
       <div class="col-actions">
         <span class="cbadge" id="badge-${cid}" style="display:none"></span>
         <span class="col-refresh-state" id="refresh-state-${cid}"></span>
-        <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshColumn('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','bsky')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <button class="cbtn" id="rfr-${cid}" title="更新" data-action="refresh-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn col-collapse-btn" title="折りたたむ" data-action="toggle-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
+        <button class="cbtn" title="自動更新設定" data-action="open-column-settings" data-column-id="${esc(cid)}" data-column-type="bsky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
     ${hasSearch ? `<div class="col-search-bar"><input type="text" id="sq-${cid}" placeholder="Bluesky を検索…"><button type="button" id="sq-btn-${cid}">検索</button></div>` : ''}
@@ -985,16 +949,16 @@ function insertAnimeScheduleCol(cfg, before = null) {
   div.innerHTML = `
     <div class="col-head">
       <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" onclick="animeScheduleScrollTop('${cid}')" ondblclick="if(collapsedCols.has('${cid}'))toggleColCollapse('${cid}')">
+      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" data-action="scroll-column-top" data-dblclick-action="expand-collapsed-column" data-column-kind="schedule" data-column-id="${esc(cid)}">
         <div class="col-title">${esc(cfg.title)}</div>
         <div class="col-sub"><div class="ldot" style="background:#ffd166"></div><span id="anime-sub-${cid}">${esc(cfg.sub)}</span></div>
       </div>
       <div class="col-actions">
         <span class="col-refresh-state" id="refresh-state-${cid}"></span>
-        <button class="cbtn" id="rfr-${cid}" title="更新" onclick="refreshColumn('${cid}',this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn col-collapse-btn" title="折りたたむ" onclick="toggleColCollapse('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="自動更新設定" onclick="openColSettings('${cid}','schedule')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="削除" onclick="removeCol('${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <button class="cbtn" id="rfr-${cid}" title="更新" data-action="refresh-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        <button class="cbtn col-collapse-btn" title="折りたたむ" data-action="toggle-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
+        <button class="cbtn" title="自動更新設定" data-action="open-column-settings" data-column-id="${esc(cid)}" data-column-type="schedule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
     </div>
     <div class="feed anime-schedule" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>放送予定を取得中…</div></div>
@@ -1066,7 +1030,7 @@ async function _hoverCardRender(target, did, handle) {
   _hoverCardPosition(card, target);
 
   try {
-    const profile = await bskyCallWithRefresh(jwt => bsky.getProfile(jwt, did || handle));
+    const profile = await authenticatedBskyAdapter.getProfile({ actor: did || handle });
     hoverCardCache[profile.did] = profile;
     const avatar = profile.avatar ? '<img src="' + profile.avatar + '" style="width:42px;height:42px;border-radius:50%;object-fit:cover">' : '<div style="width:42px;height:42px;border-radius:50%;background:' + avBgFor(profile.handle) + '"></div>';
     card.innerHTML = '<div style="display:flex;gap:10px;align-items:center">' + avatar + '<div style="min-width:0"><div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(profile.displayName || profile.handle) + '</div><div style="color:var(--text3)">@' + esc(profile.handle) + '</div></div></div>' +
@@ -1086,14 +1050,14 @@ async function hoverCardToggleFollow(btnEl) {
   btnEl.disabled = true; btnEl.textContent = '…';
   try {
     if (isFollowing) {
-      await bskyCallWithRefresh(jwt => bsky.unfollow(jwt, state.b.did, followUri));
+      await authenticatedBskyAdapter.unfollow({ followUri });
       const key = did || handle;
       if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: null };
       btnEl.style.borderColor = 'var(--accent)'; btnEl.style.background = 'var(--accent)'; btnEl.style.color = '#fff';
       btnEl.textContent = 'フォロー'; btnEl.dataset.followuri = ''; btnEl.disabled = false;
       toast(`@${handle} のフォローを解除しました`);
     } else {
-      const res = await bskyCallWithRefresh(jwt => bsky.follow(jwt, state.b.did, did));
+      const res = await authenticatedBskyAdapter.follow({ targetDid: did });
       const newFollowUri = res?.uri || '';
       const key = did || handle;
       if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: newFollowUri };
@@ -1148,7 +1112,7 @@ function openQuoteModal(uri, cid, handle) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color:#0085ff"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
           引用リポスト
         </h2>
-        <button onclick="document.getElementById('quote-modal-ov')?.remove();quoteTarget=null"
+        <button data-action="close-quote"
           style="background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:2px 6px">✕</button>
       </div>
       <!-- 引用元プレビュー -->
@@ -1158,11 +1122,11 @@ function openQuoteModal(uri, cid, handle) {
       </div>
       <div class="comp-wrap">
         <div class="comp-av" style="background:${avBg};position:relative;overflow:hidden">${avInner}</div>
-        <textarea class="comp-ta" id="quote-ta" placeholder="コメントを追加…" maxlength="300" oninput="updQuoteCC()"></textarea>
+        <textarea class="comp-ta" id="quote-ta" placeholder="コメントを追加…" maxlength="300" data-input-action="update-quote-count"></textarea>
       </div>
       <div class="comp-foot">
         <span class="cc" id="quote-cct">0 / 300</span>
-        <button class="send-btn" id="quote-sndb" onclick="doQuotePost()">引用して投稿</button>
+        <button class="send-btn" id="quote-sndb" data-action="submit-quote">引用して投稿</button>
       </div>
     </div>`;
   document.body.appendChild(ov);
@@ -1184,17 +1148,15 @@ async function doQuotePost() {
   if (btn) { btn.disabled = true; btn.textContent = '投稿中…'; }
   try {
     const rawFacets = buildFacets(text);
-    const resolvedFacets = text ? await resolveMentionDids(rawFacets, state.b.accessJwt) : [];
-    await bskyCallWithRefresh(jwt => {
-      const record = {
-        $type: 'app.bsky.feed.post',
-        text,
-        createdAt: new Date().toISOString(),
-        embed: { $type: 'app.bsky.embed.record', record: { uri: quoteTarget.uri, cid: quoteTarget.cid } }
-      };
-      if (resolvedFacets.length) record.facets = resolvedFacets;
-      return apiPost('com.atproto.repo.createRecord', { repo: state.b.did, collection: 'app.bsky.feed.post', record }, jwt);
-    });
+    const resolvedFacets = text ? await resolveMentionDids(rawFacets) : [];
+    const record = {
+      $type: 'app.bsky.feed.post',
+      text,
+      createdAt: new Date().toISOString(),
+      embed: { $type: 'app.bsky.embed.record', record: { uri: quoteTarget.uri, cid: quoteTarget.cid } }
+    };
+    if (resolvedFacets.length) record.facets = resolvedFacets;
+    await authenticatedBskyAdapter.createPostRecord({ record });
     document.getElementById('quote-modal-ov')?.remove();
     quoteTarget = null;
     toast('Quote posted');
@@ -1222,7 +1184,7 @@ async function openReply(uri, cid, handle) {
 
   if (state.b) {
     try {
-      const thread = await bskyCallWithRefresh(jwt => bsky.getThread(jwt, uri, 40));
+      const thread = await authenticatedBskyAdapter.getThread({ uri, depth: 40 });
       let node = thread?.thread;
       while (node?.parent) node = node.parent;
       if (node?.post?.uri && replyTarget?.uri === uri) {
@@ -1502,9 +1464,9 @@ function lbClose(e) {
   lightboxRuntime.close(e);
 }
 
-async function resolveMentionDids(facets, jwt) {
+async function resolveMentionDids(facets) {
   return bskyRichText.resolveMentionDids(facets, async handle => {
-    const res = await apiGet('com.atproto.identity.resolveHandle', { handle }, jwt);
+    const res = await authenticatedBskyAdapter.resolveHandle({ handle });
     return res.did;
   });
 }
@@ -1664,7 +1626,7 @@ function buildOptGrid() {
 }
 
 function mkOptX(type, icon, name, desc, accountIdx) {
-  return `<button class="opt" onclick="addColFromModal('${type}','x',${accountIdx})">
+  return `<button class="opt" data-action="add-column" data-definition-id="${esc(type)}" data-network="x" data-account-index="${accountIdx}">
     <div style="width:16px;height:16px;margin-bottom:5px">${icon}</div>
     <div class="oname">${name}</div>
     <div class="odesc">${desc}</div>
@@ -1672,7 +1634,7 @@ function mkOptX(type, icon, name, desc, accountIdx) {
 }
 
 function mkOpt(id, icon, name, desc, disabled, plat) {
-  return `<button class="opt${disabled ? ' disabled' : ''}" onclick="addColFromModal('${id}','${plat}')">
+  return `<button class="opt${disabled ? ' disabled' : ''}" data-action="add-column" data-definition-id="${esc(id)}" data-network="${esc(plat)}"${disabled ? ' disabled' : ''}>
     <div style="width:16px;height:16px;margin-bottom:5px">${icon}</div>
     <div class="oname">${name}</div>
     <div class="odesc">${desc}</div>
@@ -1730,17 +1692,17 @@ function openColSettings(id, colType) {
     <h2 style="margin-bottom:14px">Column settings</h2>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Auto refresh interval</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[15,30,60,120,300,0].map(s=>`<button onclick="applyInterval('${id}',${s*1000})"
+      ${[15,30,60,120,300,0].map(s=>`<button data-action="apply-column-interval" data-column-id="${esc(id)}" data-interval-ms="${s * 1000}"
         style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===s?'var(--accent)':'var(--border2)'};background:${cur===s?'var(--accent-dim)':'transparent'};color:${cur===s?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
         ${s===0?'OFF':s<60?s+' sec':s/60+' min'}</button>`).join('')}
     </div>
     <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Font size</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[11,12,13,14,15,16].map(fs=>`<button onclick="applyColFontSize('${id}','${colType}',${fs})"
+      ${[11,12,13,14,15,16].map(fs=>`<button data-action="apply-column-font-size" data-column-id="${esc(id)}" data-column-type="${esc(colType)}" data-font-size="${fs}"
         style="padding:5px 11px;border-radius:6px;border:1px solid ${curFs===fs?'var(--accent)':'var(--border2)'};background:${curFs===fs?'var(--accent-dim)':'transparent'};color:${curFs===fs?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
         ${fs}px</button>`).join('')}
     </div>
-    <button onclick="document.getElementById('col-settings-ov').remove()" class="btn-cancel">Close</button>
+    <button data-action="remove-element" data-target-id="col-settings-ov" class="btn-cancel">Close</button>
   </div>`;
   document.body.appendChild(ov);
 }
@@ -1771,12 +1733,12 @@ function showPostMenu({ handle, x, y }) {
   menu.id = 'post-ctx-menu';
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
   menu.innerHTML = `
-    <div onclick="addNgUser('${esc(handle)}')" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
+    <div data-action="add-ng-user" data-handle="${esc(handle)}" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
       @${esc(handle)} をミュート
     </div>
-    <div onclick="copyHandle('${esc(handle)}')" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
+    <div data-action="copy-handle" data-handle="${esc(handle)}" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
       onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       ハンドルをコピー
@@ -1953,9 +1915,7 @@ function startNotifPoll() {
 
 async function fetchBskyUnread() {
   if (!state.b) return 0;
-  const data = await bskyCallWithRefresh(jwt =>
-    apiGet('app.bsky.notification.getUnreadCount', {}, jwt)
-  );
+  const data = await authenticatedBskyAdapter.getUnreadCount();
   return data.count || 0;
 }
 
@@ -2039,9 +1999,7 @@ async function fetchBskyUnreadCount() {
 async function markBskyNotifsRead() {
   if (!state.b) return;
   try {
-    await bskyCallWithRefresh(jwt =>
-      bsky.updateSeen(jwt, new Date().toISOString())
-    );
+    await authenticatedBskyAdapter.markNotificationsSeen({ seenAt: new Date().toISOString() });
     notificationRuntime.clearUnread();
     toast('Notifications marked as read');
   } catch (e) {
@@ -2081,16 +2039,16 @@ function openMemSettings() {
       <p style="font-size:12px;color:var(--text2);margin-bottom:14px">Reduce memory growth during long sessions.</p>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
         ${[[15*60000,'15 min'],[30*60000,'30 min'],[60*60000,'1 hour'],[120*60000,'2 hours'],[0,'OFF']].map(([ms, label]) => `
-          <button onclick="applyMemInterval(${ms})"
+          <button data-action="apply-memory-interval" data-interval-ms="${ms}"
             style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===ms?'var(--accent)':'var(--border2)'};background:${cur===ms?'var(--accent-dim)':'transparent'};color:${cur===ms?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
             ${label}
           </button>`).join('')}
       </div>
-      <button onclick="runMemoryClear(true);document.getElementById('mem-settings-ov').remove()"
+      <button data-action="clear-memory-now"
         style="width:100%;padding:8px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;margin-bottom:8px">
         Clear now
       </button>
-      <button onclick="document.getElementById('mem-settings-ov').remove()" class="btn-cancel">Close</button>
+      <button data-action="remove-element" data-target-id="mem-settings-ov" class="btn-cancel">Close</button>
     </div>`;
   document.body.appendChild(ov);
 }
@@ -2126,17 +2084,17 @@ function openXListDialog(accountIdx) {
         <label>List URL / ID</label>
         <input type="text" id="x-list-input" placeholder="https://x.com/i/lists/123456789 or 123456789"
           style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text1);font-family:inherit;outline:none"
-          onkeydown="if(event.key==='Enter')confirmXList(${accountIdx})">
+          data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}">
       </div>
       <div class="lf" style="margin-bottom:16px">
         <label>Column name (optional)</label>
         <input type="text" id="x-list-name" placeholder="My list"
           style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text1);font-family:inherit;outline:none"
-          onkeydown="if(event.key==='Enter')confirmXList(${accountIdx})">
+          data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}">
       </div>
       <div style="display:flex;gap:8px">
-        <button onclick="document.getElementById('x-list-dialog-ov').remove()" class="btn-cancel" style="flex:1">Cancel</button>
-        <button onclick="confirmXList(${accountIdx})" style="flex:1;padding:9px;border-radius:7px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Add</button>
+        <button data-action="remove-element" data-target-id="x-list-dialog-ov" class="btn-cancel" style="flex:1">Cancel</button>
+        <button data-action="confirm-x-list" data-account-index="${accountIdx}" style="flex:1;padding:9px;border-radius:7px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Add</button>
       </div>
     </div>`;
   document.body.appendChild(ov);
@@ -2207,7 +2165,7 @@ async function onCompTextareaInput(e) {
   _mentionTimer = setTimeout(async () => {
     if (!state.b || q.length < 1) return;
     try {
-      const data = await bsky.searchActors(state.b.accessJwt, q, 6);
+      const data = await authenticatedBskyAdapter.searchActors({ query: q, limit: 6 });
       const actors = data.actors || [];
       if (!actors.length) { if (box) box.style.display = 'none'; return; }
 
@@ -2227,7 +2185,7 @@ async function onCompTextareaInput(e) {
       suggest.innerHTML = actors.map(a => {
         const av = a.avatar ? `<img src="${esc(a.avatar)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : (a.handle || '?').slice(0, 2).toUpperCase();
         const bg = avBgFor(a.handle);
-        return `<div onclick="insertMention('${esc(a.handle)}')"
+        return `<div data-action="insert-mention" data-handle="${esc(a.handle)}"
           style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;transition:background .1s"
           onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
           <div style="width:28px;height:28px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden">${av}</div>
@@ -2291,6 +2249,96 @@ function toggleAmDrop(id, e) {
   const isOpen = item?.classList.contains('open');
   document.querySelectorAll('.am-item.open').forEach(el => el.classList.remove('open'));
   if (!isOpen && item) item.classList.add('open');
+}
+
+function createUiActionHandlers() {
+  const integer = (value, fallback = 0) => {
+    const number = Number(value);
+    return Number.isInteger(number) ? number : fallback;
+  };
+  const removeElement = id => document.getElementById(id)?.remove();
+  const scrollColumnTop = ({ columnKind, columnId }) => {
+    if (columnKind === 'x') wvScrollTop(columnId);
+    else if (columnKind === 'bsky') bskyScrollTop(columnId);
+    else if (columnKind === 'schedule') animeScheduleScrollTop(columnId);
+  };
+
+  return {
+    'switch-tab': ({ dataset }) => switchTab(dataset.network),
+    'toggle-app-menu': ({ dataset, event }) => toggleAmDrop(dataset.targetId, event),
+    'open-login': () => openLoginScreen(),
+    'open-about': () => openAbout(),
+    'close-app': () => window.electronAPI?.close(),
+    'open-add-column': () => openAddMod(),
+    'refresh-all': () => refreshAll(),
+    'zoom-in': () => window.electronAPI?.zoomIn(),
+    'zoom-out': () => window.electronAPI?.zoomOut(),
+    'zoom-reset': () => window.electronAPI?.zoomReset(),
+    'open-widget': () => window.electronAPI?.openWidget(),
+    'toggle-fullscreen': () => window.electronAPI?.toggleFullscreen(),
+    'open-devtools': () => window.electronAPI?.openDevTools(),
+    'open-x-devtools': () => openFirstXWebViewDevTools(),
+    'minimize-window': () => window.electronAPI?.minimize(),
+    'maximize-window': () => window.electronAPI?.maximize(),
+    'scroll-columns-start': () => scrollColsToStart(),
+    'scroll-start': () => scrollToStart(),
+    'open-x-post': () => openXPost(),
+    'open-b-post': () => openComp(),
+    'open-ng-settings': () => openNgSettings(),
+    'open-memory-settings': () => openMemSettings(),
+    'close-overlay': ({ dataset, event, target }) => (
+      closeOv(dataset.overlayId, target.classList.contains('ov') ? event : undefined)
+    ),
+    'check-updates': () => checkForUpdates(),
+    'install-update': () => installUpdate(),
+    'close-lightbox': ({ event }) => lbClose(event),
+    'move-lightbox': ({ dataset }) => lbMove(integer(dataset.direction)),
+    'remove-column': ({ dataset }) => removeCol(dataset.columnId),
+    'remove-ng-rule': ({ dataset }) => removeNg(dataset.ruleKind, integer(dataset.ruleIndex)),
+    'add-ng-rule': ({ dataset }) => addNg(dataset.ruleKind),
+    'remove-element': ({ dataset }) => removeElement(dataset.targetId),
+    'scroll-column-top': ({ dataset }) => scrollColumnTop(dataset),
+    'expand-collapsed-column': ({ dataset }) => {
+      if (collapsedCols.has(dataset.columnId)) toggleColCollapse(dataset.columnId);
+    },
+    'toggle-column': ({ dataset }) => toggleColCollapse(dataset.columnId),
+    'x-column-back': ({ dataset }) => wvBack(dataset.columnId),
+    'refresh-column': ({ dataset, target }) => refreshColumn(dataset.columnId, target),
+    'open-column-settings': ({ dataset }) => openColSettings(dataset.columnId, dataset.columnType),
+    'close-quote': () => {
+      removeElement('quote-modal-ov');
+      quoteTarget = null;
+    },
+    'update-quote-count': () => updQuoteCC(),
+    'submit-quote': () => doQuotePost(),
+    'add-column': ({ dataset }) => addColFromModal(
+      dataset.definitionId,
+      dataset.network,
+      dataset.accountIndex === undefined ? undefined : integer(dataset.accountIndex),
+    ),
+    'apply-column-interval': ({ dataset }) => applyInterval(
+      dataset.columnId,
+      integer(dataset.intervalMs),
+    ),
+    'apply-column-font-size': ({ dataset }) => applyColFontSize(
+      dataset.columnId,
+      dataset.columnType,
+      integer(dataset.fontSize, 13),
+    ),
+    'add-ng-user': ({ dataset }) => addNgUser(dataset.handle),
+    'copy-handle': ({ dataset }) => copyHandle(dataset.handle),
+    'apply-memory-interval': ({ dataset }) => applyMemInterval(integer(dataset.intervalMs)),
+    'clear-memory-now': () => {
+      runMemoryClear(true);
+      removeElement('mem-settings-ov');
+    },
+    'confirm-x-list': ({ dataset }) => confirmXList(integer(dataset.accountIndex)),
+    'insert-mention': ({ dataset }) => insertMention(dataset.handle),
+    'widget-select-column': ({ value }) => wgSelectCol(value),
+    'widget-set-opacity': ({ value }) => window.electronAPI?.widgetSetOpacity(Number(value) / 100),
+    'widget-toggle-top': () => wgToggleTop(),
+    'widget-close': () => window.electronAPI?.closeWidget(),
+  };
 }
 
 document.addEventListener('click', () => {
@@ -2483,6 +2531,13 @@ function addResizeHandle(col) {
 }
 
 // ─── INIT ───────────────────────────────────────
+delegatedActionRuntime = window.SocialDeckDelegatedActionRuntime.createDelegatedActionRuntime({
+  root: document,
+  actions: createUiActionHandlers(),
+});
+if (!window.electronAPI?.devToolsEnabled) {
+  document.querySelectorAll('.dev-only').forEach(element => element.remove());
+}
 state = E2E_FIXTURES?.state ? structuredClone(E2E_FIXTURES.state) : stateStore.load();
 if (state.x && !(state.xs && state.xs.length > 0)) {
   state.xs = [{ ...state.x, partition: 'persist:x-0' }];
@@ -2490,17 +2545,17 @@ if (state.x && !(state.xs && state.xs.length > 0)) {
   delete state.x;
   saveState();
 }
-const accountSessionReady = accountSessionRuntime.start();
-desktopNotificationRuntime.start().catch(() => {});
+webviewPreloadReady = initWvPreloadPath();
+const blueskySessionReady = initializeBlueskySession();
+const accountSessionReady = blueskySessionReady.then(() => accountSessionRuntime.start());
+accountSessionReady.then(() => desktopNotificationRuntime.start()).catch(() => {});
 initDnD();
 colObserver.observe(document.getElementById('cols'), { childList: true });
 
-if ((state.xs && state.xs.length > 0) || state.b) {
-  if (state.b?.refreshJwt) {
-    refreshBskyToken().catch(() => {});
-  }
-  Promise.all([accountSessionReady, initWvPreloadPath(), initializeXLoginStates()]).finally(() => {
-    enterApp();
+const hasStoredAccounts = (state.xs && state.xs.length > 0) || state.b;
+if (hasStoredAccounts) {
+  Promise.all([accountSessionReady, webviewPreloadReady, initializeXLoginStates()]).finally(() => {
+    if ((state.xs && state.xs.length > 0) || state.b) enterApp();
     if (state.b) {
       setTimeout(() => fetchBskyUnreadCount(), 3000);
       setInterval(() => fetchBskyUnreadCount(), 5 * 60 * 1000);
@@ -2629,17 +2684,17 @@ async function initWidgetMode() {
   bar.innerHTML = `
     <div class="wg-title">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
-      <select id="wg-col-select" onchange="wgSelectCol(this.value)"
+      <select id="wg-col-select" data-change-action="widget-select-column"
         style="-webkit-app-region:no-drag;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text2);font-size:10px;font-family:inherit;padding:2px 4px;max-width:150px">
         ${colOptions}
       </select>
     </div>
     <input type="range" min="30" max="100" value="100" title="Opacity" id="wg-opacity"
-      oninput="window.electronAPI?.widgetSetOpacity(this.value / 100)">
-    <button id="wg-top-btn" title="Always on top" onclick="wgToggleTop()">
+      data-input-action="widget-set-opacity">
+    <button id="wg-top-btn" title="Always on top" data-action="widget-toggle-top">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>
     </button>
-    <button title="Close" onclick="window.electronAPI?.closeWidget()">
+    <button title="Close" data-action="widget-close">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
   `;

@@ -14,6 +14,12 @@
     };
   }
 
+  function withoutCredentials(account) {
+    if (!account || typeof account !== 'object') return account || null;
+    const { accessJwt, refreshJwt, ...publicAccount } = account;
+    return publicAccount;
+  }
+
   function normalizeState(value) {
     if (!value || typeof value !== 'object') return defaultState();
     return {
@@ -49,7 +55,9 @@
         return defaultState();
       },
       save(state) {
-        storage.setItem(STATE_KEY, JSON.stringify(normalizeState(state)));
+        const persisted = normalizeState(state);
+        persisted.b = withoutCredentials(persisted.b);
+        storage.setItem(STATE_KEY, JSON.stringify(persisted));
       },
     };
   }

@@ -42,11 +42,12 @@ function createWebView({ id = '', partition = '', src = '' } = {}) {
     getURL() { return this.src; },
     canGoBack() { return false; },
     insertCSS() { return Promise.resolve(); },
+    openDevTools() { this.devToolsOpened = (this.devToolsOpened || 0) + 1; },
     remove() { this.removed = true; },
   };
 }
 
-function createHarness({ loginPending = false, loginGate = null } = {}) {
+function createHarness({ loginPending = false, loginGate = null, allowDevTools = false } = {}) {
   const elements = new Map();
   const webviews = [];
   const columns = [];
@@ -92,11 +93,27 @@ function createHarness({ loginPending = false, loginGate = null } = {}) {
     isLoginPending: () => loginPending,
     createRefreshScript: destination => `refresh:${destination}`,
     getCanonicalUrl: id => id.includes('notif') ? 'https://x.com/notifications' : null,
+    getPreloadPath: () => 'file:///preload.js',
+    allowDevTools,
     setTimeoutFn: fn => { fn(); return 1; },
     clearTimeoutFn() {},
   });
   return { runtime, elements, webviews, columns };
 }
+
+test('opens X WebView DevTools only when the host explicitly allows development tools', () => {
+  const blocked = createHarness();
+  const blockedView = createWebView({ src: 'https://x.com/home' });
+  blocked.webviews.push(blockedView);
+  assert.equal(blocked.runtime.openDevTools(), false);
+  assert.equal(blockedView.devToolsOpened, undefined);
+
+  const allowed = createHarness({ allowDevTools: true });
+  const allowedView = createWebView({ src: 'https://x.com/home' });
+  allowed.webviews.push(allowedView);
+  assert.equal(allowed.runtime.openDevTools(), true);
+  assert.equal(allowedView.devToolsOpened, 1);
+});
 
 test('mounts an X Column behind the login gate and activates it when ready', () => {
   const { runtime, elements } = createHarness();
@@ -233,6 +250,7 @@ test('uses a hidden reader when the visible notification Column shows a post', a
 
   assert.equal(webviews.length, 1);
   assert.equal(webviews[0].id, 'x-notif-reader-0');
+  assert.equal(webviews[0].preload, 'file:///preload.js');
   assert.deepEqual(JSON.parse(JSON.stringify(items)), [{ script: 'extract-hidden' }]);
 });
 

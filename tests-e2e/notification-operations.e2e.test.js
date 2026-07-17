@@ -258,20 +258,24 @@ async function launchApp(t, fixtures) {
 }
 
 async function expectWebviewUrl(page, selector, expectedUrl) {
-  try {
-    await page.waitForFunction(({ selector, expectedUrl }) => {
-      const webview = document.querySelector(selector);
-      return webview && (webview.getURL?.() === expectedUrl || webview.src === expectedUrl);
-    }, { selector, expectedUrl }, { timeout: 10000 });
-  } catch {
-    const actual = await page.locator(selector).evaluate(webview => ({
-      currentUrl: webview.getURL?.() || '',
-      src: webview.src,
+  const webview = page.locator(selector);
+  const deadline = Date.now() + 10000;
+  let actual = null;
+  while (Date.now() < deadline) {
+    actual = await webview.evaluate(element => ({
+      currentUrl: element.getURL?.() || '',
+      src: element.src,
+    })).catch(() => null);
+    if (actual && (actual.currentUrl === expectedUrl || actual.src === expectedUrl)) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  actual = await webview.evaluate(element => ({
+      currentUrl: element.getURL?.() || '',
+      src: element.src,
       toast: document.getElementById('toast')?.textContent || '',
       warnings: window.__e2eWarnings || [],
-    }));
-    assert.equal(actual.currentUrl || actual.src, expectedUrl, JSON.stringify(actual));
-  }
+    })).catch(() => actual || {});
+  assert.equal(actual.currentUrl || actual.src, expectedUrl, JSON.stringify(actual));
 }
 
 async function openXLikeNotification(page) {
@@ -361,18 +365,28 @@ test('new X accounts use one login WebView and default to the black theme', asyn
     }));
     throw new Error(`${error.message}\n${JSON.stringify(diagnostics)}`);
   }
-  await page.waitForFunction(() =>
-    document.querySelectorAll('webview[data-sd-login-parked="true"]').length === 2
-  );
-  await page.waitForFunction(() =>
-    Array.from(document.querySelectorAll('.col[data-network="x"] webview'))
-      .some(webview => webview.getURL().includes('/i/flow/login'))
-  );
+  await page.locator('webview[data-sd-login-parked="true"]').nth(1).waitFor({ state: 'attached' });
+  const loginDeadline = Date.now() + 10000;
+  while (Date.now() < loginDeadline) {
+    const hasLoginView = await page.locator('.col[data-network="x"] webview').evaluateAll(webviews =>
+      webviews.some(webview => {
+        try { return webview.getURL().includes('/i/flow/login'); } catch { return false; }
+      })
+    );
+    if (hasLoginView) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
 
   const loginWebViews = await page.locator('.col[data-network="x"] webview').evaluateAll(webviews =>
     webviews.map(webview => ({
       parked: webview.dataset.sdLoginParked,
-      url: webview.getURL(),
+      url: (() => {
+        try {
+          return webview.getURL();
+        } catch {
+          return '';
+        }
+      })(),
     }))
   );
   assert.equal(loginWebViews.filter(webview => webview.parked === 'true').length, 2);
@@ -439,6 +453,42 @@ test('desktop notification rules persist through the settings modal', async t =>
   await page.locator('#desktopNotifSettingsMod.on').waitFor();
   assert.equal(await page.locator('#desktop-notif-enabled').isChecked(), true);
   assert.equal(await page.locator('#desktop-notif-users').inputValue(), 'alice.test');
+});
+
+test('strict CSP boots with delegated shell actions and no production DevTools', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  assert.equal(await page.locator('.dev-only').count(), 0);
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod.on').waitFor();
+  await page.locator('#addMod [data-action="close-overlay"]').click();
+  await page.locator('#addMod').waitFor({ state: 'hidden' });
+
+  await page.locator('[data-action="toggle-app-menu"][data-target-id="am-app"]').click();
+  await page.locator('[data-action="open-about"]').click();
+  await page.locator('#aboutMod.on').waitFor();
+  await page.locator('#about-close-btn').click();
+  await page.locator('#aboutMod').waitFor({ state: 'hidden' });
+});
+
+test('legacy Bluesky credentials migrate out of Workspace State into the Vault', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  const result = await page.evaluate(async () => ({
+    workspaceState: localStorage.getItem('socialdeck_v4') || '',
+    vaultSession: await window.electronAPI.loadBlueskySession(),
+  }));
+
+  assert.equal(result.workspaceState.includes('e2e-token'), false);
+  assert.equal(result.workspaceState.includes('accessJwt'), false);
+  assert.equal(result.workspaceState.includes('refreshJwt'), false);
+  assert.deepEqual(result.vaultSession, {
+    handle: 'compose.test',
+    did: 'did:plc:compose',
+  });
+  assert.equal(JSON.stringify(result.vaultSession).includes('token'), false);
 });
 
 test('Compose Experience retains media and executes Bluesky delivery through its Adapter', async t => {

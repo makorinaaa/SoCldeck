@@ -10,10 +10,19 @@ test('keeps the executable renderer implementation under src only', () => {
   assert.equal(fs.existsSync(path.join(projectRoot, 'src', 'renderer.js')), true);
 });
 
-test('uses the Bluesky client module without a shadow implementation', () => {
+test('keeps authenticated Bluesky transport outside the renderer', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
-  assert.match(renderer, /SocialDeckBskyClient\.createBskyClient\(\)/);
-  assert.doesNotMatch(renderer, /\blegacyBsky\b/);
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const adapterIndex = index.indexOf(
+    '<script src="renderer/bluesky-gateway-adapter.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(adapterIndex, -1);
+  assert.ok(adapterIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckBlueskyGatewayAdapter\.createBlueskyGatewayAdapter\(\{/);
+  assert.doesNotMatch(renderer, /bsky\.social\/xrpc|accessJwt|refreshJwt|Authorization/);
+  assert.equal(fs.existsSync(path.join(projectRoot, 'src', 'renderer', 'bsky-client.js')), false);
 });
 
 test('loads Mute Rules before the renderer entry point', () => {
@@ -24,6 +33,20 @@ test('loads Mute Rules before the renderer entry point', () => {
   assert.notEqual(muteRulesIndex, -1);
   assert.notEqual(rendererIndex, -1);
   assert.ok(muteRulesIndex < rendererIndex);
+});
+
+test('loads the Bluesky Session Runtime before renderer', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/bluesky-session-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckBlueskySessionRuntime\.createBlueskySessionRuntime\(/);
+  assert.match(renderer, /initializeBlueskySession\(\)/);
 });
 
 test('loads the X WebView Runtime before renderer and keeps X ownership behind it', () => {
