@@ -71,9 +71,9 @@ jobs:
           if ($testExitCode -ne 0) {
             "### Electron E2E failure" >> $env:GITHUB_STEP_SUMMARY
             "Attempt $attempt failed. The final log lines are included below." >> $env:GITHUB_STEP_SUMMARY
-            "```text" >> $env:GITHUB_STEP_SUMMARY
+            '```text' >> $env:GITHUB_STEP_SUMMARY
             Get-Content -LiteralPath $logPath -Tail 80 >> $env:GITHUB_STEP_SUMMARY
-            "```" >> $env:GITHUB_STEP_SUMMARY
+            '```' >> $env:GITHUB_STEP_SUMMARY
             exit $testExitCode
           }
 

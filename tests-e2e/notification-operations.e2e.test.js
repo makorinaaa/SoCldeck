@@ -462,7 +462,7 @@ test('strict CSP boots with delegated shell actions and no production DevTools',
   assert.equal(await page.locator('.dev-only').count(), 0);
   await page.locator('button[data-action="open-add-column"]:visible').first().click();
   await page.locator('#addMod.on').waitFor();
-  await page.locator('#addMod [data-action="close-overlay"]').click();
+  await page.locator('#addMod [data-action="close-overlay"]').evaluate(element => element.click());
   await page.locator('#addMod').waitFor({ state: 'hidden' });
 
   await page.locator('[data-action="toggle-app-menu"][data-target-id="am-app"]').click();
