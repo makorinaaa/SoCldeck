@@ -5,11 +5,13 @@ function createAppUpdater({
   autoUpdater,
   app,
   getWindow,
+  showUpdatePrompt = null,
   setTimeoutFn = setTimeout,
   setIntervalFn = setInterval,
 }) {
   let updateDownloaded = false;
   let manualCheck = false;
+  let promptedVersion = null;
 
   function send(status, details = {}) {
     const window = getWindow();
@@ -23,6 +25,16 @@ function createAppUpdater({
       send('error', { message: '更新を確認できませんでした。時間をおいて再試行してください。' });
     }
     manualCheck = false;
+  }
+
+  async function promptForInstall(info) {
+    if (typeof showUpdatePrompt !== 'function' || promptedVersion === info.version) return;
+    promptedVersion = info.version;
+    try {
+      if (await showUpdatePrompt({ version: info.version })) install();
+    } catch (error) {
+      console.error('[Updater] Update prompt failed', error);
+    }
   }
 
   async function check({ manual = false } = {}) {
@@ -62,6 +74,7 @@ function createAppUpdater({
       updateDownloaded = true;
       manualCheck = false;
       send('downloaded', { version: info.version });
+      void promptForInstall(info);
     });
     autoUpdater.on('error', reportError);
 

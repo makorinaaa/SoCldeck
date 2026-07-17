@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell, Notification, safeStorage, net } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -544,6 +544,20 @@ app.whenReady().then(async () => {
     autoUpdater,
     app,
     getWindow: () => mainWindow,
+    showUpdatePrompt: async ({ version }) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return false;
+      const result = await dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'SocialDeck の更新',
+        message: `新しいバージョン ${version} を利用できます。`,
+        detail: '更新の準備ができました。今すぐ再起動して適用しますか？',
+        buttons: ['再起動して更新', 'あとで'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      });
+      return result.response === 0;
+    },
   });
   appUpdaterController.start();
 

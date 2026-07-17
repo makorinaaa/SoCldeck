@@ -7,9 +7,10 @@ const {
   createAppUpdater,
 } = require('../src/main/app-updater');
 
-function setup({ packaged = true } = {}) {
+function setup({ packaged = true, shouldInstallFromPrompt = false } = {}) {
   const updater = new EventEmitter();
   const sent = [];
+  const prompts = [];
   const timeouts = [];
   const intervals = [];
   updater.checkForUpdates = async () => {};
@@ -21,10 +22,14 @@ function setup({ packaged = true } = {}) {
       isDestroyed: () => false,
       webContents: { send: (channel, value) => sent.push({ channel, value }) },
     }),
+    showUpdatePrompt: async details => {
+      prompts.push(details);
+      return shouldInstallFromPrompt;
+    },
     setTimeoutFn: (fn, delay) => timeouts.push({ fn, delay }),
     setIntervalFn: (fn, delay) => intervals.push({ fn, delay }),
   });
-  return { updater, controller, sent, timeouts, intervals };
+  return { updater, controller, sent, prompts, timeouts, intervals };
 }
 
 test('starts delayed and periodic checks only for packaged builds', () => {
@@ -50,6 +55,26 @@ test('reports a downloaded update and installs only after download', () => {
   });
   assert.equal(controller.install(), true);
   assert.equal(updater.installed, true);
+});
+
+test('prompts once for a downloaded startup update and installs only when accepted', async () => {
+  const accepted = setup({ shouldInstallFromPrompt: true });
+  accepted.controller.start();
+  accepted.updater.emit('update-downloaded', { version: '2.4.5' });
+  accepted.updater.emit('update-downloaded', { version: '2.4.5' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(accepted.prompts, [{ version: '2.4.5' }]);
+  assert.equal(accepted.updater.installed, true);
+
+  const deferred = setup();
+  deferred.controller.start();
+  deferred.updater.emit('update-downloaded', { version: '2.4.5' });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(deferred.prompts, [{ version: '2.4.5' }]);
+  assert.equal(deferred.updater.installed, undefined);
+  assert.equal(deferred.controller.install(), true);
 });
 
 test('shows errors for manual checks but keeps automatic failures quiet', async () => {
