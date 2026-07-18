@@ -75,6 +75,30 @@ test('shows a native notification and focuses its owning window on activation', 
   ]);
 });
 
+test('shows consecutive native notifications independently', () => {
+  const instances = [];
+  class FakeNotification {
+    static isSupported() { return true; }
+    constructor(options) {
+      this.options = options;
+      this.listeners = {};
+      instances.push(this);
+    }
+    on(name, listener) { this.listeners[name] = listener; }
+    show() { this.shown = true; }
+  }
+  const service = createDesktopNotificationService({
+    NotificationClass: FakeNotification,
+    getWindow: () => null,
+  });
+
+  assert.equal(service.show({ key: 'x:first', title: 'First' }), true);
+  assert.equal(service.show({ key: 'x:second', title: 'Second' }), true);
+  assert.equal(instances.length, 2);
+  assert.equal(instances[0].shown, true);
+  assert.equal(instances[1].shown, true);
+});
+
 test('declines unsupported notifications and invalid payloads', () => {
   class UnsupportedNotification {
     static isSupported() { return false; }

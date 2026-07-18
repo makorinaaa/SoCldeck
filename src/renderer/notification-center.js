@@ -39,25 +39,29 @@
   }
 
   function normalizeXNotification(raw, { accountIndex = 0, account = {} } = {}) {
+    const targetUrl = String(raw?.targetUrl || '');
+    const profileUrl = String(raw?.profileUrl || '');
+    const indexedAt = String(raw?.indexedAt || '');
     const profilePath = String(raw?.profileUrl || '')
       .replace(/^https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)/i, '')
       .split(/[?#]/)[0];
     const handle = decodeURIComponent(profilePath.replace(/^\//, '').split('/')[0] || '');
     const text = String(raw?.text || '').trim();
+    const reason = classifyXNotification(text);
     return {
-      id: `x:${accountIndex}:${raw?.targetUrl || raw?.profileUrl || text}`,
+      id: `x:${accountIndex}:${targetUrl || profileUrl || text}|${profileUrl}|${indexedAt}|${reason}`,
       networkId: 'x',
       accountIndex,
       account,
-      reason: classifyXNotification(text),
+      reason,
       isRead: null,
-      indexedAt: raw?.indexedAt || '',
+      indexedAt,
       author: {
         handle,
         displayName: raw?.actorName || handle || 'Xユーザー',
         avatar: raw?.avatar || '',
       },
-      targetUrl: raw?.targetUrl || raw?.profileUrl || 'https://x.com/notifications',
+      targetUrl: targetUrl || profileUrl || 'https://x.com/notifications',
       text,
       raw,
     };

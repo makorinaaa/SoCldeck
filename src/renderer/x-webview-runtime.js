@@ -186,12 +186,12 @@
       return webview;
     }
 
-    function back(id) {
+    async function back(id) {
       const webview = getWebView(id);
       if (!webview) return false;
       const canonicalUrl = getCanonicalUrl(id);
       if (canonicalUrl) {
-        webview.loadURL(canonicalUrl);
+        await webview.loadURL(canonicalUrl);
         return true;
       }
       if (webview.canGoBack()) {

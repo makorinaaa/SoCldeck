@@ -14,6 +14,16 @@ function loadModule() {
   return context.window.SocialDeckDesktopNotificationRuntime;
 }
 
+function loadNotificationCenter() {
+  const context = { window: {} };
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'notification-center.js'),
+    'utf8',
+  );
+  vm.runInNewContext(source, context);
+  return context.window.SocialDeckNotificationCenter;
+}
+
 function createStorage(initialValue = null) {
   const values = new Map();
   if (initialValue) values.set('socialdeck_desktop_notification_rules', JSON.stringify(initialValue));
@@ -182,6 +192,47 @@ test('baselines existing notifications and emits each later match once', async (
   assert.deepEqual(storage.read('socialdeck_desktop_notification_rules').knownIds.sort(), ['b:new', 'b:old']);
 });
 
+test('emits a later X reaction from another actor on the same post', async () => {
+  const shown = [];
+  const center = loadNotificationCenter();
+  const normalize = raw => center.normalizeXNotification(raw, {
+    accountIndex: 0,
+    account: { username: '@owner' },
+  });
+  const targetUrl = 'https://x.com/owner/status/123';
+  let items = [normalize({
+    text: 'Alice liked your post',
+    targetUrl,
+    profileUrl: 'https://x.com/alice',
+    actorName: 'Alice',
+    indexedAt: '2026-07-19T00:00:00.000Z',
+  })];
+  const runtime = loadModule().createDesktopNotificationRuntime({
+    storage: createStorage(),
+    fetchItems: async () => items,
+    showNotification: payload => shown.push(payload),
+    isAppFocused: () => false,
+    setIntervalImpl: () => 1,
+    clearIntervalImpl() {},
+  });
+
+  await runtime.start();
+  await runtime.updateRules({ enabled: true, reasons: { like: true } });
+  items = [normalize({
+    text: 'Bob liked your post',
+    targetUrl,
+    profileUrl: 'https://x.com/bob',
+    actorName: 'Bob',
+    indexedAt: '2026-07-19T00:01:00.000Z',
+  }), ...items];
+
+  const outcome = await runtime.poll();
+
+  assert.equal(outcome.emitted, 1);
+  assert.equal(shown.length, 1);
+  assert.match(shown[0].title, /Bob/);
+});
+
 test('applies network, reason, user, keyword, and focus rules without replaying misses', async () => {
   const shown = [];
   let focused = true;
@@ -261,6 +312,7 @@ test('reports polling failures without losing the existing baseline', async () =
     rules: { enabled: true },
     baselined: true,
     knownIds: ['b:old'],
+    knownIdsVersion: 2,
   });
   const runtime = loadModule().createDesktopNotificationRuntime({
     storage,
@@ -274,6 +326,30 @@ test('reports polling failures without losing the existing baseline', async () =
 
   assert.equal(snapshot.error, 'offline');
   assert.deepEqual(storage.read('socialdeck_desktop_notification_rules').knownIds, ['b:old']);
+});
+
+test('rebaselines legacy notification identities without replaying existing items', async () => {
+  const shown = [];
+  const storage = createStorage({
+    rules: { enabled: true, onlyWhenUnfocused: false },
+    baselined: true,
+    knownIds: ['x:0:https%3A%2F%2Fx.com%2Fowner%2Fstatus%2F123'],
+  });
+  const runtime = loadModule().createDesktopNotificationRuntime({
+    storage,
+    fetchItems: async () => [notification({ id: 'current-x-item', networkId: 'x' })],
+    showNotification: payload => shown.push(payload),
+    setIntervalImpl: () => 1,
+    clearIntervalImpl() {},
+  });
+
+  await runtime.start();
+
+  const saved = storage.read('socialdeck_desktop_notification_rules');
+  assert.deepEqual(shown, []);
+  assert.equal(saved.baselined, true);
+  assert.equal(saved.knownIdsVersion, 2);
+  assert.deepEqual(saved.knownIds, ['x:current-x-item']);
 });
 
 test('rebaselines after the available accounts change', async () => {

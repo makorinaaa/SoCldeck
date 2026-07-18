@@ -100,6 +100,21 @@ const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterReg
   icons: SVG,
   composeExecutors: { x: xComposeExecutor, b: bskyComposeExecutor },
 });
+const columnShellRuntime = window.SocialDeckColumnShellRuntime.createColumnShellRuntime({
+  documentRef: document,
+  container: document.getElementById('cols'),
+  onCollapseChange: () => columnLifecycle.persist(),
+  onWidthChange: () => columnLifecycle.persist(),
+  onIntent: ({ type, id, kind, columnType, target }) => {
+    if (type === 'refresh') return refreshColumn(id, target);
+    if (type === 'remove') return removeCol(id);
+    if (type === 'back') return wvBack(id);
+    if (type === 'settings') return openColSettings(id, columnType);
+    if (type === 'scroll-top' && kind === 'x') return wvScrollTop(id);
+    if (type === 'scroll-top' && kind === 'bsky') return bskyScrollTop(id);
+    if (type === 'scroll-top' && kind === 'schedule') return animeScheduleScrollTop(id);
+  },
+});
 const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   createPlan: request => networkAdapters.createColumnPlan(request),
   insertPlan: insertColumnPlan,
@@ -112,30 +127,19 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
     refreshBlueskyFeed: silentRefreshBsky,
     refreshAnimeSchedule: id => animeScheduleRuntime.load(id, { force: context?.force === true }),
   }),
-  applyWidth: (id, width) => {
-    const el = document.getElementById(`col-${id}`);
-    if (el) { el.style.width = width; el.style.minWidth = width; }
-  },
-  applyCollapsed: id => setTimeout(() => toggleColCollapse(id), 0),
+  applyWidth: (id, width) => columnShellRuntime.applyWidth(id, width),
+  applyCollapsed: id => columnShellRuntime.setCollapsed(id, true),
   reportRestoreError: insertColumnRestoreError,
   cleanupRuntimeState: id => {
-    collapsedCols.delete(id);
     bskyColumnsRuntime?.dispose(id);
     xWebViewRuntime?.disposeColumn(id);
     animeScheduleRuntime.dispose(id);
     localStorage.removeItem(`col_fs_${id}`);
   },
-  listElementIds: () => [...document.querySelectorAll('#cols .col')]
-    .map(element => element.id?.replace(/^col-/, ''))
-    .filter(Boolean),
-  removeElement: id => {
-    const element = document.getElementById(`col-${id}`);
-    if (!element) return false;
-    element.remove();
-    return true;
-  },
+  listElementIds: () => columnShellRuntime.listIds(),
+  removeElement: id => columnShellRuntime.remove(id),
   persistWorkspace: saveColLayout,
-  onRefreshStateChange: renderColumnRefreshState,
+  onRefreshStateChange: (id, state) => columnShellRuntime.setRefreshState(id, state),
 });
 const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
   notify: toast,
@@ -155,7 +159,7 @@ function saveColLayout() {
   const layout = columnRuntime.captureLayout(cols.querySelectorAll('.col'), {
     resolveDefinition: storedColumn => networkAdapters.resolveColumnDefinition(storedColumn),
     getInterval: id => columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS),
-    isCollapsed: id => collapsedCols.has(id),
+    isCollapsed: id => columnShellRuntime.isCollapsed(id),
   });
   columnRuntime.writeStoredLayout(layout);
 }
@@ -166,61 +170,30 @@ function loadColLayout() {
 
 function insertColumnPlan(plan) {
   if (plan?.kind === 'wv') {
-    insertWebViewCol(plan.config, null, plan.partition);
+    mountWebViewColumn(plan.config, null, plan.partition);
     return true;
   }
   if (plan?.kind === 'bsky') {
-    insertBskyCol(plan.config);
+    mountBlueskyColumn(plan.config);
     return true;
   }
   if (plan?.kind === 'schedule') {
-    insertAnimeScheduleCol(plan.config);
+    mountAnimeScheduleColumn(plan.config);
     return true;
   }
   return false;
 }
 
 function insertColumnRestoreError(col, error) {
-  const column = document.createElement('div');
-  column.className = 'col';
-  column.id = `col-${col.id}`;
-  column.innerHTML = `
-    <div class="col-head">
-      <div class="col-info">
-        <div class="col-title">${esc(col.title || 'Column restore failed')}</div>
-        <div class="col-sub">Workspace State was preserved</div>
-      </div>
-      <div class="col-actions">
-        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(col.id)}">&times;</button>
-      </div>
-    </div>
-    <div class="feed-empty">${esc(error.message || 'Column Definition could not be resolved')}</div>`;
-  document.getElementById('cols')?.appendChild(column);
-}
-
-function renderColumnRefreshState(id, state) {
-  const element = document.getElementById(`refresh-state-${id}`);
-  if (!element) return;
-  const labels = { refreshing: '更新中', deferred: '保留', failed: '失敗', paused: '停止中', disabled: 'OFF' };
-  element.className = `col-refresh-state ${state.status}`;
-
-  if (state.status === 'succeeded' && state.lastUpdatedAt) {
-    const updatedAt = new Date(state.lastUpdatedAt);
-    element.textContent = updatedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    element.title = `最終更新: ${updatedAt.toLocaleString()}`;
-    return;
-  }
-
-  element.textContent = labels[state.status] || '';
-  element.title = state.status === 'failed'
-    ? `更新失敗: ${state.error?.message || 'Unknown error'}`
-    : state.status === 'deferred'
-      ? '閲覧中または準備中のため更新を延期しました'
-      : state.status === 'paused'
-        ? 'バックグラウンドのため自動更新を停止中です'
-        : state.status === 'disabled'
-          ? '自動更新はOFFです'
-        : '';
+  const { hosts } = columnShellRuntime.mount({
+    id: col.id,
+    title: col.title || 'Column restore failed',
+    subtitle: 'Workspace State was preserved',
+    interactiveHeader: false,
+    actions: ['remove'],
+    hosts: [{ name: 'content', className: 'feed-empty' }],
+  });
+  hosts.content.textContent = error.message || 'Column Definition could not be resolved';
 }
 
 function restoreColLayout() {
@@ -424,9 +397,6 @@ bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumns
 });
 
 
-function loadState() {
-  return stateStore.load();
-}
 function saveState() { stateStore.save(state); }
 
 function syncAppearanceSettings(appearance) {
@@ -772,46 +742,51 @@ function completeXLogin(partition) {
 }
 
 // ─── WEBVIEW COLUMN (X) ─────────────────────────
-function insertWebViewCol(cfg, before = null, partition = 'persist:x') {
-  const cols = document.getElementById('cols');
-  const addbtn = before || cols.querySelector('.add-col-btn');
-  const div = document.createElement('div');
-  div.className = 'col';
-  div.id = `col-${cfg.id}`;
-  if (cfg.network) div.dataset.network = cfg.network;
-  if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
-  div.innerHTML = `
-    <div class="col-head">
-      <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" data-action="scroll-column-top" data-dblclick-action="expand-collapsed-column" data-column-kind="x" data-column-id="${esc(cfg.id)}">
-        <div class="col-title">${cfg.title}</div>
-        <div class="col-sub"><div class="ldot" style="background:#e7e9ea"></div>${cfg.sub}</div>
-      </div>
-      <div class="col-actions">
-        <span class="col-refresh-state" id="refresh-state-${cfg.id}"></span>
-        <button class="cbtn col-collapse-btn" title="折りたたむ" data-action="toggle-column" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="戻る" data-action="x-column-back" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
-        <button class="cbtn" id="rfr-${cfg.id}" title="更新" data-action="refresh-column" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn" title="自動更新設定" data-action="open-column-settings" data-column-id="${esc(cfg.id)}" data-column-type="wv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(cfg.id)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-    </div>
-    <div class="col-webview" style="position:relative">
-      <div class="webview-loading" id="wvload-${cfg.id}"><div class="spinner"></div>読み込み中…</div>
-      <!-- スムーズリロード用オーバーレイ（リロード中に現在の画面を表示し続ける） -->
-      <div id="wvov-${cfg.id}" style="display:none;position:absolute;inset:0;z-index:10;pointer-events:none;opacity:1;transition:opacity .4s ease"></div>
-    </div>
-  `;
-  cols.insertBefore(div, addbtn);
+function mountWebViewColumn(columnConfig, before = null, partition = 'persist:x') {
+  const { root, hosts } = columnShellRuntime.mount({
+    id: columnConfig.id,
+    kind: 'x',
+    network: columnConfig.network,
+    definitionId: columnConfig.definitionId,
+    title: columnConfig.title,
+    subtitle: columnConfig.sub,
+    iconClass: columnConfig.icCls,
+    icon: columnConfig.icon,
+    indicatorColor: '#e7e9ea',
+    actions: ['collapse', 'back', 'refresh', { type: 'settings', columnType: 'wv' }, 'remove'],
+    hosts: [{
+      name: 'content',
+      className: 'col-webview',
+      style: { position: 'relative' },
+    }],
+    before,
+  });
+  const loading = document.createElement('div');
+  loading.className = 'webview-loading';
+  loading.id = `wvload-${columnConfig.id}`;
+  loading.innerHTML = '<div class="spinner"></div>読み込み中…';
+  const overlay = document.createElement('div');
+  overlay.id = `wvov-${columnConfig.id}`;
+  Object.assign(overlay.style, {
+    display: 'none',
+    position: 'absolute',
+    inset: '0',
+    zIndex: '10',
+    pointerEvents: 'none',
+    opacity: '1',
+    transition: 'opacity .4s ease',
+  });
+  hosts.content.appendChild(loading);
+  hosts.content.appendChild(overlay);
   xWebViewRuntime.mountColumn({
-    id: cfg.id,
-    networkId: cfg.network || 'x',
+    id: columnConfig.id,
+    networkId: columnConfig.network || 'x',
     partition,
-    targetUrl: cfg.url,
-    host: div.querySelector('.col-webview'),
+    targetUrl: columnConfig.url,
+    host: hosts.content,
     preloadPath: wvPreloadPath,
   });
-
+  return root;
 }
 
 
@@ -823,60 +798,7 @@ function getXNotificationColumnUrl(id) {
 }
 
 function wvBack(id) {
-  xWebViewRuntime.back(id);
-}
-
-// ─── COLUMN COLLAPSE ─────────────────────────────
-const collapsedCols = new Set();
-function toggleColCollapse(id) {
-  const col = document.getElementById(`col-${id}`);
-  if (!col) return;
-  const isCollapsed = collapsedCols.has(id);
-  const btn = col.querySelector('.col-collapse-btn');
-
-  if (isCollapsed) {
-    // 展開
-    collapsedCols.delete(id);
-    const savedW = col.dataset.savedWidth || '';
-    col.style.width = savedW || '';
-    col.style.minWidth = savedW || '';
-    col.querySelectorAll('.feed, .col-webview, .col-search-bar').forEach(el => { el.style.display = ''; });
-    const titleEl = col.querySelector('.col-title');
-    if (titleEl) { titleEl.style.writingMode = ''; titleEl.style.maxWidth = ''; }
-    col.querySelectorAll('.col-actions .cbtn:not(.col-collapse-btn)').forEach(el => { el.style.display = ''; });
-    col.querySelector('.col-info')?.style.setProperty('flex', '');
-    if (btn) btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>`;
-    if (btn) btn.title = '折りたたむ';
-    // 折りたたみ中クリック展開を解除
-    col.style.cursor = '';
-    col._sdCollapseClick = null;
-    columnLifecycle.persist();
-  } else {
-    // 折りたたみ
-    collapsedCols.add(id);
-    col.dataset.savedWidth = col.style.width || '';
-    col.style.width = '42px';
-    col.style.minWidth = '42px';
-    col.querySelectorAll('.feed, .col-webview, .col-search-bar').forEach(el => { el.style.display = 'none'; });
-    const titleEl = col.querySelector('.col-title');
-    if (titleEl) { titleEl.style.writingMode = 'vertical-rl'; titleEl.style.maxWidth = '20px'; }
-    // 折りたたみボタン以外のアクションボタンを非表示
-    col.querySelectorAll('.col-actions .cbtn:not(.col-collapse-btn)').forEach(el => { el.style.display = 'none'; });
-    if (btn) btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>`;
-    if (btn) btn.title = '展開する';
-    // 折りたたみ中はカラム全体クリックで展開
-    col.style.cursor = 'pointer';
-    if (!col._sdCollapseClick) {
-      col._sdCollapseClick = (e) => {
-        if (!collapsedCols.has(id)) return;
-        // ボタンクリックはtoggleColCollapseが別途処理するので二重発火を防ぐ
-        if (e.target.closest('button')) return;
-        toggleColCollapse(id);
-      };
-      col.addEventListener('click', col._sdCollapseClick);
-    }
-    columnLifecycle.persist();
-  }
+  return xWebViewRuntime.back(id);
 }
 
 function openFirstXWebViewDevTools() {
@@ -887,25 +809,25 @@ function openFirstXWebViewDevTools() {
 // カラムヘッダークリックで先頭へ（元のURLに戻してリロード）
 function wvScrollTop(id) {
   // 折りたたみ中はシングルクリックでも展開
-  if (collapsedCols.has(id)) { toggleColCollapse(id); return; }
+  if (columnShellRuntime.isCollapsed(id)) return columnShellRuntime.toggleCollapsed(id);
 
   const col = document.getElementById(`col-${id}`);
-  if (!col) return;
+  if (!col) return false;
 
   const layout = loadColLayout();
   const saved = layout.find(c => c.id === id);
-  xWebViewRuntime.navigateToStart(id, saved?.url);
+  return xWebViewRuntime.navigateToStart(id, saved?.url);
 }
 
 function bskyScrollTop(cid) {
   // 折りたたみ中はシングルクリックでも展開
-  if (collapsedCols.has(cid)) { toggleColCollapse(cid); return; }
+  if (columnShellRuntime.isCollapsed(cid)) { columnShellRuntime.toggleCollapsed(cid); return; }
   const feedEl = document.getElementById(`feed-${cid}`);
   if (feedEl) feedEl.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function animeScheduleScrollTop(cid) {
-  if (collapsedCols.has(cid)) { toggleColCollapse(cid); return; }
+  if (columnShellRuntime.isCollapsed(cid)) { columnShellRuntime.toggleCollapsed(cid); return; }
   animeScheduleRuntime.scrollTop(cid);
 }
 
@@ -930,103 +852,106 @@ async function refreshAfterCompose(target) {
 
 
 // ─── BLUESKY COLUMN ─────────────────────────────
-function insertBskyCol(cfg, before = null) {
-  const cols = document.getElementById('cols');
-  const addbtn = before || cols.querySelector('.add-col-btn');
-  const cid = cfg.id || `b-${++colIdSeq}`;
-  const div = document.createElement('div');
-  div.className = 'col';
-  div.id = `col-${cid}`;
-  if (cfg.network) div.dataset.network = cfg.network;
-  if (cfg.definitionId) div.dataset.definitionId = cfg.definitionId;
-  // Refresh plans and pagination use the column metadata.
-  div.dataset.type = cfg.type || 'timeline';
-  if (cfg.feedUri) div.dataset.feeduri = cfg.feedUri;
+function mountBlueskyColumn(columnConfig, before = null) {
+  const columnId = columnConfig.id || `b-${++colIdSeq}`;
+  const hasSearch = columnConfig.type === 'search';
+  const hostDefinitions = [];
+  if (hasSearch) hostDefinitions.push({ name: 'search', className: 'col-search-bar' });
+  hostDefinitions.push({
+    name: 'content',
+    id: `feed-${columnId}`,
+    className: 'feed',
+    loadingText: '読み込み中…',
+  });
+  const { root, hosts, badge } = columnShellRuntime.mount({
+    id: columnId,
+    kind: 'bsky',
+    network: columnConfig.network,
+    definitionId: columnConfig.definitionId,
+    metadata: {
+      type: columnConfig.type || 'timeline',
+      feeduri: columnConfig.feedUri || '',
+    },
+    title: columnConfig.title,
+    subtitle: columnConfig.sub,
+    iconClass: columnConfig.icCls,
+    icon: columnConfig.icon,
+    badge: true,
+    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'bsky' }, 'remove'],
+    hosts: hostDefinitions,
+    before,
+  });
 
-  const hasSearch = cfg.type === 'search';
-  div.innerHTML = `
-    <div class="col-head">
-      <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" data-action="scroll-column-top" data-dblclick-action="expand-collapsed-column" data-column-kind="bsky" data-column-id="${esc(cid)}">
-        <div class="col-title">${cfg.title}</div>
-        <div class="col-sub"><div class="ldot"></div>${cfg.sub}</div>
-      </div>
-      <div class="col-actions">
-        <span class="cbadge" id="badge-${cid}" style="display:none"></span>
-        <span class="col-refresh-state" id="refresh-state-${cid}"></span>
-        <button class="cbtn" id="rfr-${cid}" title="更新" data-action="refresh-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn col-collapse-btn" title="折りたたむ" data-action="toggle-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="自動更新設定" data-action="open-column-settings" data-column-id="${esc(cid)}" data-column-type="bsky"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-    </div>
-    ${hasSearch ? `<div class="col-search-bar"><input type="text" id="sq-${cid}" placeholder="Bluesky を検索…"><button type="button" id="sq-btn-${cid}">検索</button></div>` : ''}
-    <div class="feed" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>読み込み中…</div></div>
-  `;
-  cols.insertBefore(div, addbtn);
+  let searchInput = null;
+  let searchButton = null;
+  if (hasSearch) {
+    searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.id = `sq-${columnId}`;
+    searchInput.placeholder = 'Bluesky を検索…';
+    searchButton = document.createElement('button');
+    searchButton.type = 'button';
+    searchButton.id = `sq-btn-${columnId}`;
+    searchButton.textContent = '検索';
+    hosts.search.appendChild(searchInput);
+    hosts.search.appendChild(searchButton);
+  }
 
   // 自動ロードとデフォルト自動更新開始
-  if (cfg.type === 'timeline' || cfg.type === 'feed' || cfg.type === 'notif' || hasSearch) {
+  if (columnConfig.type === 'timeline' || columnConfig.type === 'feed' || columnConfig.type === 'notif' || hasSearch) {
     bskyColumnsRuntime.mount({
-      id: cid,
-      type: cfg.type,
-      feedUri: cfg.feedUri || null,
-      host: div.querySelector('.feed'),
-      badge: div.querySelector('.cbadge'),
-      searchInput: hasSearch ? div.querySelector(`#sq-${cid}`) : null,
-      searchButton: hasSearch ? div.querySelector(`#sq-btn-${cid}`) : null,
+      id: columnId,
+      type: columnConfig.type,
+      feedUri: columnConfig.feedUri || null,
+      host: hosts.content,
+      badge,
+      searchInput,
+      searchButton,
     });
     if (!hasSearch) {
-      bskyColumnsRuntime.refresh(cid, { mode: 'replace' }).catch(() => {});
-      columnLifecycle.setRefreshInterval(cid, DEFAULT_INTERVAL_MS);
+      bskyColumnsRuntime.refresh(columnId, { mode: 'replace' }).catch(() => {});
+      columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
     } else {
-      div.querySelector('.feed').innerHTML = '<div class="feed-empty">検索キーワードを入力してください</div>';
+      hosts.content.innerHTML = '<div class="feed-empty">検索キーワードを入力してください</div>';
     }
   } else if (!hasSearch) {
-    loadBskyFeed(cid, cfg.type, cfg.feedUri);
-    columnLifecycle.setRefreshInterval(cid, DEFAULT_INTERVAL_MS);
+    loadBskyFeed(columnId, columnConfig.type, columnConfig.feedUri);
+    columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
   }
   // フォントサイズ設定を復元
-  const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
-  if (savedFs) {
-    const feedEl = document.getElementById(`feed-${cid}`);
-    if (feedEl) feedEl.style.fontSize = savedFs + 'px';
-  }
+  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
+  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
+  return root;
 }
 
-function insertAnimeScheduleCol(cfg, before = null) {
-  const cols = document.getElementById('cols');
-  const addbtn = before || cols.querySelector('.add-col-btn');
-  const cid = cfg.id;
-  const div = document.createElement('div');
-  div.className = 'col';
-  div.id = `col-${cid}`;
-  div.dataset.kind = 'schedule';
-  div.dataset.network = cfg.network;
-  div.dataset.definitionId = cfg.definitionId;
-  div.innerHTML = `
-    <div class="col-head">
-      <div class="col-ic ${cfg.icCls}">${cfg.icon}</div>
-      <div class="col-info" style="cursor:pointer" title="先頭へスクロール / ダブルクリックで展開" draggable="false" data-action="scroll-column-top" data-dblclick-action="expand-collapsed-column" data-column-kind="schedule" data-column-id="${esc(cid)}">
-        <div class="col-title">${esc(cfg.title)}</div>
-        <div class="col-sub"><div class="ldot" style="background:#ffd166"></div><span id="anime-sub-${cid}">${esc(cfg.sub)}</span></div>
-      </div>
-      <div class="col-actions">
-        <span class="col-refresh-state" id="refresh-state-${cid}"></span>
-        <button class="cbtn" id="rfr-${cid}" title="更新" data-action="refresh-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-        <button class="cbtn col-collapse-btn" title="折りたたむ" data-action="toggle-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg></button>
-        <button class="cbtn" title="自動更新設定" data-action="open-column-settings" data-column-id="${esc(cid)}" data-column-type="schedule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
-        <button class="cbtn" title="削除" data-action="remove-column" data-column-id="${esc(cid)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-    </div>
-    <div class="feed anime-schedule" id="feed-${cid}"><div class="feed-loading"><div class="spinner"></div>放送予定を取得中…</div></div>
-  `;
-  cols.insertBefore(div, addbtn);
-  columnLifecycle.setRefreshInterval(cid, ANIME_REFRESH_INTERVAL_MS);
-  animeScheduleRuntime.load(cid).catch(() => {});
+function mountAnimeScheduleColumn(columnConfig, before = null) {
+  const columnId = columnConfig.id;
+  const { root, hosts } = columnShellRuntime.mount({
+    id: columnId,
+    kind: 'schedule',
+    network: columnConfig.network,
+    definitionId: columnConfig.definitionId,
+    title: columnConfig.title,
+    subtitle: columnConfig.sub,
+    subtitleId: `anime-sub-${columnId}`,
+    iconClass: columnConfig.icCls,
+    icon: columnConfig.icon,
+    indicatorColor: '#ffd166',
+    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'schedule' }, 'remove'],
+    hosts: [{
+      name: 'content',
+      id: `feed-${columnId}`,
+      className: 'feed anime-schedule',
+      loadingText: '放送予定を取得中…',
+    }],
+    before,
+  });
+  columnLifecycle.setRefreshInterval(columnId, ANIME_REFRESH_INTERVAL_MS);
+  animeScheduleRuntime.load(columnId).catch(() => {});
 
-  const savedFs = parseInt(localStorage.getItem(`col_fs_${cid}`));
-  if (savedFs) div.querySelector('.feed').style.fontSize = savedFs + 'px';
+  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
+  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
+  return root;
 }
 
 async function loadBskyFeed(cid, type, feedUri = null, append = false) {
@@ -1048,104 +973,6 @@ async function refreshColumn(id, button) {
   } finally {
     button?.classList.remove('spin');
   }
-}
-
-let hoverCardTimer = null;
-let hoverCardHideTimer = null;
-const hoverCardCache = {}; // did → profile data
-
-function hoverCardShow(event, did, handle) {
-  if (!did && !handle) return;
-  clearTimeout(hoverCardHideTimer);
-  // 300ms後に表示（ちらつき防止）
-  hoverCardTimer = setTimeout(() => _hoverCardRender(event.target, did, handle), 300);
-}
-
-function hoverCardHide() {
-  clearTimeout(hoverCardTimer);
-  // カード上にマウスが乗った場合は消さない
-  hoverCardHideTimer = setTimeout(() => {
-    const card = document.getElementById('bsky-hover-card');
-    if (card && !card.matches(':hover')) _hoverCardRemove();
-  }, 150);
-}
-
-function _hoverCardRemove() {
-  const card = document.getElementById('bsky-hover-card');
-  if (card) { card.style.opacity = '0'; setTimeout(() => card.remove(), 150); }
-}
-
-async function _hoverCardRender(target, did, handle) {
-  if (!state.b) return;
-  document.getElementById('bsky-hover-card')?.remove();
-  const card = document.createElement('div');
-  card.id = 'bsky-hover-card';
-  card.style.cssText = 'position:fixed;z-index:1000;width:260px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-size:12px;color:var(--text1)';
-  card.textContent = 'Loading...';
-  document.body.appendChild(card);
-  card.addEventListener('mouseenter', () => clearTimeout(hoverCardHideTimer));
-  card.addEventListener('mouseleave', () => { hoverCardHideTimer = setTimeout(_hoverCardRemove, 150); });
-  _hoverCardPosition(card, target);
-
-  try {
-    const profile = await authenticatedBskyAdapter.getProfile({ actor: did || handle });
-    hoverCardCache[profile.did] = profile;
-    const avatar = profile.avatar ? '<img src="' + profile.avatar + '" style="width:42px;height:42px;border-radius:50%;object-fit:cover">' : '<div style="width:42px;height:42px;border-radius:50%;background:' + avBgFor(profile.handle) + '"></div>';
-    card.innerHTML = '<div style="display:flex;gap:10px;align-items:center">' + avatar + '<div style="min-width:0"><div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(profile.displayName || profile.handle) + '</div><div style="color:var(--text3)">@' + esc(profile.handle) + '</div></div></div>' +
-      (profile.description ? '<div style="margin-top:8px;color:var(--text2);line-height:1.4">' + esc(profile.description).slice(0, 180) + '</div>' : '');
-    _hoverCardPosition(card, target);
-  } catch {
-    card.textContent = 'Profile load failed';
-  }
-}
-
-async function hoverCardToggleFollow(btnEl) {
-  if (!state.b) return;
-  const did      = btnEl.dataset.did;
-  const handle   = btnEl.dataset.handle;
-  const followUri = btnEl.dataset.followuri || '';
-  const isFollowing = !!followUri;
-  btnEl.disabled = true; btnEl.textContent = '…';
-  try {
-    if (isFollowing) {
-      await authenticatedBskyAdapter.unfollow({ followUri });
-      const key = did || handle;
-      if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: null };
-      btnEl.style.borderColor = 'var(--accent)'; btnEl.style.background = 'var(--accent)'; btnEl.style.color = '#fff';
-      btnEl.textContent = 'フォロー'; btnEl.dataset.followuri = ''; btnEl.disabled = false;
-      toast(`@${handle} のフォローを解除しました`);
-    } else {
-      const res = await authenticatedBskyAdapter.follow({ targetDid: did });
-      const newFollowUri = res?.uri || '';
-      const key = did || handle;
-      if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: newFollowUri };
-      btnEl.style.borderColor = 'var(--border2)'; btnEl.style.background = 'transparent'; btnEl.style.color = 'var(--text2)';
-      btnEl.textContent = 'フォロー中'; btnEl.dataset.followuri = newFollowUri; btnEl.disabled = false;
-      toast(`@${handle} をフォローしました`);
-    }
-  } catch(e) {
-    toast(`エラー: ${e.message}`);
-    btnEl.disabled = false; btnEl.textContent = isFollowing ? 'フォロー中' : 'フォロー';
-  }
-}
-
-function _hoverCardPosition(card, target) {
-  const rect = target.getBoundingClientRect();
-  const cardW = 280, cardH = 200;
-  const vw = window.innerWidth, vh = window.innerHeight;
-
-  let left = rect.left;
-  let top = rect.bottom + 8;
-
-  // 右端はみ出し補正
-  if (left + cardW > vw - 10) left = vw - cardW - 10;
-  // 下端はみ出し → 上に表示
-  if (top + cardH > vh - 10) top = rect.top - cardH - 8;
-  // 念のため左端補正
-  if (left < 10) left = 10;
-
-  card.style.left = left + 'px';
-  card.style.top = top + 'px';
 }
 
 // 引用リポストモーダル
@@ -1253,29 +1080,20 @@ async function openReply(uri, cid, handle) {
   }
 }
 
-function showProfile(did) {
-  if (!did) return;
-  const cached = hoverCardCache[did];
-  if (cached?.handle) {
-    const url = `https://bsky.app/profile/${cached.handle}`;
-    if (IS_ELECTRON) window.electronAPI && require ? null : window.open(url, '_blank');
-    // Electron環境ではshell.openExternalをIPC経由で呼べないためwebviewで開く
-    // 代替: bsky.appをWebViewカラムとして追加
-    openBskyProfileCol(cached.handle);
-  } else {
-    openBskyProfileCol(did);
-  }
+function showProfile(actor) {
+  if (!actor) return;
+  openBskyProfileCol(actor);
 }
 
-function openBskyProfileCol(handleOrDid) {
-  const url = `https://bsky.app/profile/${handleOrDid}`;
+function openBskyProfileCol(actor) {
+  const url = `https://bsky.app/profile/${actor}`;
 
   const existingCol = notificationCenter.findBlueskyProfileColumn(
     document.querySelectorAll('.col')
   );
   if (existingCol) {
     const cid = existingCol.id?.replace('col-', '');
-    if (cid && collapsedCols.has(cid)) toggleColCollapse(cid);
+    if (cid && columnShellRuntime.isCollapsed(cid)) columnShellRuntime.toggleCollapsed(cid);
     if (cid) {
       xWebViewRuntime.navigate(cid, url)
         .then(() => columnLifecycle.persist())
@@ -1922,63 +1740,6 @@ async function openXNotificationCenterItem(item) {
   }
 }
 
-function scrollToNotifCol(baseId, xIdx, acc) {
-  const cols = document.getElementById('cols');
-
-  let targetCol = null;
-  if (xIdx >= 0 && acc) {
-    const partition = acc.partition || `persist:x-${xIdx}`;
-    targetCol = notificationCenter.findXNotificationColumn(
-      cols.querySelectorAll('.col'),
-      partition
-    );
-  } else {
-    // Bluesky通知
-    targetCol = document.getElementById(`col-${baseId}`);
-  }
-
-  if (targetCol) {
-    // 既存カラムにスクロール
-    targetCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
-    targetCol.style.outline = '2px solid var(--accent)';
-    setTimeout(() => { targetCol.style.outline = ''; }, 1200);
-  } else {
-    // カラムがなければ追加
-    if (xIdx >= 0 && acc) {
-      const id = nextColumnId(`x${xIdx}-x-notif-new`);
-      const result = columnLifecycle.create({
-        networkId: 'x',
-        definitionId: 'x-notif-new',
-        id,
-        account: { ...acc, index: xIdx },
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      setTimeout(() => {
-        const newCol = document.getElementById(`col-${id}`);
-        if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
-      }, 300);
-      toast(`${acc.username} notifications column added`);
-    } else {
-      // Bluesky通知カラムを追加
-      const result = columnLifecycle.create({
-        networkId: 'b', definitionId: 'b-notif-new', id: 'b-notif',
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      setTimeout(() => {
-        const newCol = document.getElementById('col-b-notif');
-        if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
-      }, 300);
-      toast('Bluesky notifications column added');
-    }
-  }
-}
-
 // Bluesky未読通知数をポーリング
 function startNotifPoll() {
   notificationRuntime.startPoll(fetchBskyUnread);
@@ -2064,23 +1825,6 @@ async function fetchBskyUnreadCount() {
   try {
     notificationRuntime.setUnreadCount(await fetchBskyUnread());
   } catch {}
-}
-
-// Bluesky通知を既読化してバッジを消す
-async function markBskyNotifsRead() {
-  if (!state.b) return;
-  try {
-    await authenticatedBskyAdapter.markNotificationsSeen({ seenAt: new Date().toISOString() });
-    notificationRuntime.clearUnread();
-    toast('Notifications marked as read');
-  } catch (e) {
-    toast('Mark read error: ' + e.message);
-  }
-}
-
-async function goToNotifColAndRead() {
-  goToNotifCol('b');
-  await markBskyNotifsRead();
 }
 
 // ─── MEMORY MANAGEMENT ──────────────────────────
@@ -2328,12 +2072,6 @@ function createUiActionHandlers() {
     return Number.isInteger(number) ? number : fallback;
   };
   const removeElement = id => document.getElementById(id)?.remove();
-  const scrollColumnTop = ({ columnKind, columnId }) => {
-    if (columnKind === 'x') wvScrollTop(columnId);
-    else if (columnKind === 'bsky') bskyScrollTop(columnId);
-    else if (columnKind === 'schedule') animeScheduleScrollTop(columnId);
-  };
-
   return {
     'switch-tab': ({ dataset }) => switchTab(dataset.network),
     'toggle-app-menu': ({ dataset, event }) => toggleAmDrop(dataset.targetId, event),
@@ -2370,18 +2108,9 @@ function createUiActionHandlers() {
     'install-update': () => installUpdate(),
     'close-lightbox': ({ event }) => lbClose(event),
     'move-lightbox': ({ dataset }) => lbMove(integer(dataset.direction)),
-    'remove-column': ({ dataset }) => removeCol(dataset.columnId),
     'remove-ng-rule': ({ dataset }) => removeNg(dataset.ruleKind, integer(dataset.ruleIndex)),
     'add-ng-rule': ({ dataset }) => addNg(dataset.ruleKind),
     'remove-element': ({ dataset }) => removeElement(dataset.targetId),
-    'scroll-column-top': ({ dataset }) => scrollColumnTop(dataset),
-    'expand-collapsed-column': ({ dataset }) => {
-      if (collapsedCols.has(dataset.columnId)) toggleColCollapse(dataset.columnId);
-    },
-    'toggle-column': ({ dataset }) => toggleColCollapse(dataset.columnId),
-    'x-column-back': ({ dataset }) => wvBack(dataset.columnId),
-    'refresh-column': ({ dataset, target }) => refreshColumn(dataset.columnId, target),
-    'open-column-settings': ({ dataset }) => openColSettings(dataset.columnId, dataset.columnType),
     'close-quote': () => {
       removeElement('quote-modal-ov');
       quoteTarget = null;
@@ -2502,8 +2231,8 @@ function initDnD() {
   let lastDragOverCol = null;
 
   cols.addEventListener('dragstart', e => {
-    const head = e.target.closest('.col-head');
-    const interactive = e.target.closest('button,a,input,textarea,select,[contenteditable="true"],.feed,.post,.notif,.col-webview,.col-resize');
+    const head = e.target.closest('[data-column-drag-handle]');
+    const interactive = e.target.closest('button,a,input,textarea,select,[contenteditable="true"],.feed,.post,.notif,.col-webview,[data-column-resize-handle]');
     if (!head || interactive) { e.preventDefault(); return; }
     const col = head.closest('.col'); if (!col) return;
     dragSrc = col;
@@ -2569,46 +2298,6 @@ function initDnD() {
     columnLifecycle.persist();
   });
 }
-function makeDraggable(col) {
-  col.draggable = false;
-  const head = col.querySelector('.col-head');
-  if (head) {
-    head.draggable = true;
-    head.style.cursor = 'grab';
-  }
-  addResizeHandle(col);
-}
-const colObserver = new MutationObserver(muts => {
-  for (const m of muts) for (const n of m.addedNodes)
-    if (n.nodeType===1 && n.classList?.contains('col')) { makeDraggable(n); addResizeHandle(n); }
-});
-
-// ─── COLUMN RESIZE ────────────────────────────────
-function addResizeHandle(col) {
-  if (col.querySelector('.col-resize')) return;
-  const handle = document.createElement('div');
-  handle.className = 'col-resize';
-  handle.title = 'ドラッグで幅を変更';
-  col.appendChild(handle);
-  let startX, startW;
-  handle.addEventListener('mousedown', e => {
-    e.preventDefault();
-    startX = e.clientX;
-    startW = col.offsetWidth;
-    const onMove = ev => {
-      const w = Math.max(260, Math.min(600, startW + ev.clientX - startX));
-      col.style.width = w + 'px';
-      col.style.minWidth = w + 'px';
-    };
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      columnLifecycle.persist();
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
 
 // ─── INIT ───────────────────────────────────────
 delegatedActionRuntime = window.SocialDeckDelegatedActionRuntime.createDelegatedActionRuntime({
@@ -2631,7 +2320,6 @@ const blueskySessionReady = initializeBlueskySession();
 const accountSessionReady = blueskySessionReady.then(() => accountSessionRuntime.start());
 accountSessionReady.then(() => desktopNotificationRuntime.start()).catch(() => {});
 initDnD();
-colObserver.observe(document.getElementById('cols'), { childList: true });
 
 const hasStoredAccounts = (state.xs && state.xs.length > 0) || state.b;
 if (hasStoredAccounts) {
@@ -2641,7 +2329,6 @@ if (hasStoredAccounts) {
       setTimeout(() => fetchBskyUnreadCount(), 3000);
       setInterval(() => fetchBskyUnreadCount(), 5 * 60 * 1000);
     }
-    setTimeout(() => document.querySelectorAll('#cols .col').forEach(makeDraggable), 300);
   });
 }
 

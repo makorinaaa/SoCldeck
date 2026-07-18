@@ -140,6 +140,19 @@ test('mounts an X Column behind the login gate and activates it when ready', () 
   assert.equal(loading.style.display, 'none');
 });
 
+test('awaits canonical notification navigation when going back', async () => {
+  const { runtime, elements } = createHarness();
+  const notification = createWebView({
+    id: 'wv-x-notif',
+    src: 'https://x.com/socialdeck/status/123',
+  });
+  elements.set(notification.id, notification);
+
+  assert.equal(await runtime.back('x-notif'), true);
+  assert.deepEqual(notification.loads, ['https://x.com/notifications']);
+  assert.equal(notification.src, 'https://x.com/notifications');
+});
+
 test('executes Compose through the account Home Column and flushes queued refresh', async () => {
   const { runtime, webviews, elements } = createHarness();
   const home = createWebView({
