@@ -148,6 +148,10 @@ test('keeps API-backed Bluesky Columns behind their Runtime', () => {
     renderer,
     /\b(?:colCursors|renderBskyPost|renderBskyNotif|doSearch|toggleLike|toggleRepost|showRtMenu|openBskyPost)\b/,
   );
+  assert.doesNotMatch(
+    renderer,
+    /\b(?:hoverCardTimer|hoverCardHideTimer|hoverCardCache|hoverCardShow|hoverCardHide|_hoverCardRemove|_hoverCardRender|hoverCardToggleFollow|_hoverCardPosition)\b/,
+  );
 });
 
 test('keeps Notification Center state and rendering behind its Runtime', () => {
@@ -170,7 +174,7 @@ test('keeps Notification Center state and rendering behind its Runtime', () => {
   );
   assert.doesNotMatch(
     renderer,
-    /function (?:loadNotificationCenter|renderNotificationCenter|markNotificationCenterRead)\b/,
+    /function (?:loadNotificationCenter|renderNotificationCenter|markNotificationCenterRead|scrollToNotifCol|goToNotifColAndRead|markBskyNotifsRead)\b/,
   );
 });
 

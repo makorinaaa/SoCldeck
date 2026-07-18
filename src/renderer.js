@@ -397,9 +397,6 @@ bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumns
 });
 
 
-function loadState() {
-  return stateStore.load();
-}
 function saveState() { stateStore.save(state); }
 
 function syncAppearanceSettings(appearance) {
@@ -978,104 +975,6 @@ async function refreshColumn(id, button) {
   }
 }
 
-let hoverCardTimer = null;
-let hoverCardHideTimer = null;
-const hoverCardCache = {}; // did → profile data
-
-function hoverCardShow(event, did, handle) {
-  if (!did && !handle) return;
-  clearTimeout(hoverCardHideTimer);
-  // 300ms後に表示（ちらつき防止）
-  hoverCardTimer = setTimeout(() => _hoverCardRender(event.target, did, handle), 300);
-}
-
-function hoverCardHide() {
-  clearTimeout(hoverCardTimer);
-  // カード上にマウスが乗った場合は消さない
-  hoverCardHideTimer = setTimeout(() => {
-    const card = document.getElementById('bsky-hover-card');
-    if (card && !card.matches(':hover')) _hoverCardRemove();
-  }, 150);
-}
-
-function _hoverCardRemove() {
-  const card = document.getElementById('bsky-hover-card');
-  if (card) { card.style.opacity = '0'; setTimeout(() => card.remove(), 150); }
-}
-
-async function _hoverCardRender(target, did, handle) {
-  if (!state.b) return;
-  document.getElementById('bsky-hover-card')?.remove();
-  const card = document.createElement('div');
-  card.id = 'bsky-hover-card';
-  card.style.cssText = 'position:fixed;z-index:1000;width:260px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-size:12px;color:var(--text1)';
-  card.textContent = 'Loading...';
-  document.body.appendChild(card);
-  card.addEventListener('mouseenter', () => clearTimeout(hoverCardHideTimer));
-  card.addEventListener('mouseleave', () => { hoverCardHideTimer = setTimeout(_hoverCardRemove, 150); });
-  _hoverCardPosition(card, target);
-
-  try {
-    const profile = await authenticatedBskyAdapter.getProfile({ actor: did || handle });
-    hoverCardCache[profile.did] = profile;
-    const avatar = profile.avatar ? '<img src="' + profile.avatar + '" style="width:42px;height:42px;border-radius:50%;object-fit:cover">' : '<div style="width:42px;height:42px;border-radius:50%;background:' + avBgFor(profile.handle) + '"></div>';
-    card.innerHTML = '<div style="display:flex;gap:10px;align-items:center">' + avatar + '<div style="min-width:0"><div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(profile.displayName || profile.handle) + '</div><div style="color:var(--text3)">@' + esc(profile.handle) + '</div></div></div>' +
-      (profile.description ? '<div style="margin-top:8px;color:var(--text2);line-height:1.4">' + esc(profile.description).slice(0, 180) + '</div>' : '');
-    _hoverCardPosition(card, target);
-  } catch {
-    card.textContent = 'Profile load failed';
-  }
-}
-
-async function hoverCardToggleFollow(btnEl) {
-  if (!state.b) return;
-  const did      = btnEl.dataset.did;
-  const handle   = btnEl.dataset.handle;
-  const followUri = btnEl.dataset.followuri || '';
-  const isFollowing = !!followUri;
-  btnEl.disabled = true; btnEl.textContent = '…';
-  try {
-    if (isFollowing) {
-      await authenticatedBskyAdapter.unfollow({ followUri });
-      const key = did || handle;
-      if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: null };
-      btnEl.style.borderColor = 'var(--accent)'; btnEl.style.background = 'var(--accent)'; btnEl.style.color = '#fff';
-      btnEl.textContent = 'フォロー'; btnEl.dataset.followuri = ''; btnEl.disabled = false;
-      toast(`@${handle} のフォローを解除しました`);
-    } else {
-      const res = await authenticatedBskyAdapter.follow({ targetDid: did });
-      const newFollowUri = res?.uri || '';
-      const key = did || handle;
-      if (hoverCardCache[key]) hoverCardCache[key].viewer = { ...hoverCardCache[key].viewer, following: newFollowUri };
-      btnEl.style.borderColor = 'var(--border2)'; btnEl.style.background = 'transparent'; btnEl.style.color = 'var(--text2)';
-      btnEl.textContent = 'フォロー中'; btnEl.dataset.followuri = newFollowUri; btnEl.disabled = false;
-      toast(`@${handle} をフォローしました`);
-    }
-  } catch(e) {
-    toast(`エラー: ${e.message}`);
-    btnEl.disabled = false; btnEl.textContent = isFollowing ? 'フォロー中' : 'フォロー';
-  }
-}
-
-function _hoverCardPosition(card, target) {
-  const rect = target.getBoundingClientRect();
-  const cardW = 280, cardH = 200;
-  const vw = window.innerWidth, vh = window.innerHeight;
-
-  let left = rect.left;
-  let top = rect.bottom + 8;
-
-  // 右端はみ出し補正
-  if (left + cardW > vw - 10) left = vw - cardW - 10;
-  // 下端はみ出し → 上に表示
-  if (top + cardH > vh - 10) top = rect.top - cardH - 8;
-  // 念のため左端補正
-  if (left < 10) left = 10;
-
-  card.style.left = left + 'px';
-  card.style.top = top + 'px';
-}
-
 // 引用リポストモーダル
 let quoteTarget = null;
 function openQuoteModal(uri, cid, handle) {
@@ -1181,22 +1080,13 @@ async function openReply(uri, cid, handle) {
   }
 }
 
-function showProfile(did) {
-  if (!did) return;
-  const cached = hoverCardCache[did];
-  if (cached?.handle) {
-    const url = `https://bsky.app/profile/${cached.handle}`;
-    if (IS_ELECTRON) window.electronAPI && require ? null : window.open(url, '_blank');
-    // Electron環境ではshell.openExternalをIPC経由で呼べないためwebviewで開く
-    // 代替: bsky.appをWebViewカラムとして追加
-    openBskyProfileCol(cached.handle);
-  } else {
-    openBskyProfileCol(did);
-  }
+function showProfile(actor) {
+  if (!actor) return;
+  openBskyProfileCol(actor);
 }
 
-function openBskyProfileCol(handleOrDid) {
-  const url = `https://bsky.app/profile/${handleOrDid}`;
+function openBskyProfileCol(actor) {
+  const url = `https://bsky.app/profile/${actor}`;
 
   const existingCol = notificationCenter.findBlueskyProfileColumn(
     document.querySelectorAll('.col')
@@ -1850,63 +1740,6 @@ async function openXNotificationCenterItem(item) {
   }
 }
 
-function scrollToNotifCol(baseId, xIdx, acc) {
-  const cols = document.getElementById('cols');
-
-  let targetCol = null;
-  if (xIdx >= 0 && acc) {
-    const partition = acc.partition || `persist:x-${xIdx}`;
-    targetCol = notificationCenter.findXNotificationColumn(
-      cols.querySelectorAll('.col'),
-      partition
-    );
-  } else {
-    // Bluesky通知
-    targetCol = document.getElementById(`col-${baseId}`);
-  }
-
-  if (targetCol) {
-    // 既存カラムにスクロール
-    targetCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
-    targetCol.style.outline = '2px solid var(--accent)';
-    setTimeout(() => { targetCol.style.outline = ''; }, 1200);
-  } else {
-    // カラムがなければ追加
-    if (xIdx >= 0 && acc) {
-      const id = nextColumnId(`x${xIdx}-x-notif-new`);
-      const result = columnLifecycle.create({
-        networkId: 'x',
-        definitionId: 'x-notif-new',
-        id,
-        account: { ...acc, index: xIdx },
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      setTimeout(() => {
-        const newCol = document.getElementById(`col-${id}`);
-        if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
-      }, 300);
-      toast(`${acc.username} notifications column added`);
-    } else {
-      // Bluesky通知カラムを追加
-      const result = columnLifecycle.create({
-        networkId: 'b', definitionId: 'b-notif-new', id: 'b-notif',
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      setTimeout(() => {
-        const newCol = document.getElementById('col-b-notif');
-        if (newCol) newCol.scrollIntoView({ behavior: 'smooth', inline: 'start' });
-      }, 300);
-      toast('Bluesky notifications column added');
-    }
-  }
-}
-
 // Bluesky未読通知数をポーリング
 function startNotifPoll() {
   notificationRuntime.startPoll(fetchBskyUnread);
@@ -1992,23 +1825,6 @@ async function fetchBskyUnreadCount() {
   try {
     notificationRuntime.setUnreadCount(await fetchBskyUnread());
   } catch {}
-}
-
-// Bluesky通知を既読化してバッジを消す
-async function markBskyNotifsRead() {
-  if (!state.b) return;
-  try {
-    await authenticatedBskyAdapter.markNotificationsSeen({ seenAt: new Date().toISOString() });
-    notificationRuntime.clearUnread();
-    toast('Notifications marked as read');
-  } catch (e) {
-    toast('Mark read error: ' + e.message);
-  }
-}
-
-async function goToNotifColAndRead() {
-  goToNotifCol('b');
-  await markBskyNotifsRead();
 }
 
 // ─── MEMORY MANAGEMENT ──────────────────────────
