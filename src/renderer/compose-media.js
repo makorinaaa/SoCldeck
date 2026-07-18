@@ -14,8 +14,10 @@
     return Boolean(file?.type?.startsWith('video/'));
   }
 
-  function firstVideo(files) {
-    return toFiles(files).find(isVideoFile) || null;
+  function firstVideo(files, allowedTypes = null) {
+    return toFiles(files).find(file => (
+      isVideoFile(file) && (!allowedTypes || allowedTypes.has(file.type))
+    )) || null;
   }
 
   function imageFiles(files) {
@@ -38,6 +40,7 @@
 
   function createMediaDraft({
     supportsVideo = false,
+    videoMimeTypes = null,
     maxImages = MAX_IMAGE_COUNT,
     resolveFilePath = () => null,
   } = {}) {
@@ -65,7 +68,11 @@
 
     function addFiles(files) {
       const candidates = toFiles(files);
-      const videoFile = supportsVideo ? firstVideo(candidates) : null;
+      const allowedVideoTypes = videoMimeTypes ? new Set(videoMimeTypes) : null;
+      const videoFile = supportsVideo ? firstVideo(candidates, allowedVideoTypes) : null;
+      if (supportsVideo && !videoFile && firstVideo(candidates)) {
+        return { status: 'rejected', reason: 'unsupported-video' };
+      }
       if (videoFile) {
         if (images.length > 0) return { status: 'rejected', reason: 'mixed-media' };
         video = {

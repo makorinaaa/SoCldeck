@@ -482,9 +482,9 @@ test('owns X video metadata and trim interactions while disabling cross-posting'
   runtime.open('x');
 
   handlers.filesAdded('x', [{ name: 'clip.mp4', type: 'video/mp4' }]);
-  handlers.videoMetadataLoaded(120);
-  handlers.trimChanged('start', 5);
-  handlers.trimChanged('end', 100);
+  handlers.videoMetadataLoaded('x', 120);
+  handlers.trimChanged('x', 'start', 5);
+  handlers.trimChanged('x', 'end', 100);
   let snapshot = runtime.getSnapshot('x');
 
   assert.equal(snapshot.crossPostAvailable, false);
@@ -493,11 +493,36 @@ test('owns X video metadata and trim interactions while disabling cross-posting'
   assert.deepEqual(plain(snapshot.media.video.trim), { startSeconds: 5, endSeconds: 100 });
   assert.equal(snapshot.canSubmit, true);
 
-  handlers.removeVideo();
+  handlers.removeVideo('x');
   snapshot = runtime.getSnapshot('x');
   assert.equal(snapshot.media.video, null);
   assert.equal(snapshot.crossPostAvailable, true);
   assert.equal(snapshot.crossPost, true);
+});
+
+test('owns Bluesky video metadata and disables X cross-posting', () => {
+  let handlers;
+  const bMedia = createMutableVideoDraft();
+  const runtime = loadRuntime().createComposeModalRuntime({
+    getAccounts: () => ({ x: [{ username: '@first' }], b: { did: 'did:plc:me' } }),
+    getPreferences: () => ({ crossPostFromBluesky: true }),
+    mediaDrafts: { x: createMediaDraft(), b: bMedia },
+    coordinator: { resetCrossPost() {}, getStatus: () => ({ isSending: false }) },
+    view: { connect: nextHandlers => { handlers = nextHandlers; }, render() {} },
+  });
+  runtime.open('b');
+
+  handlers.filesAdded('b', [{ name: 'clip.mp4', type: 'video/mp4' }]);
+  handlers.videoMetadataLoaded('b', 200);
+  handlers.trimChanged('b', 'start', 10);
+  handlers.trimChanged('b', 'end', 170);
+  const snapshot = runtime.getSnapshot('b');
+
+  assert.equal(snapshot.crossPostAvailable, false);
+  assert.equal(snapshot.crossPost, false);
+  assert.equal(snapshot.media.video.durationSeconds, 200);
+  assert.deepEqual(plain(snapshot.media.video.trim), { startSeconds: 10, endSeconds: 170 });
+  assert.equal(snapshot.canSubmit, true);
 });
 
 test('dispose releases the view and makes the Runtime terminal', () => {

@@ -82,6 +82,69 @@ test('executes an allowlisted operation with Vault credentials', async () => {
   assert.deepEqual(result, { feed: [{ post: { uri: 'at://post/1' } }], cursor: 'next' });
 });
 
+test('bounds Bluesky conversation ancestor and reply depth', async () => {
+  const calls = [];
+  const gateway = createBlueskyGateway({
+    vault: createVault(SESSION),
+    client: {
+      async getThread(...args) {
+        calls.push(args);
+        return { thread: {} };
+      },
+    },
+  });
+
+  await gateway.execute('getThread', {
+    uri: 'at://did:plc:alice/app.bsky.feed.post/1',
+    depth: 12,
+    parentHeight: 8,
+  });
+
+  assert.deepEqual(calls, [[
+    SESSION.accessJwt,
+    'at://did:plc:alice/app.bsky.feed.post/1',
+    12,
+    8,
+  ]]);
+  await assert.rejects(
+    gateway.execute('getThread', { uri: 'at://post/1', depth: 101, parentHeight: 8 }),
+    /depth/i,
+  );
+});
+
+test('prepares and uploads an allowlisted Bluesky video file', async () => {
+  const calls = [];
+  const gateway = createBlueskyGateway({
+    vault: createVault(SESSION),
+    prepareVideo: async input => {
+      calls.push(['prepare', input]);
+      return { name: 'clip.mp4', bytes: Buffer.from([1, 2, 3]) };
+    },
+    client: {
+      async uploadVideo(...args) {
+        calls.push(['upload', ...args]);
+        return { ref: 'video-blob' };
+      },
+    },
+  });
+
+  const result = await gateway.execute('uploadVideo', {
+    filePath: 'C:\\media\\clip.mp4',
+    name: 'clip.mp4',
+    startSeconds: 5,
+    endSeconds: 65,
+    durationSeconds: 90,
+  });
+
+  assert.deepEqual(result, { blob: { ref: 'video-blob' } });
+  assert.equal(calls[0][0], 'prepare');
+  assert.equal(calls[0][1].filePath, 'C:\\media\\clip.mp4');
+  assert.deepEqual(calls[1].slice(0, 4), [
+    'upload', SESSION.accessJwt, SESSION.did, 'clip.mp4',
+  ]);
+  assert.deepEqual(calls[1][4], Buffer.from([1, 2, 3]));
+});
+
 test('refreshes an expired session, persists it, and retries once', async () => {
   const vault = createVault(SESSION);
   const calls = [];

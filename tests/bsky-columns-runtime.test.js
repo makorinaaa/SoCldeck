@@ -390,6 +390,33 @@ test('renders Timeline media and repost attribution without inline handlers', as
   assert.doesNotMatch(host.innerHTML, /\son(?:click|keydown|contextmenu)=/);
 });
 
+test('renders Bluesky video embeds as delegated media controls', async () => {
+  const host = createFeedHost();
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [{ post: {
+      uri: 'at://post/video',
+      cid: 'video-cid',
+      author: { handle: 'author.test' },
+      record: { text: 'video post' },
+      embed: {
+        playlist: 'https://video.cdn.test/playlist.m3u8',
+        thumbnail: 'https://video.cdn.test/poster.jpg',
+        alt: 'Demo clip',
+      },
+    } }] }) },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  await runtime.refresh('b-home');
+
+  assert.match(host.innerHTML, /class="p-video"/);
+  assert.match(host.innerHTML, /playlist\.m3u8/);
+  assert.match(host.innerHTML, /poster\.jpg/);
+  assert.doesNotMatch(host.innerHTML, /\son(?:click|play)=/);
+});
+
 test('owns Timeline post activation and renders the thread detail', async () => {
   const calls = [];
   const replyIntents = [];
@@ -413,7 +440,15 @@ test('owns Timeline post activation and renders the thread detail', async () => 
         calls.push(request);
         return { thread: {
           post: { uri: request.uri, cid: 'cid-1', author: { handle: 'alice.test' }, record: { text: 'main post' } },
-          replies: [{ post: { uri: 'at://post/reply', cid: 'reply', author: { handle: 'bob.test' }, record: { text: 'reply post' } } }],
+          parent: {
+            post: { uri: 'at://post/parent', cid: 'parent', author: { handle: 'parent.test' }, record: { text: 'parent post' } },
+          },
+          replies: [{
+            post: { uri: 'at://post/reply', cid: 'reply', author: { handle: 'bob.test' }, record: { text: 'reply post' } },
+            replies: [{
+              post: { uri: 'at://post/nested', cid: 'nested', author: { handle: 'carol.test' }, record: { text: 'nested reply' } },
+            }],
+          }],
         } };
       },
     },
@@ -430,11 +465,14 @@ test('owns Timeline post activation and renders the thread detail', async () => 
     stopPropagation() {},
   });
 
-  assert.deepEqual(plain(calls), [{ uri: 'at://post/1', depth: 6 }]);
+  assert.deepEqual(plain(calls), [{ uri: 'at://post/1', depth: 12, parentHeight: 12 }]);
   assert.equal(documentRef.nodes.length, 1);
   assert.equal(documentRef.nodes[0].id, 'bsky-post-detail');
   assert.match(documentRef.nodes[0].detailBody.innerHTML, /main post/);
+  assert.match(documentRef.nodes[0].detailBody.innerHTML, /parent post/);
   assert.match(documentRef.nodes[0].detailBody.innerHTML, /reply post/);
+  assert.match(documentRef.nodes[0].detailBody.innerHTML, /nested reply/);
+  assert.match(documentRef.nodes[0].detailBody.innerHTML, /data-thread-depth="1"/);
 
   const { button: replyButton } = createActionButton('reply', post);
   await documentRef.nodes[0].dispatch('click', {
@@ -976,7 +1014,7 @@ test('routes delegated profile, keyboard, and context-menu interactions', async 
   await host.dispatch('contextmenu', { target: postTarget, clientX: 10, clientY: 20, preventDefault() {} });
 
   assert.deepEqual(plain(profiles), [{ did: 'did:plc:alice', handle: 'alice.test' }]);
-  assert.deepEqual(plain(threadCalls), [{ uri: 'at://post/1', depth: 6 }]);
+  assert.deepEqual(plain(threadCalls), [{ uri: 'at://post/1', depth: 12, parentHeight: 12 }]);
   assert.deepEqual(plain(menus), [{ handle: 'alice.test', x: 10, y: 20 }]);
 });
 

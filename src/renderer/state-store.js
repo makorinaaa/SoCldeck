@@ -11,7 +11,19 @@
         crossPostFromX: false,
         crossPostFromBluesky: false,
       },
+      appearance: {
+        theme: 'dark',
+        accent: '#4e9af0',
+      },
     };
+  }
+
+  function normalizeAppearance(value) {
+    const theme = value?.theme === 'light' ? 'light' : 'dark';
+    const accent = /^#[0-9a-f]{6}$/i.test(String(value?.accent || ''))
+      ? String(value.accent).toLowerCase()
+      : '#4e9af0';
+    return { theme, accent };
   }
 
   function withoutCredentials(account) {
@@ -28,6 +40,7 @@
       xs: Array.isArray(value.xs) ? value.xs : [],
       activeX: Number.isInteger(value.activeX) ? value.activeX : 0,
       b: value.b || null,
+      appearance: normalizeAppearance(value.appearance),
       composePreferences: {
         ...defaultState().composePreferences,
         ...(value.composePreferences || {}),

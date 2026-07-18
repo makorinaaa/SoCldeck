@@ -18,6 +18,11 @@
   --red:#e05c7a;--green:#3dc98a;--yellow:#f5c842;
   --col-w:340px;--nav:46px;--sb:52px;
 }
+:root[data-theme="light"]{
+  --bg0:#f4f6f8;--bg1:#ffffff;--bg2:#ffffff;--bg3:#edf1f5;
+  --border:rgba(23,32,51,0.10);--border2:rgba(23,32,51,0.18);
+  --text1:#172033;--text2:#53627a;--text3:#7b879b;
+}
 html,body{height:100%;overflow:hidden;user-select:none}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--text1);display:flex;flex-direction:column;-webkit-app-region:no-drag}
 
@@ -361,7 +366,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .bsky-post-detail-body{min-height:0;overflow-y:auto;border:1px solid var(--border);border-radius:7px}
 .bsky-thread-main>.post{background:var(--bg2)}
 .bsky-thread-label{padding:8px 12px;font-size:10px;font-weight:700;color:var(--text3);border-bottom:1px solid var(--border)}
-.bsky-thread-reply{padding-left:14px;border-left:2px solid var(--border2)}
+.bsky-thread-parent{margin-left:10px;border-left:2px solid var(--border2)}
+.bsky-thread-reply{margin-left:14px;border-left:2px solid var(--border2)}
+.p-video{display:block;width:100%;max-height:360px;margin-top:8px;border-radius:7px;background:#000}
+.appearance-swatch{width:30px;height:30px;border-radius:6px;border:2px solid transparent;cursor:pointer;box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+.appearance-swatch.selected{border-color:var(--text1)}
+#appearance-custom-color{width:36px;height:30px;padding:2px;border:1px solid var(--border2);border-radius:6px;background:var(--bg3);cursor:pointer}
 .chead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .chead h2{font-size:14px;font-weight:700}
 .ptbtns{display:flex;gap:5px}
@@ -416,13 +426,15 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 #lightbox-counter{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:12px}
 
 /* ── TRIM SLIDER THUMBS ── */
-#x-trim-in::-webkit-slider-thumb,#x-trim-out::-webkit-slider-thumb{
+#x-trim-in::-webkit-slider-thumb,#x-trim-out::-webkit-slider-thumb,
+#b-trim-in::-webkit-slider-thumb,#b-trim-out::-webkit-slider-thumb{
   -webkit-appearance:none;appearance:none;
   width:14px;height:14px;border-radius:50%;
   background:var(--accent);cursor:grab;
   box-shadow:0 0 0 2px var(--bg2);
 }
-#x-trim-in::-webkit-slider-thumb:active,#x-trim-out::-webkit-slider-thumb:active{cursor:grabbing}
+#x-trim-in::-webkit-slider-thumb:active,#x-trim-out::-webkit-slider-thumb:active,
+#b-trim-in::-webkit-slider-thumb:active,#b-trim-out::-webkit-slider-thumb:active{cursor:grabbing}
 
 /* ── NEW POST FADE-IN ── */
 @keyframes sdNewFade {
@@ -547,6 +559,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
           <div class="am-opt" data-action="zoom-in">拡大</div>
           <div class="am-opt" data-action="zoom-out">縮小</div>
           <div class="am-opt" data-action="zoom-reset">リセット</div>
+          <div class="am-opt" data-action="open-appearance-settings">テーマ設定</div>
           <div class="am-sep"></div>
           <div class="am-opt" data-action="open-widget">デスクトップウィジェット</div>
           <div class="am-sep"></div>
@@ -706,6 +719,33 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
   </div>
 </div>
 
+<!-- APPEARANCE SETTINGS -->
+<div class="ov" id="appearanceMod" data-action="cancel-appearance">
+  <div class="modal" style="width:380px">
+    <h2 style="margin-bottom:6px">テーマ設定</h2>
+    <p style="font-size:11px;color:var(--text2);margin-bottom:16px">アプリの配色を変更します</p>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:7px">表示モード</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:18px">
+      <button class="ptb appearance-theme" data-action="preview-appearance-theme" data-theme="dark">ダーク</button>
+      <button class="ptb appearance-theme" data-action="preview-appearance-theme" data-theme="light">ライト</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:7px">アクセントカラー</div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
+      <button class="appearance-swatch" data-action="preview-appearance-accent" data-accent="#4e9af0" title="ブルー" style="background:#4e9af0"></button>
+      <button class="appearance-swatch" data-action="preview-appearance-accent" data-accent="#3dc98a" title="グリーン" style="background:#3dc98a"></button>
+      <button class="appearance-swatch" data-action="preview-appearance-accent" data-accent="#e05c7a" title="ピンク" style="background:#e05c7a"></button>
+      <button class="appearance-swatch" data-action="preview-appearance-accent" data-accent="#9a5cf0" title="パープル" style="background:#9a5cf0"></button>
+      <button class="appearance-swatch" data-action="preview-appearance-accent" data-accent="#f08c46" title="オレンジ" style="background:#f08c46"></button>
+      <button class="appearance-swatch" data-action="preview-appearance-accent" data-accent="#26a7a1" title="ティール" style="background:#26a7a1"></button>
+      <input id="appearance-custom-color" type="color" value="#4e9af0" title="任意の色" data-change-action="preview-appearance-custom">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-cancel" data-action="cancel-appearance">キャンセル</button>
+      <button class="send-btn" style="flex:1" data-action="save-appearance">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- ABOUT MODAL -->
 <div class="ov" id="aboutMod" data-action="close-overlay" data-overlay-id="aboutMod">
   <div class="modal" style="width:360px;text-align:center">
@@ -838,10 +878,33 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
           <circle cx="8.5" cy="8.5" r="1.5"/>
           <polyline points="21 15 16 10 5 21"/>
         </svg>
-        クリックまたはドロップで画像を追加（最大4枚）
+        クリックまたはドロップで画像（最大4枚）またはMP4動画（1本）を追加
       </div>
-      <input type="file" id="b-img-file" accept="image/*" multiple style="display:none">
+      <input type="file" id="b-img-file" accept="image/*,video/mp4" multiple style="display:none">
       <div id="b-img-preview" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px"></div>
+      <div id="b-video-wrap" style="display:none;margin-top:8px">
+        <video id="b-video-preview" controls playsinline
+          style="width:100%;border-radius:8px;background:#000;display:block;max-height:200px"></video>
+        <div style="margin-top:8px;padding:0 2px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:6px">
+            <span>開始: <b id="b-trim-start-label">0:00</b></span>
+            <span>終了: <b id="b-trim-end-label">--</b></span>
+            <span>長さ: <b id="b-trim-dur-label">--</b></span>
+          </div>
+          <div style="position:relative;height:20px;margin-bottom:4px">
+            <div id="b-trim-highlight" style="position:absolute;top:8px;height:4px;background:var(--accent);border-radius:2px;pointer-events:none"></div>
+            <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
+            <input type="range" id="b-trim-in" min="0" max="100" value="0" step="0.1"
+              style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
+          </div>
+          <div style="position:relative;height:20px;margin-bottom:6px">
+            <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
+            <input type="range" id="b-trim-out" min="0" max="100" value="100" step="0.1"
+              style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
+          </div>
+          <div id="b-ffmpeg-status" style="font-size:10px;color:var(--text3);text-align:center;min-height:14px"></div>
+        </div>
+      </div>
     </div>
     <button class="compose-preview-toggle" data-compose-action="toggle-preview"><span>投稿プレビュー</span><span>表示／非表示</span></button>
     <div class="compose-preview" id="b-compose-preview"></div>
@@ -868,6 +931,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/delegated-action-runtime.js"></script>
 <script src="renderer/bsky-columns-runtime.js"></script>
 <script src="renderer/state-store.js"></script>
+<script src="renderer/appearance-runtime.js"></script>
 <script src="renderer/bluesky-session-runtime.js"></script>
 <script src="renderer/account-session-runtime.js"></script>
 <script src="renderer/mute-rules.js"></script>

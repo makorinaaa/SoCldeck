@@ -1,6 +1,7 @@
 (function (global) {
   function createBlueskyComposeDelivery({
     uploadBlob,
+    uploadVideo,
     buildFacets,
     resolveFacets,
     createRecord,
@@ -14,6 +15,13 @@
           image: await uploadBlob(image.file),
         })));
         embed = { $type: 'app.bsky.embed.images', images };
+      } else if (delivery.video) {
+        const video = await uploadVideo(delivery.video);
+        embed = {
+          $type: 'app.bsky.embed.video',
+          video,
+          alt: delivery.video.alt || '',
+        };
       }
 
       const facets = await resolveFacets(buildFacets(delivery.text));

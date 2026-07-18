@@ -1,6 +1,8 @@
 const { AtprotoError } = require('./bluesky-gateway');
 
 const DEFAULT_SERVICE = 'https://bsky.social/xrpc';
+const VIDEO_SERVICE = 'https://video.bsky.app/xrpc';
+const PDS_DID = 'did:web:bsky.social';
 
 async function parseResponse(response, endpoint) {
   const text = await response.text();
@@ -17,7 +19,13 @@ async function parseResponse(response, endpoint) {
   return body;
 }
 
-function createAtprotoClient({ fetchImpl = global.fetch, service = DEFAULT_SERVICE } = {}) {
+function createAtprotoClient({
+  fetchImpl = global.fetch,
+  service = DEFAULT_SERVICE,
+  sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+  nowSeconds = () => Math.floor(Date.now() / 1000),
+  maxVideoPolls = 180,
+} = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('AT Protocol client requires fetch');
   if (service !== DEFAULT_SERVICE) throw new Error('Unsupported AT Protocol service');
 
@@ -49,6 +57,34 @@ function createAtprotoClient({ fetchImpl = global.fetch, service = DEFAULT_SERVI
     return post('com.atproto.repo.deleteRecord', { repo: did, collection, rkey }, token);
   }
 
+  function normalizeJobStatus(value) {
+    return value?.jobStatus || value || {};
+  }
+
+  async function requestVideoJob(jobId) {
+    const response = await fetchImpl(
+      `${VIDEO_SERVICE}/app.bsky.video.getJobStatus?${new URLSearchParams({ jobId })}`,
+      { headers: {} },
+    );
+    return normalizeJobStatus(await parseResponse(response, 'app.bsky.video.getJobStatus'));
+  }
+
+  async function waitForVideoBlob(initialStatus) {
+    let status = normalizeJobStatus(initialStatus);
+    for (let poll = 0; poll <= maxVideoPolls; poll += 1) {
+      if (status.blob) return status.blob;
+      if (status.state === 'JOB_STATE_FAILED' || status.error) {
+        throw new AtprotoError(status.message || status.error || 'Bluesky video processing failed');
+      }
+      if (!status.jobId || poll === maxVideoPolls) {
+        throw new AtprotoError('Bluesky video processing timed out');
+      }
+      await sleep(1_000);
+      status = await requestVideoJob(status.jobId);
+    }
+    throw new AtprotoError('Bluesky video processing timed out');
+  }
+
   return {
     login: (identifier, password) => post(
       'com.atproto.server.createSession',
@@ -73,7 +109,11 @@ function createAtprotoClient({ fetchImpl = global.fetch, service = DEFAULT_SERVI
     getProfile: (jwt, actor) => get('app.bsky.actor.getProfile', { actor }, jwt),
     searchActors: (jwt, query, limit) => get('app.bsky.actor.searchActors', { q: query, limit }, jwt),
     resolveHandle: (jwt, handle) => get('com.atproto.identity.resolveHandle', { handle }, jwt),
-    getThread: (jwt, uri, depth) => get('app.bsky.feed.getPostThread', { uri, depth }, jwt),
+    getThread: (jwt, uri, depth, parentHeight) => get(
+      'app.bsky.feed.getPostThread',
+      { uri, depth, parentHeight },
+      jwt,
+    ),
     follow: (jwt, did, targetDid) => post('com.atproto.repo.createRecord', {
       repo: did,
       collection: 'app.bsky.graph.follow',
@@ -124,6 +164,24 @@ function createAtprotoClient({ fetchImpl = global.fetch, service = DEFAULT_SERVI
         body: bytes,
       });
       return parseResponse(response, 'com.atproto.repo.uploadBlob');
+    },
+    async uploadVideo(jwt, did, name, bytes) {
+      const auth = await get('com.atproto.server.getServiceAuth', {
+        aud: PDS_DID,
+        lxm: 'com.atproto.repo.uploadBlob',
+        exp: nowSeconds() + (30 * 60),
+      }, jwt);
+      const query = new URLSearchParams({ did, name }).toString();
+      const response = await fetchImpl(`${VIDEO_SERVICE}/app.bsky.video.uploadVideo?${query}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'video/mp4',
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: bytes,
+      });
+      const status = await parseResponse(response, 'app.bsky.video.uploadVideo');
+      return waitForVideoBlob(status);
     },
   };
 }

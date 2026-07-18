@@ -33,7 +33,7 @@
 
     if (video) {
       if (!video.file) throw new Error('Video attachment requires a file');
-      attachments.push({
+      const attachment = {
         kind: 'video',
         file: video.file,
         trim: {
@@ -42,7 +42,13 @@
             ? null
             : Number(video.trim.endSeconds),
         },
-      });
+      };
+      if (video.sourcePath) attachment.sourcePath = String(video.sourcePath);
+      if (Number.isFinite(Number(video.durationSeconds))) {
+        attachment.durationSeconds = Number(video.durationSeconds);
+      }
+      if (video.altText) attachment.altText = String(video.altText);
+      attachments.push(attachment);
     }
 
     if (!normalizedText && attachments.length === 0) {

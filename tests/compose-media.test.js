@@ -108,3 +108,17 @@ test('ignores unsupported video files in a Bluesky media draft', () => {
   );
   assert.deepEqual(plain(draft.getSnapshot()), { images: [], video: null });
 });
+
+test('allows only configured Bluesky video MIME types', () => {
+  const media = loadComposeMedia();
+  const draft = media.createMediaDraft({
+    supportsVideo: true,
+    videoMimeTypes: ['video/mp4'],
+  });
+
+  assert.deepEqual(
+    plain(draft.addFiles([file('clip.webm', 'video/webm')])),
+    { status: 'rejected', reason: 'unsupported-video' },
+  );
+  assert.equal(draft.addFiles([file('clip.mp4', 'video/mp4')]).status, 'video-added');
+});

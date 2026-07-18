@@ -239,6 +239,12 @@
             `<img src="${escapeHtml(images[index].thumb || images[index].fullsize || url)}" alt="${escapeHtml(images[index].alt || '')}" loading="lazy" style="cursor:zoom-in" data-bsky-image-index="${index}">`
           )).join('')}</div>`
         : '';
+      const video = post.embed?.playlist
+        ? post.embed
+        : post.embed?.media?.playlist ? post.embed.media : null;
+      const videoHtml = video
+        ? `<video class="p-video" controls playsinline preload="metadata" src="${escapeHtml(video.playlist)}"${video.thumbnail ? ` poster="${escapeHtml(video.thumbnail)}"` : ''} aria-label="${escapeHtml(video.alt || 'Video')}"></video>`
+        : '';
       const repostLabel = reposter
         ? `<div class="repost-label">${icons.repost || ''} ${escapeHtml(reposter.displayName || reposter.handle || '')} reposted</div>`
         : '';
@@ -246,13 +252,33 @@
       return `<div class="post" role="link" tabindex="0" data-uri="${escapeHtml(uri)}" data-cid="${escapeHtml(cid)}" data-likeuri="${escapeHtml(post.viewer?.like || '')}" data-reposturi="${escapeHtml(post.viewer?.repost || '')}" data-author-did="${escapeHtml(author.did || '')}" data-author-handle="${escapeHtml(author.handle || '')}">
         ${repostLabel}
         <div class="post-top">${avatar}<div class="post-meta"><div class="meta-row"><span class="p-name" title="${escapeHtml(author.displayName || author.handle || '')}">${escapeHtml(author.displayName || author.handle || '')}</span><span class="p-handle">@${escapeHtml(author.handle || '')}</span><span class="p-time">${escapeHtml(time)}</span></div></div></div>
-        <div class="p-body">${body}</div>${imageHtml}
+        <div class="p-body">${body}</div>${imageHtml}${videoHtml}
         <div class="p-acts">
           <button class="pa rep" data-bsky-action="reply">${icons.reply || ''} <span>${Number(post.replyCount) || 0}</span></button>
           <button class="pa rt ${reposted ? 'rted' : ''}" data-bsky-action="repost"${pendingRepost ? ' disabled' : ''}>${icons.repost || ''} <span>${Math.max(0, repostCount)}</span></button>
           <button class="pa lk ${liked ? 'liked' : ''}" data-bsky-action="like"${pendingLike ? ' disabled' : ''}>${icons.heart || ''} <span>${Math.max(0, likeCount)}</span></button>
         </div>
       </div>`;
+    }
+
+    function collectThreadParents(thread) {
+      const parents = [];
+      let current = thread?.parent;
+      while (current?.post) {
+        parents.unshift(current.post);
+        current = current.parent;
+      }
+      return parents;
+    }
+
+    function renderThreadReplies(replies, depth = 0) {
+      return (replies || [])
+        .filter(reply => reply?.post)
+        .map(reply => `<div class="bsky-thread-reply" data-thread-depth="${depth}">
+          ${renderPost({ post: reply.post })}
+          ${renderThreadReplies(reply.replies, depth + 1)}
+        </div>`)
+        .join('');
     }
 
     function renderNotification(notification) {
@@ -462,15 +488,20 @@
       const body = overlay.querySelector?.('.bsky-post-detail-body');
 
       try {
-        const data = await adapter.getThread({ uri: post.dataset.uri, depth: 6 });
+        const data = await adapter.getThread({
+          uri: post.dataset.uri,
+          depth: 12,
+          parentHeight: 12,
+        });
         const thread = data?.thread;
         if (!thread?.post) throw new Error('ポストを取得できませんでした');
-        const replies = (thread.replies || [])
-          .filter(reply => reply?.post)
-          .map(reply => `<div class="bsky-thread-reply">${renderPost({ post: reply.post })}</div>`)
+        const parents = collectThreadParents(thread)
+          .map(parent => `<div class="bsky-thread-parent">${renderPost({ post: parent })}</div>`)
           .join('');
+        const replies = renderThreadReplies(thread.replies);
         if (body) {
-          body.innerHTML = `<div class="bsky-thread-main">${renderPost({ post: thread.post })}</div>
+          body.innerHTML = `${parents ? `<div class="bsky-thread-label">会話</div>${parents}` : ''}
+            <div class="bsky-thread-main">${renderPost({ post: thread.post })}</div>
             ${replies ? `<div class="bsky-thread-label">返信</div>${replies}` : '<div class="feed-empty">返信はありません</div>'}`;
         }
       } catch (error) {
@@ -581,7 +612,7 @@
           }
           return;
         }
-        if (event.target?.closest?.('button,a,img,.p-imgs,input,textarea')) return;
+        if (event.target?.closest?.('button,a,img,video,.p-imgs,input,textarea')) return;
         const notification = event.target?.closest?.('.notif');
         if (notification && columns.has(columnId)) {
           event.preventDefault?.();

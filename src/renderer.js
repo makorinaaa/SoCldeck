@@ -8,7 +8,11 @@ const xComposeMediaDraft = composeMedia.createMediaDraft({
   supportsVideo: true,
   resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
 });
-const bskyComposeMediaDraft = composeMedia.createMediaDraft();
+const bskyComposeMediaDraft = composeMedia.createMediaDraft({
+  supportsVideo: true,
+  videoMimeTypes: ['video/mp4'],
+  resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
+});
 const composeRequests = window.SocialDeckComposeRequest;
 const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
@@ -74,6 +78,17 @@ const bskyComposeExecutor = window.SocialDeckBskyComposeDelivery.createBlueskyCo
     const response = await bskyGateway.uploadBlob({
       mimeType: file.type,
       bytes: new Uint8Array(await file.arrayBuffer()),
+    });
+    return response.blob;
+  },
+  uploadVideo: async video => {
+    if (!video.sourcePath) throw new Error('動画ファイルのパスを取得できませんでした');
+    const response = await bskyGateway.uploadVideo({
+      filePath: video.sourcePath,
+      name: video.file?.name || 'video.mp4',
+      startSeconds: video.trim.startSeconds,
+      endSeconds: video.trim.endSeconds,
+      durationSeconds: video.durationSeconds,
     });
     return response.blob;
   },
@@ -318,7 +333,15 @@ let state = {
   activeX: 0,
   b: null,
   composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
+  appearance: { theme: 'dark', accent: '#4e9af0' },
 };
+const appearanceRuntime = window.SocialDeckAppearanceRuntime.createAppearanceRuntime({
+  root: document.documentElement,
+  persist: appearance => {
+    state.appearance = appearance;
+    saveState();
+  },
+});
 const AVBG = ['linear-gradient(135deg,#4e9af0,#6a5cf0)', 'linear-gradient(135deg,#e05c7a,#9a5cf0)', 'linear-gradient(135deg,#3dc98a,#4e9af0)', 'linear-gradient(135deg,#f5c842,#e05c7a)', 'linear-gradient(135deg,#9a5cf0,#e05c7a)', 'linear-gradient(135deg,#4e9af0,#3dc98a)', 'linear-gradient(135deg,#e05c7a,#f5c842)', 'linear-gradient(135deg,#3dc98a,#6a5cf0)'];
 const uiUtils = window.SocialDeckUiUtils.createUiUtils({
   avatarBackgrounds: AVBG,
@@ -338,7 +361,7 @@ const xLoginGate = window.SocialDeckXLoginGate.createXLoginGate();
 const composeModalView = window.SocialDeckComposeModalRuntime.createComposeModalDomView({
   documentRef: document,
   ui: { escape: esc, formatSeconds: fmtSec },
-  maxVideoSeconds: composeMedia.MAX_VIDEO_SECONDS,
+  maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
 });
 composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRuntime({
   getAccounts: () => ({ x: state.xs || [], b: state.b }),
@@ -405,6 +428,41 @@ function loadState() {
   return stateStore.load();
 }
 function saveState() { stateStore.save(state); }
+
+function syncAppearanceSettings(appearance) {
+  document.querySelectorAll('.appearance-theme').forEach(button => {
+    button.classList.toggle('primary', button.dataset.theme === appearance.theme);
+  });
+  document.querySelectorAll('.appearance-swatch').forEach(button => {
+    button.classList.toggle('selected', button.dataset.accent === appearance.accent);
+  });
+  const custom = document.getElementById('appearance-custom-color');
+  if (custom && custom.value !== appearance.accent) custom.value = appearance.accent;
+}
+
+function openAppearanceSettings() {
+  const appearance = appearanceRuntime.begin();
+  syncAppearanceSettings(appearance);
+  document.getElementById('appearanceMod')?.classList.add('on');
+}
+
+function previewAppearance(partial) {
+  const appearance = appearanceRuntime.preview(partial);
+  syncAppearanceSettings(appearance);
+}
+
+function cancelAppearance(event = null, overlay = null) {
+  if (event && overlay && event.target !== overlay) return;
+  appearanceRuntime.cancel();
+  document.getElementById('appearanceMod')?.classList.remove('on');
+}
+
+function saveAppearance() {
+  const appearance = appearanceRuntime.commit();
+  syncAppearanceSettings(appearance);
+  document.getElementById('appearanceMod')?.classList.remove('on');
+  toast('テーマ設定を保存しました');
+}
 
 async function initializeBlueskySession() {
   try {
@@ -1545,10 +1603,15 @@ async function doSend() {
   const media = compose.media;
   if (composeCoordinator.getStatus('b').isSending) return;
   const text = compose.text.trim();
-  if (!text && media.images.length === 0) return;
+  if (!text && media.images.length === 0 && !media.video) return;
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
   if (!replyTarget && compose.crossPost) {
     await doCrossPost(text);
+    return;
+  }
+
+  if (media.video?.trimDurationSeconds > 180) {
+    toast(`動画が長すぎます（${fmtSec(media.video.trimDurationSeconds)}）。3分以内にトリミングしてください`);
     return;
   }
 
@@ -1557,6 +1620,14 @@ async function doSend() {
     accountId: state.b.did,
     text,
     images: media.images,
+    video: media.video
+      ? {
+          file: media.video.file,
+          sourcePath: media.video.path,
+          durationSeconds: media.video.durationSeconds,
+          trim: media.video.trim,
+        }
+      : null,
     replyTo: replyTarget
       ? {
           root: {
@@ -2286,6 +2357,12 @@ function createUiActionHandlers() {
     'open-b-post': () => openComp(),
     'open-ng-settings': () => openNgSettings(),
     'open-memory-settings': () => openMemSettings(),
+    'open-appearance-settings': () => openAppearanceSettings(),
+    'preview-appearance-theme': ({ dataset }) => previewAppearance({ theme: dataset.theme }),
+    'preview-appearance-accent': ({ dataset }) => previewAppearance({ accent: dataset.accent }),
+    'preview-appearance-custom': ({ value }) => previewAppearance({ accent: value }),
+    'cancel-appearance': ({ event, target }) => cancelAppearance(event, target),
+    'save-appearance': () => saveAppearance(),
     'close-overlay': ({ dataset, event, target }) => (
       closeOv(dataset.overlayId, target.classList.contains('ov') ? event : undefined)
     ),
@@ -2366,6 +2443,9 @@ document.addEventListener('keydown', e => {
     document.getElementById(buttonId)?.click();
   }
   if (e.key === 'Escape') {
+    if (document.getElementById('appearanceMod')?.classList.contains('on')) {
+      appearanceRuntime.cancel();
+    }
     document.querySelectorAll('.ov.on').forEach(o => {
       if (o.id === 'xPostMod' || o.id === 'compMod') closeOv(o.id);
       else o.classList.remove('on');
@@ -2539,6 +2619,7 @@ if (!window.electronAPI?.devToolsEnabled) {
   document.querySelectorAll('.dev-only').forEach(element => element.remove());
 }
 state = E2E_FIXTURES?.state ? structuredClone(E2E_FIXTURES.state) : stateStore.load();
+state.appearance = appearanceRuntime.apply(state.appearance);
 if (state.x && !(state.xs && state.xs.length > 0)) {
   state.xs = [{ ...state.x, partition: 'persist:x-0' }];
   state.activeX = 0;

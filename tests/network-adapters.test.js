@@ -116,6 +116,38 @@ test('Bluesky compose capability prepares AT Protocol delivery', () => {
   });
 });
 
+test('Bluesky compose capability prepares a video delivery', () => {
+  const registry = createRegistry();
+  const request = {
+    target: { networkId: 'b', accountId: 'did:plc:alice' },
+    text: 'video',
+    attachments: [{
+      kind: 'video',
+      file: { name: 'clip.mp4' },
+      sourcePath: 'C:\\media\\clip.mp4',
+      durationSeconds: 90,
+      trim: { startSeconds: 5, endSeconds: 65 },
+      altText: 'Demo video',
+    }],
+    replyTo: null,
+  };
+
+  assert.deepEqual(plain(registry.prepareComposeDelivery(request)), {
+    kind: 'bsky-atproto',
+    repoDid: 'did:plc:alice',
+    text: 'video',
+    images: [],
+    video: {
+      file: { name: 'clip.mp4' },
+      sourcePath: 'C:\\media\\clip.mp4',
+      durationSeconds: 90,
+      trim: { startSeconds: 5, endSeconds: 65 },
+      alt: 'Demo video',
+    },
+    reply: null,
+  });
+});
+
 test('X compose capability prepares account timeline completion', () => {
   const registry = createRegistry();
 

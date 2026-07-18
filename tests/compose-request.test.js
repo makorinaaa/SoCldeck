@@ -91,6 +91,30 @@ test('captures a video attachment and user-selected trim range', () => {
   });
 });
 
+test('keeps Bluesky video host metadata out of image attachments', () => {
+  const request = loadComposeRequest().createComposeRequest({
+    networkId: 'b',
+    accountId: 'did:plc:alice',
+    text: 'video',
+    video: {
+      file: { name: 'clip.mp4' },
+      sourcePath: 'C:\\media\\clip.mp4',
+      durationSeconds: 90,
+      altText: 'Demo video',
+      trim: { startSeconds: 5, endSeconds: 65 },
+    },
+  });
+
+  assert.deepEqual(plain(request.attachments[0]), {
+    kind: 'video',
+    file: { name: 'clip.mp4' },
+    sourcePath: 'C:\\media\\clip.mp4',
+    durationSeconds: 90,
+    altText: 'Demo video',
+    trim: { startSeconds: 5, endSeconds: 65 },
+  });
+});
+
 test('rejects a Compose Request without text or attachments', () => {
   assert.throws(
     () => loadComposeRequest().createComposeRequest({

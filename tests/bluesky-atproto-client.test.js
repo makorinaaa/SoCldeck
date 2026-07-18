@@ -32,6 +32,23 @@ test('sends authenticated timeline reads only to the fixed AT Protocol service',
   assert.equal(calls[0][1].headers.Authorization, 'Bearer access-token');
 });
 
+test('requests both ancestors and nested replies for a Bluesky conversation', async () => {
+  const calls = [];
+  const client = createAtprotoClient({
+    fetchImpl: async (url, options) => {
+      calls.push([url, options]);
+      return response({ body: { thread: {} } });
+    },
+  });
+
+  await client.getThread('access-token', 'at://did:plc:alice/app.bsky.feed.post/1', 12, 12);
+
+  assert.equal(
+    calls[0][0],
+    'https://bsky.social/xrpc/app.bsky.feed.getPostThread?uri=at%3A%2F%2Fdid%3Aplc%3Aalice%2Fapp.bsky.feed.post%2F1&depth=12&parentHeight=12',
+  );
+});
+
 test('normalizes AT Protocol errors for Gateway refresh decisions', async () => {
   const client = createAtprotoClient({
     fetchImpl: async () => response({
@@ -81,4 +98,36 @@ test('uploads image bytes without JSON conversion', async () => {
   assert.deepEqual(result, { blob: { ref: 'blob-ref' } });
   assert.equal(calls[0][1].headers['Content-Type'], 'image/png');
   assert.equal(calls[0][1].body, bytes);
+});
+
+test('uploads a video with scoped service auth and waits for its blob', async () => {
+  const calls = [];
+  const responses = [
+    { token: 'video-token' },
+    { jobStatus: { jobId: 'job-1', state: 'JOB_STATE_ENCODING', progress: 10 } },
+    { jobStatus: { jobId: 'job-1', state: 'JOB_STATE_ENCODING', progress: 80 } },
+    { jobStatus: { jobId: 'job-1', state: 'JOB_STATE_COMPLETED', blob: { ref: 'video-ref' } } },
+  ];
+  const client = createAtprotoClient({
+    fetchImpl: async (url, options) => {
+      calls.push([url, options]);
+      return response({ body: responses.shift() });
+    },
+    nowSeconds: () => 1_000,
+    sleep: async () => {},
+  });
+  const bytes = Buffer.from([4, 5, 6]);
+
+  const blob = await client.uploadVideo('access-token', 'did:plc:alice', 'clip.mp4', bytes);
+
+  assert.deepEqual(blob, { ref: 'video-ref' });
+  assert.match(calls[0][0], /com\.atproto\.server\.getServiceAuth\?/);
+  assert.match(calls[0][0], /aud=did%3Aweb%3Absky\.social/);
+  assert.match(calls[0][0], /lxm=com\.atproto\.repo\.uploadBlob/);
+  assert.match(calls[0][0], /exp=2800/);
+  assert.equal(calls[1][0], 'https://video.bsky.app/xrpc/app.bsky.video.uploadVideo?did=did%3Aplc%3Aalice&name=clip.mp4');
+  assert.equal(calls[1][1].headers.Authorization, 'Bearer video-token');
+  assert.equal(calls[1][1].headers['Content-Type'], 'video/mp4');
+  assert.equal(calls[1][1].body, bytes);
+  assert.equal(calls[2][0], 'https://video.bsky.app/xrpc/app.bsky.video.getJobStatus?jobId=job-1');
 });

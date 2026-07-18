@@ -33,11 +33,28 @@ function readOptionalString(value, name, maxLength = MAX_CURSOR_LENGTH) {
   return readString(value, name, maxLength);
 }
 
+function readFiniteNumber(value, name) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error(`Invalid Bluesky ${name}`);
+  }
+  return number;
+}
+
 function readLimit(value, fallback, maximum = 100) {
   if (value === null || value === undefined) return fallback;
   const number = Number(value);
   if (!Number.isInteger(number) || number < 1 || number > maximum) {
     throw new Error('Invalid Bluesky result limit');
+  }
+  return number;
+}
+
+function readDepth(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 100) {
+    throw new Error('Invalid Bluesky thread depth');
   }
   return number;
 }
@@ -83,7 +100,7 @@ function requiresRefresh(error) {
     || /expired|token|unauthorized/i.test(`${error?.code || ''} ${error?.message || ''}`);
 }
 
-function createBlueskyGateway({ vault, client } = {}) {
+function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
   if (!vault?.load || !vault?.save || !vault?.clear || !client) {
     throw new Error('Bluesky Gateway requires a Vault and AT Protocol client');
   }
@@ -192,7 +209,8 @@ function createBlueskyGateway({ vault, client } = {}) {
         return authenticated(account => client.getThread(
           account.accessJwt,
           readString(payload.uri, 'post URI'),
-          readLimit(payload.depth, 6, 100),
+          readDepth(payload.depth, 12),
+          readDepth(payload.parentHeight, 12),
         ));
       case 'like':
         return authenticated(account => client.like(
@@ -248,6 +266,25 @@ function createBlueskyGateway({ vault, client } = {}) {
           blob.mimeType,
           blob.bytes,
         ));
+      }
+      case 'uploadVideo': {
+        if (typeof prepareVideo !== 'function' || typeof client.uploadVideo !== 'function') {
+          throw new Error('Bluesky video upload is unavailable');
+        }
+        const video = await prepareVideo({
+          filePath: readString(payload.filePath, 'video file path', 32_768),
+          name: readString(payload.name, 'video file name', 512),
+          startSeconds: readFiniteNumber(payload.startSeconds, 'video start'),
+          endSeconds: readFiniteNumber(payload.endSeconds, 'video end'),
+          durationSeconds: readFiniteNumber(payload.durationSeconds, 'video duration'),
+        });
+        const blob = await authenticated(account => client.uploadVideo(
+          account.accessJwt,
+          account.did,
+          video.name,
+          video.bytes,
+        ));
+        return { blob };
       }
       default:
         throw new Error(`Unsupported Bluesky operation: ${operation}`);

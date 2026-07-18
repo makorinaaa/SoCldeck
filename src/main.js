@@ -14,6 +14,7 @@ const { denyWebviewPermissions } = require('./main/webview-permission-policy');
 const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
 const { createAtprotoClient } = require('./main/bluesky-atproto-client');
 const { createBlueskyGateway } = require('./main/bluesky-gateway');
+const { createBlueskyVideoFileService } = require('./main/bluesky-video-file');
 const {
   registerTrustedIpcHandler,
   secureApplicationWebContents,
@@ -128,9 +129,13 @@ const blueskySessionVault = createBlueskySessionVault({
   filePath: BLUESKY_SESSION_PATH,
   safeStorage,
 });
+const blueskyVideoFileService = createBlueskyVideoFileService({
+  isPackaged: app.isPackaged,
+});
 const blueskyGateway = createBlueskyGateway({
   vault: blueskySessionVault,
   client: createAtprotoClient({ fetchImpl: (...args) => net.fetch(...args) }),
+  prepareVideo: input => blueskyVideoFileService.prepare(input),
 });
 
 function loadConfig() {

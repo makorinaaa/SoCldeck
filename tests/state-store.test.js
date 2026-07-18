@@ -32,6 +32,19 @@ test('defaults cross-post preferences to disabled for existing users', () => {
   );
 });
 
+test('normalizes and persists appearance settings', () => {
+  const { stateStore, readSaved } = createStore({
+    appearance: { theme: 'unknown', accent: 'red' },
+  });
+  const state = stateStore.load();
+
+  assert.deepEqual({ ...state.appearance }, { theme: 'dark', accent: '#4e9af0' });
+  state.appearance = { theme: 'light', accent: '#e05c7a' };
+  stateStore.save(state);
+
+  assert.deepEqual(readSaved().appearance, { theme: 'light', accent: '#e05c7a' });
+});
+
 test('persists cross-post preferences across app restarts', () => {
   const { stateStore, readSaved } = createStore();
   const state = stateStore.load();

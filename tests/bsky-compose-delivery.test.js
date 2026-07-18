@@ -65,3 +65,40 @@ test('builds and creates a Bluesky post record behind its Adapter interface', as
     },
   }]);
 });
+
+test('uploads and embeds one Bluesky video', async () => {
+  const createDelivery = loadFactory();
+  const calls = [];
+  const delivery = createDelivery({
+    uploadBlob: async () => { throw new Error('image upload should not run'); },
+    uploadVideo: async video => {
+      calls.push(['uploadVideo', plain(video)]);
+      return { ref: 'video-ref' };
+    },
+    buildFacets: () => [],
+    resolveFacets: async facets => facets,
+    createRecord: async record => calls.push(['createRecord', plain(record)]),
+    now: () => '2026-07-18T00:00:00.000Z',
+  });
+
+  await delivery.execute({
+    repoDid: 'did:plc:alice',
+    text: 'video post',
+    images: [],
+    video: {
+      file: { name: 'clip.mp4' },
+      sourcePath: 'C:\\media\\clip.mp4',
+      trim: { startSeconds: 5, endSeconds: 65 },
+      durationSeconds: 90,
+      alt: 'Demo video',
+    },
+    reply: null,
+  });
+
+  assert.equal(calls[0][0], 'uploadVideo');
+  assert.deepEqual(calls[1][1].record.embed, {
+    $type: 'app.bsky.embed.video',
+    video: { ref: 'video-ref' },
+    alt: 'Demo video',
+  });
+});

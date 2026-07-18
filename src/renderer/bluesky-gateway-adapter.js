@@ -4,7 +4,7 @@
     'markNotificationsSeen', 'getProfile', 'follow', 'unfollow',
     'getThread', 'like', 'unlike', 'repost', 'unrepost',
     'getUnreadCount', 'searchActors', 'resolveHandle',
-    'createPostRecord', 'uploadBlob',
+    'createPostRecord', 'uploadBlob', 'uploadVideo',
   ];
 
   function createBlueskyGatewayAdapter({ invoke, login, clearSession } = {}) {

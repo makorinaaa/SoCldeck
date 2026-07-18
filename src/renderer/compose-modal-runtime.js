@@ -3,7 +3,7 @@
     documentRef = global.document,
     urlApi = global.URL,
     ui = {},
-    maxVideoSeconds = 140,
+    maxVideoSeconds = { x: 140, b: 180 },
   } = {}) {
     const escape = ui.escape || (value => String(value ?? '')
       .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -17,12 +17,23 @@
       'x-trim-dur-label', 'x-trim-highlight', 'x-ffmpeg-status', 'cross-post-controls',
       'cross-post-x', 'cross-post-x-account', 'comp-av', 'cta', 'cct', 'sndb',
       'b-compose-preview', 'b-img-area', 'b-img-preview', 'b-img-drop', 'b-img-file', 'b-reply-preview',
+      'b-video-wrap', 'b-video-preview', 'b-trim-in', 'b-trim-out',
+      'b-trim-start-label', 'b-trim-end-label', 'b-trim-dur-label',
+      'b-trim-highlight', 'b-ffmpeg-status',
     ];
     ids.forEach(id => { elements[id] = documentRef.getElementById(id); });
     let handlers = {};
     const fileUrls = new Map();
     const activeFiles = { x: new Set(), b: new Set() };
-    const renderedMedia = { x: { images: [], video: null }, b: { images: [] } };
+    const renderedMedia = {
+      x: { images: [], video: null },
+      b: { images: [], video: null },
+    };
+
+    function videoLimit(networkId) {
+      if (typeof maxVideoSeconds === 'number') return maxVideoSeconds;
+      return Number(maxVideoSeconds?.[networkId]) || (networkId === 'b' ? 180 : 140);
+    }
 
     function sameFiles(left, right) {
       return left.length === right.length && left.every((file, index) => file === right[index]);
@@ -49,6 +60,59 @@
       }
     }
 
+    function renderVideoControls(networkId, video) {
+      const prefix = networkId === 'x' ? 'x' : 'b';
+      if (elements[`${prefix}-video-wrap`]) {
+        elements[`${prefix}-video-wrap`].style.display = video ? 'block' : 'none';
+      }
+      const videoElement = elements[`${prefix}-video-preview`];
+      if (videoElement) {
+        if (video && videoElement.dataset.composeFileName !== video.file?.name) {
+          videoElement.src = objectUrl(video.file);
+          videoElement.dataset.composeFileName = video.file?.name || '';
+        } else if (!video && videoElement.src) {
+          videoElement.removeAttribute?.('src');
+          videoElement.dataset.composeFileName = '';
+          videoElement.load?.();
+        }
+      }
+
+      const status = elements[`${prefix}-ffmpeg-status`];
+      if (!video) {
+        if (status) status.textContent = '';
+        return;
+      }
+      const duration = video.durationSeconds || 0;
+      const startPercent = duration ? (video.trim.startSeconds / duration) * 100 : 0;
+      const endPercent = duration ? (video.trim.endSeconds / duration) * 100 : 100;
+      if (elements[`${prefix}-trim-in`]) elements[`${prefix}-trim-in`].value = String(startPercent);
+      if (elements[`${prefix}-trim-out`]) elements[`${prefix}-trim-out`].value = String(endPercent);
+      if (elements[`${prefix}-trim-start-label`]) {
+        elements[`${prefix}-trim-start-label`].textContent = ui.formatSeconds?.(video.trim.startSeconds) || '';
+      }
+      if (elements[`${prefix}-trim-end-label`]) {
+        elements[`${prefix}-trim-end-label`].textContent = ui.formatSeconds?.(video.trim.endSeconds) || '';
+      }
+      const tooLong = video.trimDurationSeconds > videoLimit(networkId);
+      if (elements[`${prefix}-trim-dur-label`]) {
+        elements[`${prefix}-trim-dur-label`].textContent = ui.formatSeconds?.(video.trimDurationSeconds) || '';
+        elements[`${prefix}-trim-dur-label`].style.color = tooLong ? 'var(--red)' : 'inherit';
+      }
+      if (elements[`${prefix}-trim-highlight`]) {
+        elements[`${prefix}-trim-highlight`].style.left = `${startPercent}%`;
+        elements[`${prefix}-trim-highlight`].style.width = `${Math.max(0, endPercent - startPercent)}%`;
+      }
+      if (status) {
+        const formattedDuration = ui.formatSeconds?.(video.trimDurationSeconds)
+          || video.trimDurationSeconds;
+        status.textContent = !tooLong
+          ? ''
+          : networkId === 'x'
+            ? `トリム後の長さが ${formattedDuration} です。2分20秒以内にしてください`
+            : `動画を3分以内にトリミングしてください（現在 ${formattedDuration}）`;
+      }
+    }
+
     function modalId(networkId) {
       return networkId === 'x' ? 'xPostMod' : 'compMod';
     }
@@ -70,7 +134,7 @@
         : escape(initials);
       const imageCount = snapshot.media.images.length;
       const altCount = snapshot.media.images.filter(image => image.altText).length;
-      const attachmentText = snapshot.networkId === 'x' && snapshot.media.video
+      const attachmentText = snapshot.media.video
         ? '動画 1本'
         : imageCount > 0 ? `画像 ${imageCount}枚 / ALT入力 ${altCount}枚` : '添付なし';
       preview.classList.toggle('on', snapshot.previewOpen);
@@ -161,44 +225,7 @@
         elements['x-img-drop'].style.opacity = images.length >= 4 || video ? '0.4' : '1';
         elements['x-img-drop'].style.pointerEvents = video || snapshot.locked || snapshot.busy ? 'none' : '';
       }
-      if (elements['x-video-wrap']) elements['x-video-wrap'].style.display = video ? 'block' : 'none';
-      const videoElement = elements['x-video-preview'];
-      if (videoElement) {
-        if (video && videoElement.dataset.composeFileName !== video.file?.name) {
-          videoElement.src = objectUrl(video.file);
-          videoElement.dataset.composeFileName = video.file?.name || '';
-        } else if (!video && videoElement.src) {
-          videoElement.removeAttribute?.('src');
-          videoElement.dataset.composeFileName = '';
-          videoElement.load?.();
-        }
-      }
-      if (video) {
-        const duration = video.durationSeconds || 0;
-        const startPercent = duration ? (video.trim.startSeconds / duration) * 100 : 0;
-        const endPercent = duration ? (video.trim.endSeconds / duration) * 100 : 100;
-        if (elements['x-trim-in']) elements['x-trim-in'].value = String(startPercent);
-        if (elements['x-trim-out']) elements['x-trim-out'].value = String(endPercent);
-        if (elements['x-trim-start-label']) elements['x-trim-start-label'].textContent = ui.formatSeconds?.(video.trim.startSeconds) || '';
-        if (elements['x-trim-end-label']) elements['x-trim-end-label'].textContent = ui.formatSeconds?.(video.trim.endSeconds) || '';
-        if (elements['x-trim-dur-label']) {
-          elements['x-trim-dur-label'].textContent = ui.formatSeconds?.(video.trimDurationSeconds) || '';
-          elements['x-trim-dur-label'].style.color = video.trimDurationSeconds > maxVideoSeconds
-            ? 'var(--red)'
-            : 'inherit';
-        }
-        if (elements['x-trim-highlight']) {
-          elements['x-trim-highlight'].style.left = `${startPercent}%`;
-          elements['x-trim-highlight'].style.width = `${Math.max(0, endPercent - startPercent)}%`;
-        }
-        if (elements['x-ffmpeg-status']) {
-          elements['x-ffmpeg-status'].textContent = video.trimDurationSeconds > maxVideoSeconds
-            ? `トリム後の長さが ${ui.formatSeconds?.(video.trimDurationSeconds) || video.trimDurationSeconds} です。2分20秒以内にしてください`
-            : '';
-        }
-      } else if (elements['x-ffmpeg-status']) {
-        elements['x-ffmpeg-status'].textContent = '';
-      }
+      renderVideoControls('x', video);
       releaseUnusedUrls();
     }
 
@@ -246,12 +273,18 @@
     }
 
     function renderBlueskyMedia(snapshot) {
-      const { images } = snapshot.media;
-      activeFiles.b = new Set(images.map(image => image.file));
+      const { images, video } = snapshot.media;
+      activeFiles.b = new Set([...images.map(image => image.file), ...(video ? [video.file] : [])]);
       const imageFiles = images.map(image => image.file);
-      const mediaChanged = !sameFiles(renderedMedia.b.images, imageFiles);
+      const mediaChanged = !sameFiles(renderedMedia.b.images, imageFiles)
+        || renderedMedia.b.video !== (video?.file || null);
       if (elements['b-img-preview'] && mediaChanged) {
-        elements['b-img-preview'].innerHTML = images.map((image, imageIndex) => `
+        elements['b-img-preview'].innerHTML = video
+          ? `<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2);width:100%">
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escape(video.file?.name || '動画')}</span>
+              <button data-compose-action="remove-video" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px">削除</button>
+            </div>`
+          : images.map((image, imageIndex) => `
           <div style="position:relative;width:100%;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg3);margin-bottom:5px;border:1px solid var(--border)">
             <div style="display:flex;align-items:center;gap:8px;padding:5px 8px">
               <img src="${escape(objectUrl(image.file))}" style="width:52px;height:52px;object-fit:cover;border-radius:4px;flex-shrink:0">
@@ -264,11 +297,12 @@
           </div>`).join('');
       }
       syncAltInputs(elements['b-img-preview'], images);
-      renderedMedia.b = { images: imageFiles };
+      renderedMedia.b = { images: imageFiles, video: video?.file || null };
       if (elements['b-img-drop']) {
-        elements['b-img-drop'].style.opacity = images.length >= 4 ? '0.4' : '1';
-        elements['b-img-drop'].style.pointerEvents = snapshot.locked || snapshot.busy ? 'none' : '';
+        elements['b-img-drop'].style.opacity = images.length >= 4 || video ? '0.4' : '1';
+        elements['b-img-drop'].style.pointerEvents = video || snapshot.locked || snapshot.busy ? 'none' : '';
       }
+      renderVideoControls('b', video);
       releaseUnusedUrls();
     }
 
@@ -304,7 +338,7 @@
           Number(actionElement.dataset.composeImageIndex),
         );
       }
-      if (action === 'remove-video') handlers.removeVideo?.();
+      if (action === 'remove-video') handlers.removeVideo?.(networkId);
     }
 
     function onInput(event) {
@@ -318,11 +352,12 @@
           target.value,
         );
       }
-      if (target.id === 'x-trim-in' || target.id === 'x-trim-out') {
-        const edge = target.id === 'x-trim-in' ? 'start' : 'end';
-        const snapshot = handlers.trimChanged?.(edge, target.value);
+      if (/^[xb]-trim-(in|out)$/.test(target.id || '')) {
+        const networkId = target.id.startsWith('x-') ? 'x' : 'b';
+        const edge = target.id.endsWith('-in') ? 'start' : 'end';
+        const snapshot = handlers.trimChanged?.(networkId, edge, target.value);
         const trim = snapshot?.media?.video?.trim;
-        const video = elements['x-video-preview'];
+        const video = elements[`${networkId}-video-preview`];
         if (video && trim) video.currentTime = edge === 'start' ? trim.startSeconds : trim.endSeconds;
       }
     }
@@ -368,8 +403,14 @@
       modal.addEventListener('dragleave', onDragLeave);
       modal.addEventListener('drop', onDrop);
     });
-    const onVideoMetadata = () => handlers.videoMetadataLoaded?.(elements['x-video-preview']?.duration || 0);
-    elements['x-video-preview']?.addEventListener('loadedmetadata', onVideoMetadata);
+    const videoMetadataHandlers = ['x', 'b'].map(networkId => {
+      const handler = () => handlers.videoMetadataLoaded?.(
+        networkId,
+        elements[`${networkId}-video-preview`]?.duration || 0,
+      );
+      elements[`${networkId}-video-preview`]?.addEventListener('loadedmetadata', handler);
+      return [networkId, handler];
+    });
 
     return {
       connect(nextHandlers) { handlers = nextHandlers || {}; },
@@ -382,7 +423,9 @@
           modal.removeEventListener('dragleave', onDragLeave);
           modal.removeEventListener('drop', onDrop);
         });
-        elements['x-video-preview']?.removeEventListener('loadedmetadata', onVideoMetadata);
+        videoMetadataHandlers.forEach(([networkId, handler]) => {
+          elements[`${networkId}-video-preview`]?.removeEventListener('loadedmetadata', handler);
+        });
         for (const url of fileUrls.values()) urlApi.revokeObjectURL(url);
         fileUrls.clear();
         handlers = {};
@@ -425,11 +468,11 @@
       const media = mediaDrafts[networkId]?.getSnapshot?.() || { images: [], video: null };
       const crossPostAvailable = networkId === 'x'
         ? Boolean(currentAccounts.b && !media.video)
-        : Boolean(currentAccounts.x.length > 0 && !reply);
+        : Boolean(currentAccounts.x.length > 0 && !reply && !media.video);
       const crossPosting = crossPostAvailable && Boolean(crossPost[networkId]);
       const characterLimit = networkId === 'b' && !crossPosting ? 300 : 280;
       const characterCount = (text[networkId] || '').length;
-      const hasAttachment = media.images.length > 0 || Boolean(networkId === 'x' && media.video);
+      const hasAttachment = media.images.length > 0 || Boolean(media.video);
       return {
         networkId,
         open: openNetworkId === networkId,
@@ -559,6 +602,8 @@
       if (result.status === 'rejected') {
         const message = result.reason === 'mixed-media'
           ? '画像と動画を同時に添付できません'
+          : result.reason === 'unsupported-video'
+            ? 'Blueskyの動画投稿はMP4形式に対応しています'
           : networkId === 'x' ? '画像は最大4枚まで添付できます' : '画像は最大4枚まで';
         intents.toast?.(message);
       }
@@ -576,19 +621,19 @@
       return publish(networkId);
     }
 
-    function videoMetadataLoaded(durationSeconds) {
-      mediaDrafts.x?.setVideoDuration?.(durationSeconds);
-      return publish('x');
+    function videoMetadataLoaded(networkId, durationSeconds) {
+      mediaDrafts[networkId]?.setVideoDuration?.(durationSeconds);
+      return publish(networkId);
     }
 
-    function trimChanged(edge, value) {
-      mediaDrafts.x?.setTrimPercent?.(edge, value);
-      return publish('x');
+    function trimChanged(networkId, edge, value) {
+      mediaDrafts[networkId]?.setTrimPercent?.(edge, value);
+      return publish(networkId);
     }
 
-    function removeVideo() {
-      mediaDrafts.x?.removeVideo?.();
-      return publish('x');
+    function removeVideo(networkId) {
+      mediaDrafts[networkId]?.removeVideo?.();
+      return publish(networkId);
     }
 
     function submit(networkId) {

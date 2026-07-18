@@ -144,20 +144,27 @@
   }
 
   function prepareBlueskyComposeDelivery(request) {
-    const hasUnsupportedAttachment = request.attachments
-      .some(attachment => attachment.kind !== 'image');
-    if (hasUnsupportedAttachment) {
-      throw new Error('Bluesky compose delivery only supports image attachments');
+    const images = request.attachments.filter(attachment => attachment.kind === 'image');
+    const videoAttachment = request.attachments.find(attachment => attachment.kind === 'video');
+    if (images.length > 0 && videoAttachment) {
+      throw new Error('Bluesky compose delivery cannot mix image and video attachments');
     }
 
     return {
       kind: 'bsky-atproto',
       repoDid: request.target.accountId,
       text: request.text,
-      images: request.attachments.map(attachment => ({
+      images: images.map(attachment => ({
         file: attachment.file,
         alt: attachment.altText,
       })),
+      ...(videoAttachment ? { video: {
+            file: videoAttachment.file,
+            sourcePath: videoAttachment.sourcePath,
+            durationSeconds: videoAttachment.durationSeconds,
+            trim: { ...videoAttachment.trim },
+            alt: videoAttachment.altText || '',
+          } } : {}),
       reply: request.replyTo
         ? {
             root: { ...request.replyTo.root },
