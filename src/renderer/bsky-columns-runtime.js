@@ -29,7 +29,17 @@
     let profileHoverTimerOwnerId = null;
     let profileCardOwnerId = null;
     let activeDetail = null;
+    let activeRepostMenu = null;
     let detailSequence = 0;
+
+    function closeRepostMenu(ownerId = null) {
+      if (!activeRepostMenu || (ownerId && activeRepostMenu.ownerId !== ownerId)) return;
+      const { menu, pointerDownHandler, keyDownHandler } = activeRepostMenu;
+      documentRef?.removeEventListener?.('pointerdown', pointerDownHandler, true);
+      documentRef?.removeEventListener?.('keydown', keyDownHandler);
+      menu.remove?.();
+      activeRepostMenu = null;
+    }
 
     function clearProfileHoverTimer(ownerId = null) {
       if (ownerId && profileHoverTimerOwnerId !== ownerId) return;
@@ -46,6 +56,7 @@
     function closeActiveDetail() {
       if (!activeDetail) return;
       const { overlay, ownerId } = activeDetail;
+      closeRepostMenu(ownerId);
       clearProfileHoverTimer(ownerId);
       if (profileCardOwnerId === ownerId) removeProfileCard();
       overlay.remove?.();
@@ -425,14 +436,17 @@
       }
     }
 
-    function openRepostMenu(button, post) {
+    function openRepostMenu(button, post, ownerId) {
       if (!documentRef?.createElement || !documentRef?.body) return;
+      closeRepostMenu();
       documentRef.getElementById?.('rt-ctx-menu')?.remove?.();
       const menu = documentRef.createElement('div');
       menu.id = 'rt-ctx-menu';
+      menu.className = 'bsky-repost-menu';
       const rect = button.getBoundingClientRect?.() || { left: 0, bottom: 0 };
       if (menu.style) {
-        menu.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+        menu.style.left = `${rect.left}px`;
+        menu.style.top = `${rect.bottom + 4}px`;
       }
       const active = button.classList.contains('rted');
       menu.innerHTML = `
@@ -452,9 +466,22 @@
             handle: post.dataset.authorHandle || '',
           });
         }
-        menu.remove?.();
+        closeRepostMenu();
       });
       documentRef.body.appendChild(menu);
+      const pointerDownHandler = event => {
+        const clickedInside = menu.contains?.(event.target)
+          || event.target?.closest?.('#rt-ctx-menu') === menu;
+        if (!clickedInside) closeRepostMenu();
+      };
+      const keyDownHandler = event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault?.();
+        closeRepostMenu();
+      };
+      activeRepostMenu = { menu, ownerId, pointerDownHandler, keyDownHandler };
+      documentRef.addEventListener?.('pointerdown', pointerDownHandler, true);
+      documentRef.addEventListener?.('keydown', keyDownHandler);
     }
 
     async function openPostDetail(post, columnId = null) {
@@ -545,7 +572,7 @@
       }
     }
 
-    function createClickHandler(columnId) {
+    function createClickHandler(columnId, ownerId = columnId) {
       return async event => {
         const profile = event.target?.closest?.('[data-bsky-profile]');
         if (profile) {
@@ -608,7 +635,7 @@
               handle: post.dataset.authorHandle || '',
             });
           } else if (actionName === 'repost') {
-            openRepostMenu(action, post);
+            openRepostMenu(action, post, ownerId);
           }
           return;
         }
@@ -633,7 +660,7 @@
     }
 
     function createDelegatedHandlers(columnId, ownerId = columnId) {
-      const delegatedClickHandler = createClickHandler(columnId);
+      const delegatedClickHandler = createClickHandler(columnId, ownerId);
       const clickHandler = event => Promise.resolve(delegatedClickHandler(event)).catch(() => {});
       const keyHandler = event => {
         if (!['Enter', ' '].includes(event.key)) return;
@@ -886,6 +913,7 @@
       columns.delete(id);
       clearProfileHoverTimer(id);
       if (profileCardOwnerId === id) removeProfileCard();
+      closeRepostMenu(id);
       return true;
     }
 

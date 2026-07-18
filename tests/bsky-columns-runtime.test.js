@@ -70,9 +70,13 @@ function createActionButton(action, post) {
 
 function createDetailDocument() {
   const nodes = [];
+  const listeners = {};
   return {
     nodes,
     body: { appendChild(node) { nodes.push(node); } },
+    addEventListener(type, listener) { listeners[type] = listener; },
+    removeEventListener(type, listener) { if (listeners[type] === listener) delete listeners[type]; },
+    dispatch(type, event) { return listeners[type]?.(event); },
     getElementById(id) { return nodes.find(node => node.id === id && !node.removed) || null; },
     createElement() {
       const detailBody = { innerHTML: '' };
@@ -545,6 +549,7 @@ test('owns the Timeline repost menu and optimistic repost delivery', async () =>
   await host.dispatch('click', { target: button, preventDefault() {}, stopPropagation() {} });
   const menu = documentRef.nodes[0];
   assert.equal(menu.id, 'rt-ctx-menu');
+  assert.equal(menu.className, 'bsky-repost-menu');
   assert.doesNotMatch(menu.innerHTML, /\sonclick=/);
   const confirm = {
     dataset: { bskyMenuAction: 'confirm-repost' },
@@ -557,6 +562,36 @@ test('owns the Timeline repost menu and optimistic repost delivery', async () =>
   assert.equal(count.textContent, '4');
   assert.equal(post.dataset.reposturi, 'at://repost/1');
   assert.deepEqual(plain(outcomes), [{ kind: 'repost', status: 'succeeded', active: true }]);
+});
+
+test('keeps the Timeline repost menu compact and dismisses it without choosing an action', async () => {
+  const host = createFeedHost();
+  const documentRef = createDetailDocument();
+  const post = { dataset: { uri: 'at://post/1', cid: 'cid-1', reposturi: '' } };
+  const { button } = createActionButton('repost', post);
+  button.getBoundingClientRect = () => ({ left: 20, bottom: 40 });
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [] }) },
+    muteRules: { blocksPost: () => false },
+    ui: {},
+    icons: { repost: '<svg viewBox="0 0 24 24"><path /></svg>' },
+    documentRef,
+  });
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+
+  await host.dispatch('click', { target: button, preventDefault() {}, stopPropagation() {} });
+  const firstMenu = documentRef.getElementById('rt-ctx-menu');
+  assert.ok(firstMenu);
+  documentRef.dispatch('pointerdown', { target: { closest: () => null } });
+  assert.equal(documentRef.getElementById('rt-ctx-menu'), null);
+
+  await host.dispatch('click', { target: button, preventDefault() {}, stopPropagation() {} });
+  assert.ok(documentRef.getElementById('rt-ctx-menu'));
+  documentRef.dispatch('keydown', { key: 'Escape' });
+  assert.equal(documentRef.getElementById('rt-ctx-menu'), null);
+
+  const stylesheet = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+  assert.match(stylesheet, /\.bsky-repost-menu\s+svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/);
 });
 
 test('renders a safe Timeline error and retries through the Runtime handler', async () => {
