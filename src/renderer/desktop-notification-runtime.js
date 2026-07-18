@@ -1,5 +1,6 @@
 (function (global) {
   const STORAGE_KEY = 'socialdeck_desktop_notification_rules';
+  const KNOWN_IDS_VERSION = 2;
   const REASONS = ['reply', 'mention', 'quote', 'follow', 'like', 'repost', 'other'];
   const DEFAULT_RULES = Object.freeze({
     enabled: false,
@@ -216,8 +217,11 @@
       try {
         const saved = JSON.parse(storage?.getItem?.(STORAGE_KEY) || 'null') || {};
         rules = normalizeRules(saved.rules || saved);
-        knownIds = Array.isArray(saved.knownIds) ? saved.knownIds.filter(Boolean).slice(0, 1000) : [];
-        baselined = saved.baselined === true;
+        const identitiesAreCurrent = saved.knownIdsVersion === KNOWN_IDS_VERSION;
+        knownIds = identitiesAreCurrent && Array.isArray(saved.knownIds)
+          ? saved.knownIds.filter(Boolean).slice(0, 1000)
+          : [];
+        baselined = identitiesAreCurrent && saved.baselined === true;
       } catch {
         rules = normalizeRules();
         knownIds = [];
@@ -226,7 +230,12 @@
     }
 
     function save() {
-      storage?.setItem?.(STORAGE_KEY, JSON.stringify({ rules, knownIds, baselined }));
+      storage?.setItem?.(STORAGE_KEY, JSON.stringify({
+        rules,
+        knownIds,
+        baselined,
+        knownIdsVersion: KNOWN_IDS_VERSION,
+      }));
     }
 
     function stopTimer() {
