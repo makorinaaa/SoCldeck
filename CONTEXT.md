@@ -64,6 +64,10 @@ _Avoid_: Column definition, modal option, DOM column
 The life of a Column Instance from creation or workspace restoration through refresh and workspace changes to removal.
 _Avoid_: Feed lifecycle, DOM lifecycle, render cycle
 
+**Column Shell Runtime**:
+The presentation boundary that materializes a Column Instance as common workspace DOM. It owns the Column root, header, shared controls, content hosts, refresh presentation, collapse presentation, and translation of shell interactions into semantic intents; it does not own Column identity, persistence, refresh scheduling, or network content.
+_Avoid_: Column Lifecycle, Network Adapter, feed renderer, DOM column
+
 **Workspace State**:
 The durable state needed to restore a user's SocialDeck workspace, such as Network Accounts, Column layout, and user preferences.
 _Avoid_: Runtime state, localStorage blob, session

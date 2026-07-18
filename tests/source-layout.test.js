@@ -94,7 +94,41 @@ test('loads the Anime Schedule Runtime before renderer', () => {
   assert.ok(runtimeIndex < rendererIndex);
   assert.match(renderer, /SocialDeckAnimeScheduleRuntime\.createAnimeScheduleRuntime\(\{/);
   assert.match(renderer, /networkAdapters\.getColumnDefinitions\('anime'\)/);
-  assert.match(renderer, /insertAnimeScheduleCol\(plan\.config\)/);
+  assert.match(renderer, /mountAnimeScheduleColumn\(plan\.config\)/);
+});
+
+test('keeps common Column shell DOM behind Column Shell Runtime', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/column-shell-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckColumnShellRuntime\.createColumnShellRuntime\(\{/);
+  for (const functionName of [
+    'insertColumnRestoreError',
+    'mountAnimeScheduleColumn',
+    'mountBlueskyColumn',
+    'mountWebViewColumn',
+  ]) {
+    const start = renderer.indexOf(`function ${functionName}`);
+    const end = renderer.indexOf('\nfunction ', start + 1);
+    const body = renderer.slice(start, end === -1 ? undefined : end);
+    assert.notEqual(start, -1, `${functionName} must exist`);
+    assert.match(body, /columnShellRuntime\.mount\(\{/);
+  }
+  assert.doesNotMatch(renderer, /function insert(?:AnimeSchedule|Bsky|WebView)Col\b/);
+  const rendererWithoutWidgetStyles = renderer.replace(/ws\.textContent = `[\s\S]*?`;/, '');
+  assert.doesNotMatch(
+    rendererWithoutWidgetStyles,
+    /(?:col-head|col-info|col-actions|col-refresh-state|col-collapse-btn|col-resize)/,
+  );
+  assert.doesNotMatch(renderer, /className\s*=\s*['"]col['"]/);
+  assert.doesNotMatch(renderer, /\bcol\.style\.(?:width|minWidth)\b/);
+  assert.doesNotMatch(renderer, /function (?:renderColumnRefreshState|toggleColCollapse)\b/);
 });
 
 test('keeps API-backed Bluesky Columns behind their Runtime', () => {
