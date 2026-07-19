@@ -246,6 +246,25 @@ test('keeps Compose modal presentation and events behind its Runtime', () => {
   assert.match(renderer, /SocialDeckComposeCrossPostPlan/);
 });
 
+test('keeps settings modal presentation behind Settings Modals Runtime', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const runtimeIndex = index.indexOf(
+    '<script src="renderer/settings-modals-runtime.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  assert.ok(runtimeIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckSettingsModalsRuntime\.createSettingsModalsRuntime\(\{/);
+  assert.match(renderer, /settingsModals\.openColumnSettings\(/);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:openNgSettings|addNg|removeNg|openColSettings|applyInterval|applyColFontSize|openMemSettings|applyMemInterval|renderMemoryMetrics|refreshMemoryMetrics|runMemoryClear|formatMemoryMb|getMemInterval|syncAppearanceSettings|openAppearanceSettings|previewAppearance|cancelAppearance|saveAppearance)\b/,
+  );
+  assert.doesNotMatch(renderer, /ng-modal-ov|col-settings-ov|mem-settings-ov/);
+});
+
 test('keeps Compose submission orchestration behind Compose Submission', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');

@@ -114,7 +114,7 @@ const columnShellRuntime = window.SocialDeckColumnShellRuntime.createColumnShell
     if (type === 'refresh') return refreshColumn(id, target);
     if (type === 'remove') return removeCol(id);
     if (type === 'back') return wvBack(id);
-    if (type === 'settings') return openColSettings(id, columnType);
+    if (type === 'settings') return settingsModals.openColumnSettings(id, columnType);
     if (type === 'scroll-top' && kind === 'x') return wvScrollTop(id);
     if (type === 'scroll-top' && kind === 'bsky') return bskyScrollTop(id);
     if (type === 'scroll-top' && kind === 'schedule') return animeScheduleScrollTop(id);
@@ -216,65 +216,6 @@ function restoreColLayout() {
 // ─── NG WORD / MUTE ──────────────────────────────
 const muteRules = window.SocialDeckMuteRules.createMuteRules();
 
-function openNgSettings() {
-  const ngData = muteRules.getRules();
-  document.getElementById('ng-modal-ov')?.remove();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'ng-modal-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-
-  const wordsList = ngData.words.map((w, i) =>
-    `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
-      <span style="flex:1;font-size:12px;color:var(--text1)">${esc(w)}</span>
-      <button data-action="remove-ng-rule" data-rule-kind="word" data-rule-index="${i}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
-
-  const usersList = ngData.users.map((u, i) =>
-    `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
-      <span style="flex:1;font-size:12px;color:var(--text1)">@${esc(u)}</span>
-      <button data-action="remove-ng-rule" data-rule-kind="user" data-rule-index="${i}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
-
-  ov.innerHTML = `<div class="modal" style="width:380px;max-height:80vh;overflow-y:auto">
-    <h2 style="margin-bottom:16px">NGワード / ミュート設定</h2>
-    <div style="margin-bottom:18px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">NGワード（投稿本文）</div>
-      ${wordsList}
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <input id="ng-word-input" type="text" placeholder="キーワードを追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button data-action="add-ng-rule" data-rule-kind="word" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
-      </div>
-    </div>
-    <div style="margin-bottom:18px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">ミュートユーザー</div>
-      ${usersList}
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <input id="ng-user-input" type="text" placeholder="@handle を追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button data-action="add-ng-rule" data-rule-kind="user" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
-      </div>
-    </div>
-    <button data-action="remove-element" data-target-id="ng-modal-ov" class="btn-cancel">閉じる</button>
-  </div>`;
-  document.body.appendChild(ov);
-  setTimeout(() => document.getElementById('ng-word-input')?.focus(), 50);
-}
-
-function addNg(type) {
-  const inputId = type === 'word' ? 'ng-word-input' : 'ng-user-input';
-  const input = document.getElementById(inputId);
-  const { value: val } = muteRules.add(type, input?.value);
-  if (!val) return;
-  openNgSettings();
-  refilterBskyCols();
-  toast('NG ' + type + ': ' + val + ' added');
-}
-
-function removeNg(type, idx) {
-  muteRules.remove(type, idx);
-  openNgSettings();
-  refilterBskyCols();
-}
-
 // NGルール変更時に全Bskyカラムを再読み込みして即時反映
 function refilterBskyCols() {
   document.querySelectorAll('.col').forEach(col => {
@@ -349,6 +290,31 @@ const memoryCleaner = window.SocialDeckMemoryCleaner.createMemoryCleaner({
       ? 0
       : xWebViewRuntime?.disposeNotificationReaders?.() || 0;
     return { blueskyItemsRemoved, xNotificationReadersDisposed };
+  },
+});
+const settingsModals = window.SocialDeckSettingsModalsRuntime.createSettingsModalsRuntime({
+  documentRef: document,
+  storage: localStorage,
+  muteRules,
+  appearance: appearanceRuntime,
+  memoryCleaner,
+  columns: {
+    getRefreshInterval: id => columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS),
+    setRefreshInterval: (id, ms) => columnLifecycle.setRefreshInterval(id, ms),
+    persistLayout: () => columnLifecycle.persist(),
+    setFontSize: (id, colType, fontSize) => {
+      if (colType === 'wv') {
+        xWebViewRuntime.setFontSize(id, fontSize);
+      } else {
+        const feed = document.getElementById(`feed-${id}`);
+        if (feed) feed.style.fontSize = fontSize + 'px';
+      }
+    },
+  },
+  ui: { escape: esc },
+  intents: {
+    toast: message => toast(message),
+    refilterColumns: () => refilterBskyCols(),
   },
 });
 const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
@@ -445,41 +411,6 @@ bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumns
 
 
 function saveState() { stateStore.save(state); }
-
-function syncAppearanceSettings(appearance) {
-  document.querySelectorAll('.appearance-theme').forEach(button => {
-    button.classList.toggle('primary', button.dataset.theme === appearance.theme);
-  });
-  document.querySelectorAll('.appearance-swatch').forEach(button => {
-    button.classList.toggle('selected', button.dataset.accent === appearance.accent);
-  });
-  const custom = document.getElementById('appearance-custom-color');
-  if (custom && custom.value !== appearance.accent) custom.value = appearance.accent;
-}
-
-function openAppearanceSettings() {
-  const appearance = appearanceRuntime.begin();
-  syncAppearanceSettings(appearance);
-  document.getElementById('appearanceMod')?.classList.add('on');
-}
-
-function previewAppearance(partial) {
-  const appearance = appearanceRuntime.preview(partial);
-  syncAppearanceSettings(appearance);
-}
-
-function cancelAppearance(event = null, overlay = null) {
-  if (event && overlay && event.target !== overlay) return;
-  appearanceRuntime.cancel();
-  document.getElementById('appearanceMod')?.classList.remove('on');
-}
-
-function saveAppearance() {
-  const appearance = appearanceRuntime.commit();
-  syncAppearanceSettings(appearance);
-  document.getElementById('appearanceMod')?.classList.remove('on');
-  toast('テーマ設定を保存しました');
-}
 
 async function initializeBlueskySession() {
   try {
@@ -1343,53 +1274,6 @@ function addColFromModal(definitionId, network, accountIdx) {
   toast('Column added');
 }
 
-function openColSettings(id, colType) {
-  const ms = columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS);
-  const cur = Math.round(ms / 1000);
-  const curFs = parseInt(localStorage.getItem(`col_fs_${id}`)) || 13;
-  document.getElementById('col-settings-ov')?.remove();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'col-settings-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-  ov.innerHTML = `<div class="modal" style="width:300px">
-    <h2 style="margin-bottom:14px">Column settings</h2>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Auto refresh interval</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[15,30,60,120,300,0].map(s=>`<button data-action="apply-column-interval" data-column-id="${esc(id)}" data-interval-ms="${s * 1000}"
-        style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===s?'var(--accent)':'var(--border2)'};background:${cur===s?'var(--accent-dim)':'transparent'};color:${cur===s?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
-        ${s===0?'OFF':s<60?s+' sec':s/60+' min'}</button>`).join('')}
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Font size</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[11,12,13,14,15,16].map(fs=>`<button data-action="apply-column-font-size" data-column-id="${esc(id)}" data-column-type="${esc(colType)}" data-font-size="${fs}"
-        style="padding:5px 11px;border-radius:6px;border:1px solid ${curFs===fs?'var(--accent)':'var(--border2)'};background:${curFs===fs?'var(--accent-dim)':'transparent'};color:${curFs===fs?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
-        ${fs}px</button>`).join('')}
-    </div>
-    <button data-action="remove-element" data-target-id="col-settings-ov" class="btn-cancel">Close</button>
-  </div>`;
-  document.body.appendChild(ov);
-}
-function applyInterval(id, ms) {
-  columnLifecycle.setRefreshInterval(id, ms);
-  const label = ms===0?'OFF':ms<60000?(ms/1000)+' sec':(ms/60000)+' min';
-  toast('Auto refresh: '+label);
-  document.getElementById('col-settings-ov')?.remove();
-  columnLifecycle.persist();
-}
-
-function applyColFontSize(id, colType, fs) {
-  localStorage.setItem(`col_fs_${id}`, fs);
-  if (colType === 'wv') {
-    xWebViewRuntime.setFontSize(id, fs);
-  } else {
-    // Bskyのfeedにfont-sizeを適用
-    const feed = document.getElementById(`feed-${id}`);
-    if (feed) feed.style.fontSize = fs + 'px';
-  }
-  toast(`文字サイズ: ${fs}px`);
-  document.getElementById('col-settings-ov')?.remove();
-}
-
 function showPostMenu({ handle, x, y }) {
   document.getElementById('post-ctx-menu')?.remove();
   const menu = document.createElement('div');
@@ -1605,111 +1489,6 @@ async function fetchBskyUnreadCount() {
 
 function startMemoryCleaner() {
   memoryCleaner.start();
-}
-
-function getMemInterval() {
-  return memoryCleaner.getInterval();
-}
-
-function formatMemoryMb(valueKb) {
-  const value = Number(valueKb);
-  return Number.isFinite(value) ? `${(value / 1024).toFixed(1)} MB` : '計測不可';
-}
-
-function renderMemoryMetrics(snapshot) {
-  const target = document.getElementById('memory-metrics');
-  if (!target) return;
-  const host = snapshot?.host;
-  const runtime = snapshot?.runtime || {};
-  if (!host) {
-    target.innerHTML = '<span style="color:var(--text3)">Electronで起動するとプロセスメモリを確認できます。</span>';
-    return;
-  }
-  const groups = host.groups || {};
-  target.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-      <strong style="font-size:18px;color:var(--text1)">${formatMemoryMb(host.totalKb)}</strong>
-      <span style="color:var(--text3)">${host.processCount || 0}プロセス</span>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr auto;gap:5px 12px;color:var(--text2)">
-      <span>メイン</span><span>${formatMemoryMb(groups.browser)}</span>
-      <span>画面・WebView</span><span>${formatMemoryMb(groups.renderer)}</span>
-      <span>GPU</span><span>${formatMemoryMb(groups.gpu)}</span>
-      <span>その他</span><span>${formatMemoryMb((groups.utility || 0) + (groups.other || 0))}</span>
-    </div>
-    <div style="border-top:1px solid var(--border);margin-top:9px;padding-top:8px;color:var(--text3)">
-      Bluesky ${runtime.blueskyItems || 0}件 / ${runtime.blueskyColumns || 0}カラム<br>
-      X WebView ${runtime.xColumnWebViews || 0}個 / 通知Reader ${runtime.xNotificationReaders || 0}個
-    </div>`;
-}
-
-async function refreshMemoryMetrics() {
-  const target = document.getElementById('memory-metrics');
-  if (target) target.textContent = '計測中…';
-  try {
-    renderMemoryMetrics(await memoryCleaner.measure());
-  } catch (error) {
-    if (target) target.textContent = `計測できませんでした: ${error.message}`;
-  }
-}
-
-async function runMemoryClear(showToast = true) {
-  const button = document.querySelector('[data-action="clear-memory-now"]');
-  if (button) button.disabled = true;
-  try {
-    const result = await memoryCleaner.clear({ includeCache: true });
-    renderMemoryMetrics(result.after);
-    if (showToast) {
-      const removed = result.runtimeCleanup?.blueskyItemsRemoved || 0;
-      const readers = result.runtimeCleanup?.xNotificationReadersDisposed || 0;
-      toast(`メモリを整理しました（投稿${removed}件・Reader ${readers}個を解放）`);
-    }
-    return result;
-  } catch (error) {
-    if (showToast) toast(`メモリ整理エラー: ${error.message}`);
-    return null;
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
-function openMemSettings() {
-  document.getElementById('mem-settings-ov')?.remove();
-  const cur = getMemInterval();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'mem-settings-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-  ov.innerHTML = `
-    <div class="modal" style="width:340px">
-      <h2 style="margin-bottom:6px">メモリ管理</h2>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">長時間利用時の描画データを定期的に整理します。</p>
-      <div id="memory-metrics" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:11px;margin-bottom:12px">計測中…</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:7px">自動整理の間隔</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-        ${[[15*60000,'15分'],[30*60000,'30分'],[60*60000,'1時間'],[120*60000,'2時間'],[0,'OFF']].map(([ms, label]) => `
-          <button data-action="apply-memory-interval" data-interval-ms="${ms}"
-            style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===ms?'var(--accent)':'var(--border2)'};background:${cur===ms?'var(--accent-dim)':'transparent'};color:${cur===ms?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
-            ${label}
-          </button>`).join('')}
-      </div>
-      <button data-action="clear-memory-now"
-        style="width:100%;padding:8px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;margin-bottom:8px">
-        今すぐ整理（キャッシュを含む）
-      </button>
-      <div style="display:flex;gap:7px">
-        <button data-action="refresh-memory-metrics" class="btn-cancel">再計測</button>
-        <button data-action="remove-element" data-target-id="mem-settings-ov" class="btn-cancel">閉じる</button>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  refreshMemoryMetrics();
-}
-
-function applyMemInterval(ms) {
-  memoryCleaner.setIntervalMs(ms);
-  const label = ms === 0 ? 'OFF' : ms < 3600000 ? (ms/60000)+'分' : (ms/3600000)+'時間';
-  toast(`メモリ自動整理: ${label}`);
-  document.getElementById('mem-settings-ov')?.remove();
 }
 
 function scrollToStart() {
@@ -1930,14 +1709,14 @@ function createUiActionHandlers() {
     'scroll-start': () => scrollToStart(),
     'open-x-post': () => openXPost(),
     'open-b-post': () => openComp(),
-    'open-ng-settings': () => openNgSettings(),
-    'open-memory-settings': () => openMemSettings(),
-    'open-appearance-settings': () => openAppearanceSettings(),
-    'preview-appearance-theme': ({ dataset }) => previewAppearance({ theme: dataset.theme }),
-    'preview-appearance-accent': ({ dataset }) => previewAppearance({ accent: dataset.accent }),
-    'preview-appearance-custom': ({ value }) => previewAppearance({ accent: value }),
-    'cancel-appearance': ({ event, target }) => cancelAppearance(event, target),
-    'save-appearance': () => saveAppearance(),
+    'open-ng-settings': () => settingsModals.openNgSettings(),
+    'open-memory-settings': () => settingsModals.openMemorySettings(),
+    'open-appearance-settings': () => settingsModals.openAppearanceSettings(),
+    'preview-appearance-theme': ({ dataset }) => settingsModals.previewAppearance({ theme: dataset.theme }),
+    'preview-appearance-accent': ({ dataset }) => settingsModals.previewAppearance({ accent: dataset.accent }),
+    'preview-appearance-custom': ({ value }) => settingsModals.previewAppearance({ accent: value }),
+    'cancel-appearance': ({ event, target }) => settingsModals.cancelAppearance(event, target),
+    'save-appearance': () => settingsModals.saveAppearance(),
     'close-overlay': ({ dataset, event, target }) => (
       closeOv(dataset.overlayId, target.classList.contains('ov') ? event : undefined)
     ),
@@ -1945,8 +1724,8 @@ function createUiActionHandlers() {
     'install-update': () => installUpdate(),
     'close-lightbox': ({ event }) => lbClose(event),
     'move-lightbox': ({ dataset }) => lbMove(integer(dataset.direction)),
-    'remove-ng-rule': ({ dataset }) => removeNg(dataset.ruleKind, integer(dataset.ruleIndex)),
-    'add-ng-rule': ({ dataset }) => addNg(dataset.ruleKind),
+    'remove-ng-rule': ({ dataset }) => settingsModals.removeNgRule(dataset.ruleKind, integer(dataset.ruleIndex)),
+    'add-ng-rule': ({ dataset }) => settingsModals.addNgRule(dataset.ruleKind),
     'remove-element': ({ dataset }) => removeElement(dataset.targetId),
     'close-quote': () => {
       removeElement('quote-modal-ov');
@@ -1959,22 +1738,22 @@ function createUiActionHandlers() {
       dataset.network,
       dataset.accountIndex === undefined ? undefined : integer(dataset.accountIndex),
     ),
-    'apply-column-interval': ({ dataset }) => applyInterval(
+    'apply-column-interval': ({ dataset }) => settingsModals.applyColumnInterval(
       dataset.columnId,
       integer(dataset.intervalMs),
     ),
-    'apply-column-font-size': ({ dataset }) => applyColFontSize(
+    'apply-column-font-size': ({ dataset }) => settingsModals.applyColumnFontSize(
       dataset.columnId,
       dataset.columnType,
       integer(dataset.fontSize, 13),
     ),
     'add-ng-user': ({ dataset }) => addNgUser(dataset.handle),
     'copy-handle': ({ dataset }) => copyHandle(dataset.handle),
-    'apply-memory-interval': ({ dataset }) => applyMemInterval(integer(dataset.intervalMs)),
+    'apply-memory-interval': ({ dataset }) => settingsModals.applyMemoryInterval(integer(dataset.intervalMs)),
     'clear-memory-now': () => {
-      runMemoryClear(true);
+      settingsModals.clearMemoryNow(true);
     },
-    'refresh-memory-metrics': () => refreshMemoryMetrics(),
+    'refresh-memory-metrics': () => settingsModals.refreshMemoryMetrics(),
     'confirm-x-list': ({ dataset }) => confirmXList(integer(dataset.accountIndex)),
     'insert-mention': ({ dataset }) => insertMention(dataset.handle),
     'widget-select-column': ({ value }) => wgSelectCol(value),
