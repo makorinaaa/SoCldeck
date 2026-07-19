@@ -45,6 +45,44 @@ function createFeedHost() {
   };
 }
 
+function createLongFeedHost(count, { scrollTop = 0, itemHeight = 20 } = {}) {
+  const listeners = {};
+  const host = {
+    innerHTML: '',
+    scrollTop,
+    children: [],
+    addEventListener(type, listener) { listeners[type] = listener; },
+    removeEventListener(type, listener) { if (listeners[type] === listener) delete listeners[type]; },
+    querySelector: () => null,
+    querySelectorAll(selector) {
+      if (selector === '.post[data-uri]' || selector === '.post, .notif') return this.children;
+      return [];
+    },
+    insertAdjacentHTML(position, html) {
+      const added = [...html.matchAll(/class="post"[^>]*data-uri="([^"]+)"/g)]
+        .map(match => createItem(match[1]));
+      if (position === 'afterbegin') this.children.unshift(...added);
+      if (position === 'beforeend') this.children.push(...added);
+      this.innerHTML = position === 'afterbegin' ? html + this.innerHTML : this.innerHTML + html;
+    },
+    scrollTo({ top }) { this.scrollTop = top; },
+  };
+  function createItem(uri) {
+    const item = {
+      dataset: { uri },
+      offsetHeight: itemHeight,
+      classList: { add() {}, remove() {} },
+      remove() {
+        const index = host.children.indexOf(item);
+        if (index >= 0) host.children.splice(index, 1);
+      },
+    };
+    return item;
+  }
+  host.children = Array.from({ length: count }, (_, index) => createItem(`at://post/${index}`));
+  return host;
+}
+
 function createActionButton(action, post) {
   const classes = new Set();
   const count = { textContent: '3' };
@@ -183,6 +221,48 @@ test('keeps Timeline cursor state and appends the next page', async () => {
   assert.doesNotMatch(host.innerHTML, /class="load-more"/);
 });
 
+test('keeps only 300 Timeline items while appending older posts', async () => {
+  const host = createLongFeedHost(300, { scrollTop: 6_000 });
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [{ post: {
+      uri: 'at://post/older', cid: 'older', author: { handle: 'older.test' }, record: { text: 'older post' },
+    } }] }) },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+  });
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+
+  await runtime.refresh('b-home', { mode: 'append' });
+
+  assert.equal(host.children.length, 300);
+  assert.equal(host.children[0].dataset.uri, 'at://post/1');
+  assert.equal(host.children.at(-1).dataset.uri, 'at://post/older');
+  assert.equal(host.scrollTop, 5_980);
+});
+
+test('reports and trims retained items across every Bluesky Column', () => {
+  const first = createLongFeedHost(340, { scrollTop: 400 });
+  const second = createLongFeedHost(20);
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {},
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => 'now', renderAvatar: () => '' },
+    icons: {},
+  });
+  runtime.mount({ id: 'b-home', type: 'timeline', host: first });
+  runtime.mount({ id: 'b-feed', type: 'feed', host: second });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.getMemoryStats())), {
+    columnCount: 2,
+    renderedItemCount: 360,
+  });
+  assert.equal(runtime.trimAll(), 40);
+  assert.equal(first.children.length, 300);
+  assert.equal(first.children[0].dataset.uri, 'at://post/0');
+  assert.equal(first.scrollTop, 400);
+  assert.equal(runtime.getMemoryStats().renderedItemCount, 320);
+});
+
 test('prepends only unseen Timeline posts without advancing pagination', async () => {
   const calls = [];
   const host = createFeedHost();
@@ -221,6 +301,27 @@ test('prepends only unseen Timeline posts without advancing pagination', async (
   assert.equal((host.innerHTML.match(/data-uri="at:\/\/post\/existing"/g) || []).length, 1);
   assert.ok(host.innerHTML.indexOf('new post') < host.innerHTML.indexOf('existing'));
   assert.match(host.innerHTML, /class="load-more"/);
+});
+
+test('keeps only 300 Timeline items while prepending away from the top', async () => {
+  const host = createLongFeedHost(300, { scrollTop: 200 });
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [{ post: {
+      uri: 'at://post/new', cid: 'new', author: { handle: 'new.test' }, record: { text: 'new post' },
+    } }] }) },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+    requestFrame: callback => callback(),
+    schedule: () => 1,
+  });
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+
+  await runtime.refresh('b-home', { mode: 'prepend' });
+
+  assert.equal(host.children.length, 300);
+  assert.equal(host.children[0].dataset.uri, 'at://post/new');
+  assert.equal(host.children.at(-1).dataset.uri, 'at://post/298');
+  assert.equal(host.scrollTop, 220);
 });
 
 test('ignores a Timeline response after its Column is disposed', async () => {

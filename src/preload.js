@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // メモリクリア
   clearMemory: () => ipcRenderer.invoke('clear-memory'),
+  getMemoryMetrics: () => ipcRenderer.invoke('get-memory-metrics'),
 
   // 動画トリミング（メインプロセスのffmpegで実行）
   trimVideo: (filePath, startSec, endSec) =>

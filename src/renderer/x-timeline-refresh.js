@@ -37,6 +37,20 @@
       });
     }
 
+    function hasOpenInteraction(target) {
+      if (target !== 'home') return false;
+      const replyComposer = documentLike.querySelector(
+        '[role="dialog"] [data-testid^="tweetTextarea_"]',
+      );
+      if (replyComposer) return true;
+
+      const pathname = String(documentLike.location?.pathname || '').replace(/\/$/, '');
+      if (!pathname) return false;
+      return pathname !== '/home';
+    }
+
+    if (hasOpenInteraction(destination)) return 'interaction-open';
+
     const scroller = documentLike.scrollingElement || documentLike.documentElement;
     const atTop = (scroller?.scrollTop || 0) < 60;
     if (!atTop) return 'deferred';

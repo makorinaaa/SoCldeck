@@ -8,13 +8,17 @@ const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-s
 const { createAppUpdater } = require('./main/app-updater');
 const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
 const { createAnimeScheduleService } = require('./main/anime-schedule');
-const { createDesktopNotificationService } = require('./main/desktop-notification-service');
+const {
+  createDesktopNotificationService,
+  resolveWindowsNotificationIdentity,
+} = require('./main/desktop-notification-service');
 const { resolveFfmpegPath, runFfmpegTrim } = require('./main/ffmpeg-runtime');
 const { denyWebviewPermissions } = require('./main/webview-permission-policy');
 const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
 const { createAtprotoClient } = require('./main/bluesky-atproto-client');
 const { createBlueskyGateway } = require('./main/bluesky-gateway');
 const { createBlueskyVideoFileService } = require('./main/bluesky-video-file');
+const { createMemoryMetricsService } = require('./main/memory-metrics');
 const {
   registerTrustedIpcHandler,
   secureApplicationWebContents,
@@ -23,7 +27,13 @@ const {
 const { autoUpdater } = require('electron-updater');
 
 const APP_USER_MODEL_ID = 'com.socialdeck.app';
-if (process.platform === 'win32') app.setAppUserModelId(APP_USER_MODEL_ID);
+if (process.platform === 'win32') {
+  app.setAppUserModelId(resolveWindowsNotificationIdentity({
+    appId: APP_USER_MODEL_ID,
+    execPath: process.execPath,
+    isPackaged: app.isPackaged,
+  }));
+}
 
 // ── アドブロック（@cliqz/adblocker-electron）──
 const { ElectronBlocker } = require('@cliqz/adblocker-electron');
@@ -121,6 +131,9 @@ const xAccountRuntime = createXAccountRuntime({
   applyAdBlock: applyAdBlockToSession,
 });
 const animeScheduleService = createAnimeScheduleService();
+const memoryMetricsService = createMemoryMetricsService({
+  getAppMetrics: () => app.getAppMetrics(),
+});
 
 // ── 設定ファイルパス ──
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
@@ -429,6 +442,8 @@ handleTrustedIpc('trim-video', async (_, { filePath, startSec, endSec }) => {
     durationSeconds: duration,
   });
 });
+
+handleTrustedIpc('get-memory-metrics', () => memoryMetricsService.snapshot());
 
 handleTrustedIpc('delete-temp-file', (_, filePath) => {
   try {

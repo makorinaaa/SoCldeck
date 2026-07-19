@@ -5,14 +5,28 @@ const test = require('node:test');
 
 const {
   createDesktopNotificationService,
+  resolveWindowsNotificationIdentity,
   sanitizeDesktopNotification,
 } = require('../src/main/desktop-notification-service');
 
-test('configures the packaged Windows notification identity before creating a window', () => {
+test('uses the packaged app id in production and the Electron path in development', () => {
+  assert.equal(resolveWindowsNotificationIdentity({
+    appId: 'com.socialdeck.app',
+    execPath: 'C:\\SocialDeck\\SocialDeck.exe',
+    isPackaged: true,
+  }), 'com.socialdeck.app');
+  assert.equal(resolveWindowsNotificationIdentity({
+    appId: 'com.socialdeck.app',
+    execPath: 'C:\\repo\\node_modules\\electron\\dist\\electron.exe',
+    isPackaged: false,
+  }), 'C:\\repo\\node_modules\\electron\\dist\\electron.exe');
+});
+
+test('configures the Windows notification identity before creating a window', () => {
   const projectRoot = path.join(__dirname, '..');
   const source = fs.readFileSync(path.join(projectRoot, 'src', 'main.js'), 'utf8');
   const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
-  const setIdentity = source.indexOf('app.setAppUserModelId(APP_USER_MODEL_ID)');
+  const setIdentity = source.indexOf('app.setAppUserModelId(resolveWindowsNotificationIdentity({');
   const createWindow = source.indexOf('app.whenReady().then');
 
   assert.match(source, new RegExp(`const APP_USER_MODEL_ID = ['"]${pkg.build.appId}['"]`));
@@ -97,6 +111,35 @@ test('shows consecutive native notifications independently', () => {
   assert.equal(instances.length, 2);
   assert.equal(instances[0].shown, true);
   assert.equal(instances[1].shown, true);
+});
+
+test('releases retained native notifications after the activation window', () => {
+  const scheduled = [];
+  const cleared = [];
+  class FakeNotification {
+    static isSupported() { return true; }
+    constructor() { this.listeners = {}; }
+    on(name, listener) { this.listeners[name] = listener; }
+    show() {}
+  }
+  const service = createDesktopNotificationService({
+    NotificationClass: FakeNotification,
+    getWindow: () => null,
+    retentionMs: 10 * 60 * 1000,
+    setTimeoutFn: (callback, delay) => {
+      scheduled.push({ callback, delay });
+      return 7;
+    },
+    clearTimeoutFn: timer => cleared.push(timer),
+  });
+
+  service.show({ key: 'x:retained', title: 'Retained notification' });
+
+  assert.equal(service.getActiveCount(), 1);
+  assert.equal(scheduled[0].delay, 10 * 60 * 1000);
+  scheduled[0].callback();
+  assert.equal(service.getActiveCount(), 0);
+  assert.deepEqual(cleared, []);
 });
 
 test('declines unsupported notifications and invalid payloads', () => {

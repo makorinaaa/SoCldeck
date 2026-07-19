@@ -1,6 +1,7 @@
 (function (global) {
   const STORAGE_KEY = 'socialdeck_desktop_notification_rules';
   const KNOWN_IDS_VERSION = 2;
+  const MAX_KNOWN_IDS = 1_000;
   const REASONS = ['reply', 'mention', 'quote', 'follow', 'like', 'repost', 'other'];
   const DEFAULT_RULES = Object.freeze({
     enabled: false,
@@ -182,7 +183,7 @@
     intents = {},
     setIntervalImpl = global.setInterval,
     clearIntervalImpl = global.clearInterval,
-    intervalMs = 60000,
+    intervalMs = 30_000,
     now = () => new Date(),
   } = {}) {
     let rules = normalizeRules();
@@ -219,7 +220,7 @@
         rules = normalizeRules(saved.rules || saved);
         const identitiesAreCurrent = saved.knownIdsVersion === KNOWN_IDS_VERSION;
         knownIds = identitiesAreCurrent && Array.isArray(saved.knownIds)
-          ? saved.knownIds.filter(Boolean).slice(0, 1000)
+          ? saved.knownIds.filter(Boolean).slice(0, MAX_KNOWN_IDS)
           : [];
         baselined = identitiesAreCurrent && saved.baselined === true;
       } catch {
@@ -257,6 +258,13 @@
       return { status: 'activated', item };
     }
 
+    function pruneActivationTargets() {
+      const retained = new Set(knownIds);
+      for (const key of itemsByKey.keys()) {
+        if (!retained.has(key)) itemsByKey.delete(key);
+      }
+    }
+
     async function executePoll() {
       if (disposed || !rules.enabled) return { status: 'ignored', detail: disposed ? 'disposed' : 'disabled', emitted: 0 };
       busy = true;
@@ -267,7 +275,8 @@
         const currentKeys = items.map(itemKey);
         items.forEach(item => itemsByKey.set(itemKey(item), item));
         if (!baselined) {
-          knownIds = currentKeys.slice(0, 1000);
+          knownIds = currentKeys.slice(0, MAX_KNOWN_IDS);
+          pruneActivationTargets();
           baselined = true;
           lastCheckedAt = now().toISOString();
           save();
@@ -276,7 +285,8 @@
 
         const known = new Set(knownIds);
         const unseen = items.filter(item => !known.has(itemKey(item)));
-        knownIds = [...new Set([...currentKeys, ...knownIds])].slice(0, 1000);
+        knownIds = [...new Set([...currentKeys, ...knownIds])].slice(0, MAX_KNOWN_IDS);
+        pruneActivationTargets();
         lastCheckedAt = now().toISOString();
         const appFocused = Boolean(await isAppFocused());
         let emitted = 0;
@@ -315,6 +325,7 @@
       if (!wasEnabled && rules.enabled) {
         baselined = false;
         knownIds = [];
+        itemsByKey.clear();
       }
       save();
       startTimer();
@@ -341,6 +352,7 @@
       if (disposed) return { status: 'ignored', detail: 'disposed', emitted: 0 };
       baselined = false;
       knownIds = [];
+      itemsByKey.clear();
       save();
       if (!rules.enabled) return { status: 'ignored', detail: 'disabled', emitted: 0 };
       return poll();

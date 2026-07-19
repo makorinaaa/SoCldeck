@@ -5,6 +5,9 @@
     storage = global.localStorage,
     key,
     clearMemory,
+    getMemoryMetrics,
+    getRuntimeMetrics,
+    trimRuntime,
     setIntervalImpl = global.setInterval,
     clearIntervalImpl = global.clearInterval,
     defaultIntervalMs = DEFAULT_INTERVAL_MS,
@@ -21,8 +24,28 @@
       start();
     }
 
-    async function clear() {
-      if (clearMemory) await clearMemory();
+    async function measure() {
+      const [host, runtime] = await Promise.all([
+        getMemoryMetrics ? getMemoryMetrics() : null,
+        getRuntimeMetrics ? getRuntimeMetrics() : null,
+      ]);
+      return { host: host || null, runtime: runtime || null };
+    }
+
+    async function clear({ includeCache = false } = {}) {
+      const before = await measure();
+      const runtimeCleanup = trimRuntime ? await trimRuntime() : {};
+      let cacheCleared = false;
+      if (includeCache && clearMemory) {
+        cacheCleared = await clearMemory() !== false;
+      }
+      const after = await measure();
+      return {
+        before,
+        after,
+        runtimeCleanup: runtimeCleanup || {},
+        cacheCleared,
+      };
     }
 
     function start() {
@@ -32,9 +55,7 @@
         timer = null;
         return;
       }
-      timer = setIntervalImpl(() => {
-        clear().catch(() => {});
-      }, ms);
+      timer = setIntervalImpl(() => clear().catch(() => {}), ms);
     }
 
     function stop() {
@@ -45,6 +66,7 @@
     return {
       getInterval,
       setIntervalMs,
+      measure,
       clear,
       start,
       stop,

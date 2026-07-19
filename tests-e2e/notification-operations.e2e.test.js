@@ -305,6 +305,17 @@ async function openXLikeNotification(page) {
   await item.click();
 }
 
+async function addXHomeColumn(page, accountIndex = 0) {
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod.on').waitFor();
+  await page.locator(
+    `#addMod [data-action="add-column"][data-definition-id="x-home-new"][data-account-index="${accountIndex}"]`,
+  ).click();
+  const column = page.locator('.col[data-definition-id="x-home-new"]').last();
+  await column.waitFor({ state: 'attached' });
+  return column;
+}
+
 test('X notification journey reuses the account column and returns to notifications', async t => {
   const { page } = await launchApp(t, X_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
@@ -333,6 +344,27 @@ test('X notification journey reuses the account column and returns to notificati
   await openXLikeNotification(page);
   await expectWebviewUrl(page, webviewSelector, LIKED_POST_URL);
   assert.equal(await column.count(), 1);
+});
+
+test('X Column refresh preserves an open reply composer', async t => {
+  const { page } = await launchApp(t, X_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const column = await addXHomeColumn(page);
+  const webview = column.locator('webview');
+  await webview.waitFor({ state: 'attached' });
+  await webview.evaluate(element => element.executeJavaScript(`
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div role="dialog"><div data-testid="tweetTextarea_0">reply in progress</div></div>'
+    );
+  `));
+
+  await column.locator('button[id^="rfr-"]').click();
+  await new Promise(resolve => setTimeout(resolve, 250));
+
+  assert.equal(await webview.evaluate(element => element.executeJavaScript(
+    'Boolean(document.querySelector(\'[role="dialog"] [data-testid^="tweetTextarea_"]\'))',
+  )), true);
 });
 
 test('new X accounts use one login WebView and default to the black theme', async t => {
@@ -470,6 +502,22 @@ test('strict CSP boots with delegated shell actions and no production DevTools',
   await page.locator('#aboutMod.on').waitFor();
   await page.locator('#about-close-btn').click();
   await page.locator('#aboutMod').waitFor({ state: 'hidden' });
+});
+
+test('memory management reports process usage and performs a manual cleanup', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  await page.locator('[data-action="open-memory-settings"]').click();
+  await page.locator('#mem-settings-ov.on').waitFor();
+  await page.locator('#memory-metrics strong').waitFor();
+  assert.match(await page.locator('#memory-metrics').textContent(), /MB/);
+  assert.match(await page.locator('#memory-metrics').textContent(), /X WebView/);
+
+  const cleanupButton = page.locator('[data-action="clear-memory-now"]');
+  await cleanupButton.click();
+  await page.locator('#toast').filter({ hasText: 'メモリを整理しました' }).waitFor();
+  assert.equal(await cleanupButton.isEnabled(), true);
 });
 
 test('legacy Bluesky credentials migrate out of Workspace State into the Vault', async t => {

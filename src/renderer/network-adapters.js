@@ -197,7 +197,7 @@
     }
 
     const result = await operations.refreshXNavigation(id, destination);
-    if (result === 'deferred' || result === 'queued' || result === 'not-following') {
+    if (['deferred', 'queued', 'not-following', 'interaction-open'].includes(result)) {
       return { status: 'deferred', detail: result };
     }
     if (result === 'home-clicked' || result === 'notifications-clicked' || result === 'banner-clicked') {
