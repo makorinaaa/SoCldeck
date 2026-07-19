@@ -599,7 +599,7 @@ test('anime schedule Column can be added and persisted from the picker', async t
   const { page } = await launchApp(t, ANIME_SCHEDULE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
-  await page.evaluate(() => openAddMod());
+  await page.locator('[data-action="open-add-column"]:visible').first().click();
   await page.locator('.opt').filter({ hasText: '本日のアニメ' }).click();
 
   const column = page.locator('.col[data-definition-id="anime-today"]');

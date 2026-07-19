@@ -92,8 +92,13 @@ test('loads the Anime Schedule Runtime before renderer', () => {
 
   assert.notEqual(runtimeIndex, -1);
   assert.ok(runtimeIndex < rendererIndex);
+  const picker = fs.readFileSync(
+    path.join(projectRoot, 'src', 'renderer', 'column-picker.js'),
+    'utf8',
+  );
   assert.match(renderer, /SocialDeckAnimeScheduleRuntime\.createAnimeScheduleRuntime\(\{/);
-  assert.match(renderer, /networkAdapters\.getColumnDefinitions\('anime'\)/);
+  assert.match(renderer, /networkAdapters\.getColumnDefinitions\(networkId\)/);
+  assert.match(picker, /getColumnDefinitions\('anime'\)/);
   assert.match(renderer, /mountAnimeScheduleColumn\(plan\.config\)/);
 });
 
@@ -263,6 +268,26 @@ test('keeps settings modal presentation behind Settings Modals Runtime', () => {
     /function (?:openNgSettings|addNg|removeNg|openColSettings|applyInterval|applyColFontSize|openMemSettings|applyMemInterval|renderMemoryMetrics|refreshMemoryMetrics|runMemoryClear|formatMemoryMb|getMemInterval|syncAppearanceSettings|openAppearanceSettings|previewAppearance|cancelAppearance|saveAppearance)\b/,
   );
   assert.doesNotMatch(renderer, /ng-modal-ov|col-settings-ov|mem-settings-ov/);
+});
+
+test('keeps mention suggestions, the Column picker, and widget mode behind their modules', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  for (const script of ['compose-mention-suggest.js', 'column-picker.js', 'widget-mode-runtime.js']) {
+    const scriptIndex = index.indexOf(`<script src="renderer/${script}"></script>`);
+    assert.notEqual(scriptIndex, -1, `${script} must be loaded`);
+    assert.ok(scriptIndex < rendererIndex, `${script} must load before renderer.js`);
+  }
+  assert.match(renderer, /SocialDeckComposeMentionSuggest\.createComposeMentionSuggest\(\{/);
+  assert.match(renderer, /SocialDeckColumnPicker\.createColumnPicker\(\{/);
+  assert.match(renderer, /SocialDeckWidgetModeRuntime\.createWidgetModeRuntime\(\{/);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:onCompTextareaInput|insertMention|buildOptGrid|mkOptX|mkOpt|nextColumnId|addColFromModal|openAddMod|initWidgetMode|wgToggleTop|wgSelectCol)\b/,
+  );
+  assert.doesNotMatch(renderer, /mention-suggest|opt-grid|widget-bar/);
 });
 
 test('keeps Compose submission orchestration behind Compose Submission', () => {

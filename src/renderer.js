@@ -317,6 +317,41 @@ const settingsModals = window.SocialDeckSettingsModalsRuntime.createSettingsModa
     refilterColumns: () => refilterBskyCols(),
   },
 });
+const mentionSuggest = window.SocialDeckComposeMentionSuggest.createComposeMentionSuggest({
+  documentRef: document,
+  windowRef: window,
+  searchActors: async query => (
+    (await authenticatedBskyAdapter.searchActors({ query, limit: 6 })).actors || []
+  ),
+  isAvailable: () => Boolean(state.b),
+  ui: { escape: esc, avatarBackground: avBgFor },
+});
+const columnPicker = window.SocialDeckColumnPicker.createColumnPicker({
+  documentRef: document,
+  getAccounts: () => ({ x: state.xs || [], b: state.b }),
+  getColumnDefinitions: networkId => networkAdapters.getColumnDefinitions(networkId),
+  createColumn: plan => columnLifecycle.create(plan),
+  ui: { escape: esc },
+  intents: {
+    toast,
+    close: modalId => closeOv(modalId),
+    requestXListInput: accountIndex => openXListDialog(accountIndex),
+  },
+});
+const widgetMode = window.SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
+  documentRef: document,
+  widgetHost: IS_ELECTRON
+    ? {
+        getOpacity: () => window.electronAPI.widgetGetOpacity(),
+        setOpacity: opacity => window.electronAPI.widgetSetOpacity(opacity),
+        getTop: () => window.electronAPI.widgetGetTop(),
+        toggleTop: () => window.electronAPI.widgetToggleTop(),
+        close: () => window.electronAPI.closeWidget(),
+      }
+    : null,
+  columnRuntime,
+  intents: { toast, reload: () => location.reload() },
+});
 const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
   getIsColumnDragging: () => Boolean(dragSrc),
 });
@@ -343,7 +378,7 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
       state.composePreferences = { ...(state.composePreferences || {}), [name]: value };
       saveState();
     },
-    onBlueskyTextInput: onCompTextareaInput,
+    onBlueskyTextInput: event => mentionSuggest.onInput(event),
   },
 });
 const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmission({
@@ -1182,98 +1217,6 @@ async function resolveMentionDids(facets) {
   });
 }
 
-// ─── ADD COLUMN MODAL ───────────────────────────
-function buildOptGrid() {
-  const og = document.getElementById('opt-grid');
-  og.innerHTML = '';
-
-  // X: アカウントごとにセクションを分けて表示
-  if (state.xs && state.xs.length > 0) {
-    const xDefinitions = networkAdapters.getColumnDefinitions('x');
-    state.xs.forEach((acc, idx) => {
-      og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:${idx > 0 ? 10 : 0}px;padding:4px 0;border-bottom:1px solid var(--border)">
-        <span style="display:inline-flex;align-items:center;gap:5px">
-          <span style="width:14px;height:14px;border-radius:50%;background:${acc.bg};display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${acc.initials}</span>
-          X · ${esc(acc.username)}
-        </span>
-      </div>`;
-      xDefinitions.forEach(def => {
-        og.innerHTML += mkOptX(def.id, def.icon, def.label, def.description, idx);
-      });
-    });
-  }
-
-  // Bluesky
-  if (state.b) {
-    if (state.xs && state.xs.length > 0) {
-      og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">Bluesky · @${state.b.handle}</div>`;
-    }
-    networkAdapters.getColumnDefinitions('b').filter(def => def.picker !== false).forEach(def => {
-      og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'b');
-    });
-  }
-
-  og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">情報</div>`;
-  networkAdapters.getColumnDefinitions('anime').filter(def => def.picker !== false).forEach(def => {
-    og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'anime');
-  });
-}
-
-function mkOptX(type, icon, name, desc, accountIdx) {
-  return `<button class="opt" data-action="add-column" data-definition-id="${esc(type)}" data-network="x" data-account-index="${accountIdx}">
-    <div style="width:16px;height:16px;margin-bottom:5px">${icon}</div>
-    <div class="oname">${name}</div>
-    <div class="odesc">${desc}</div>
-  </button>`;
-}
-
-function mkOpt(id, icon, name, desc, disabled, plat) {
-  return `<button class="opt${disabled ? ' disabled' : ''}" data-action="add-column" data-definition-id="${esc(id)}" data-network="${esc(plat)}"${disabled ? ' disabled' : ''}>
-    <div style="width:16px;height:16px;margin-bottom:5px">${icon}</div>
-    <div class="oname">${name}</div>
-    <div class="odesc">${desc}</div>
-  </button>`;
-}
-
-let extraColN = 0;
-function nextColumnId(prefix) {
-  let id;
-  do {
-    extraColN += 1;
-    id = `${prefix}-${extraColN}`;
-  } while (document.getElementById(`col-${id}`));
-  return id;
-}
-
-function addColFromModal(definitionId, network, accountIdx) {
-  closeOv('addMod');
-  // X: アカウントindexをIDに含めて一意にする
-  const id = network === 'x'
-    ? nextColumnId(`x${accountIdx}-${definitionId}`)
-    : nextColumnId(definitionId);
-  const xAccount = network === 'x' ? state.xs?.[accountIdx ?? 0] : null;
-  const result = columnLifecycle.create({
-    networkId: network,
-    definitionId,
-    id,
-    account: xAccount ? { ...xAccount, index: accountIdx ?? 0 } : null,
-  });
-
-  if (result.status === 'input-required' && result.plan.input === 'x-list') {
-    openXListDialog(accountIdx);
-    return;
-  }
-  if (result.status !== 'created') {
-    toast('Column type is unavailable');
-    return;
-  }
-
-  const cols = document.getElementById('cols');
-  const lastCol = cols.querySelector('.col:last-of-type');
-  if (lastCol) lastCol.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-  toast('Column added');
-}
-
 function showPostMenu({ handle, x, y }) {
   document.getElementById('post-ctx-menu')?.remove();
   const menu = document.createElement('div');
@@ -1569,92 +1512,6 @@ function confirmXList(accountIdx) {
   toast('List column added');
 }
 
-function openAddMod() { buildOptGrid(); document.getElementById('addMod').classList.add('on'); }
-// ─── MENTION SUGGEST ────────────────────────────
-let _mentionTimer = null;
-let _mentionLastQ = '';
-
-async function onCompTextareaInput(e) {
-  const ta = e.target;
-  const val = ta.value;
-  const pos = ta.selectionStart;
-
-  // カーソル前の @word を検出
-  const before = val.slice(0, pos);
-  const m = before.match(/@([a-zA-Z0-9._-]*)$/);
-
-  const box = document.getElementById('mention-suggest');
-  if (!m || m[1].length < 1) {
-    if (box) box.style.display = 'none';
-    return;
-  }
-  const q = m[1];
-  if (q === _mentionLastQ) return;
-  _mentionLastQ = q;
-
-  clearTimeout(_mentionTimer);
-  _mentionTimer = setTimeout(async () => {
-    if (!state.b || q.length < 1) return;
-    try {
-      const data = await authenticatedBskyAdapter.searchActors({ query: q, limit: 6 });
-      const actors = data.actors || [];
-      if (!actors.length) { if (box) box.style.display = 'none'; return; }
-
-      // ボックス作成 or 再利用
-      let suggest = document.getElementById('mention-suggest');
-      if (!suggest) {
-        suggest = document.createElement('div');
-        suggest.id = 'mention-suggest';
-        suggest.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:600;min-width:220px;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,.5);max-height:220px;overflow-y:auto';
-        document.body.appendChild(suggest);
-      }
-
-      const rect = ta.getBoundingClientRect();
-      suggest.style.left = Math.min(rect.left + 8, window.innerWidth - 310) + 'px';
-      suggest.style.top  = (rect.bottom + 4) + 'px';
-
-      suggest.innerHTML = actors.map(a => {
-        const av = a.avatar ? `<img src="${esc(a.avatar)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : (a.handle || '?').slice(0, 2).toUpperCase();
-        const bg = avBgFor(a.handle);
-        return `<div data-action="insert-mention" data-handle="${esc(a.handle)}"
-          style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;transition:background .1s"
-          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-          <div style="width:28px;height:28px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden">${av}</div>
-          <div style="min-width:0">
-            <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.displayName || a.handle)}</div>
-            <div style="font-size:10px;color:var(--text3)">@${esc(a.handle)}</div>
-          </div>
-        </div>`;
-      }).join('');
-
-      suggest.style.display = 'block';
-    } catch {}
-  }, 200);
-}
-
-function insertMention(handle) {
-  const ta = document.getElementById('cta');
-  if (!ta) return;
-  const pos = ta.selectionStart;
-  const before = ta.value.slice(0, pos);
-  const after = ta.value.slice(pos);
-  const replaced = before.replace(/@([a-zA-Z0-9._-]*)$/, `@${handle} `);
-  ta.value = replaced + after;
-  ta.selectionStart = ta.selectionEnd = replaced.length;
-  ta.focus();
-  ta.dispatchEvent(new Event('input', { bubbles: true }));
-  const suggest = document.getElementById('mention-suggest');
-  if (suggest) suggest.style.display = 'none';
-  _mentionLastQ = '';
-}
-
-document.addEventListener('click', e => {
-  const suggest = document.getElementById('mention-suggest');
-  if (suggest && !e.target.closest('#mention-suggest') && !e.target.closest('#cta')) {
-    suggest.style.display = 'none';
-  }
-});
-
 function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
   const networkId = modalId === 'xPostMod' ? 'x' : 'b';
   composeModalRuntime.setBusy(networkId, busy, busy ? busyLabel : null);
@@ -1694,7 +1551,7 @@ function createUiActionHandlers() {
     'open-login': () => openLoginScreen(),
     'open-about': () => openAbout(),
     'close-app': () => window.electronAPI?.close(),
-    'open-add-column': () => openAddMod(),
+    'open-add-column': () => columnPicker.open(),
     'refresh-all': () => refreshAll(),
     'zoom-in': () => window.electronAPI?.zoomIn(),
     'zoom-out': () => window.electronAPI?.zoomOut(),
@@ -1733,7 +1590,7 @@ function createUiActionHandlers() {
     },
     'update-quote-count': () => updQuoteCC(),
     'submit-quote': () => doQuotePost(),
-    'add-column': ({ dataset }) => addColFromModal(
+    'add-column': ({ dataset }) => columnPicker.addColumn(
       dataset.definitionId,
       dataset.network,
       dataset.accountIndex === undefined ? undefined : integer(dataset.accountIndex),
@@ -1755,11 +1612,11 @@ function createUiActionHandlers() {
     },
     'refresh-memory-metrics': () => settingsModals.refreshMemoryMetrics(),
     'confirm-x-list': ({ dataset }) => confirmXList(integer(dataset.accountIndex)),
-    'insert-mention': ({ dataset }) => insertMention(dataset.handle),
-    'widget-select-column': ({ value }) => wgSelectCol(value),
-    'widget-set-opacity': ({ value }) => window.electronAPI?.widgetSetOpacity(Number(value) / 100),
-    'widget-toggle-top': () => wgToggleTop(),
-    'widget-close': () => window.electronAPI?.closeWidget(),
+    'insert-mention': ({ dataset }) => mentionSuggest.insert(dataset.handle),
+    'widget-select-column': ({ value }) => widgetMode.selectColumn(value),
+    'widget-set-opacity': ({ value }) => widgetMode.setOpacity(value),
+    'widget-toggle-top': () => widgetMode.toggleTop(),
+    'widget-close': () => widgetMode.close(),
   };
 }
 
@@ -1799,7 +1656,7 @@ document.addEventListener('keydown', e => {
     quoteTarget = null;
   }
   if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'n') { e.preventDefault(); openAddMod(); }
+    if (e.key === 'n') { e.preventDefault(); columnPicker.open(); }
     if (e.key === 'r') { e.preventDefault(); refreshAll(); }
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1821,7 +1678,7 @@ document.addEventListener('keydown', e => {
 });
 
 if (IS_ELECTRON) {
-  window.electronAPI.on('add-column', () => openAddMod());
+  window.electronAPI.on('add-column', () => columnPicker.open());
   window.electronAPI.on('refresh-all', () => refreshAll());
   window.electronAPI.on('scroll-left', () => { document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }); });
   window.electronAPI.on('scroll-right', () => { document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }); });
@@ -1972,138 +1829,6 @@ startMemoryCleaner();
 const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 
 if (IS_WIDGET) {
-  initWidgetMode();
+  widgetMode.init();
 }
 
-async function initWidgetMode() {
-  document.body.classList.add('widget-mode');
-
-  // ウィジェット用スタイルを注入
-  const ws = document.createElement('style');
-  ws.textContent = `
-    body.widget-mode { background: transparent !important; }
-    body.widget-mode .sidebar,
-    body.widget-mode .topbar,
-    body.widget-mode #login-screen { display: none !important; }
-    body.widget-mode .main { margin: 0 !important; }
-    body.widget-mode #cols {
-      padding: 0 !important;
-      gap: 0 !important;
-      background: transparent !important;
-    }
-    body.widget-mode .col {
-      width: 100% !important;
-      min-width: 100% !important;
-      height: calc(100vh - 34px) !important;
-      border-radius: 0 0 10px 10px !important;
-      border: 1px solid var(--border) !important;
-      border-top: none !important;
-    }
-    body.widget-mode .col .col-actions .cbtn { display: none !important; }
-    body.widget-mode .col .col-actions .cbtn.wg-keep { display: flex !important; }
-    /* ドラッグハンドルバー */
-    #widget-bar {
-      height: 34px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 8px;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-bottom: 1px solid var(--border2);
-      border-radius: 10px 10px 0 0;
-      -webkit-app-region: drag;
-      user-select: none;
-    }
-    #widget-bar .wg-title {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text2);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex: 1;
-      overflow: hidden;
-      white-space: nowrap;
-    }
-    #widget-bar button {
-      -webkit-app-region: no-drag;
-      width: 22px;
-      height: 22px;
-      border-radius: 5px;
-      border: none;
-      background: transparent;
-      color: var(--text3);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: inherit;
-      flex-shrink: 0;
-    }
-    #widget-bar button:hover { background: var(--bg3); color: var(--text1); }
-    #widget-bar button.active { color: var(--accent); }
-    #widget-bar button svg { width: 13px; height: 13px; }
-    #widget-bar input[type="range"] {
-      -webkit-app-region: no-drag;
-      width: 60px;
-      accent-color: var(--accent);
-    }
-  `;
-  document.head.appendChild(ws);
-
-  // ドラッグハンドルバーを挿入
-  const bar = document.createElement('div');
-  bar.id = 'widget-bar';
-
-  let colOptions = '';
-  try {
-    const fullLayout = columnRuntime.readStoredLayout();
-    const selId = columnRuntime.getWidgetColumnId() || fullLayout[0]?.id;
-    colOptions = fullLayout.map(c =>
-      `<option value="${c.id}" ${c.id === selId ? 'selected' : ''}>${(c.title || c.id)}${c.sub ? ' · ' + c.sub : ''}</option>`
-    ).join('');
-  } catch {}
-
-  bar.innerHTML = `
-    <div class="wg-title">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
-      <select id="wg-col-select" data-change-action="widget-select-column"
-        style="-webkit-app-region:no-drag;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text2);font-size:10px;font-family:inherit;padding:2px 4px;max-width:150px">
-        ${colOptions}
-      </select>
-    </div>
-    <input type="range" min="30" max="100" value="100" title="Opacity" id="wg-opacity"
-      data-input-action="widget-set-opacity">
-    <button id="wg-top-btn" title="Always on top" data-action="widget-toggle-top">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>
-    </button>
-    <button title="Close" data-action="widget-close">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  `;
-  document.body.prepend(bar);
-
-  if (IS_ELECTRON) {
-    try {
-      const op = await window.electronAPI.widgetGetOpacity();
-      const slider = document.getElementById('wg-opacity');
-      if (slider && op) { slider.value = Math.round(op * 100); window.electronAPI.widgetSetOpacity(op); }
-      const isTop = await window.electronAPI.widgetGetTop();
-      if (isTop) document.getElementById('wg-top-btn')?.classList.add('active');
-    } catch {}
-  }
-}
-
-async function wgToggleTop() {
-  if (!IS_ELECTRON) return;
-  const next = await window.electronAPI.widgetToggleTop();
-  const btn = document.getElementById('wg-top-btn');
-  if (btn) btn.classList.toggle('active', next);
-  toast(next ? 'Always on top enabled' : 'Always on top disabled');
-}
-
-function wgSelectCol(colId) {
-  columnRuntime.setWidgetColumnId(colId);
-  location.reload();
-}
