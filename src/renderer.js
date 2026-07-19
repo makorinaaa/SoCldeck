@@ -1223,13 +1223,11 @@ function showPostMenu({ handle, x, y }) {
   menu.id = 'post-ctx-menu';
   menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
   menu.innerHTML = `
-    <div data-action="add-ng-user" data-handle="${esc(handle)}" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+    <div data-action="add-ng-user" data-handle="${esc(handle)}" class="hover-row" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
       @${esc(handle)} をミュート
     </div>
-    <div data-action="copy-handle" data-handle="${esc(handle)}" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
+    <div data-action="copy-handle" data-handle="${esc(handle)}" class="hover-row" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       ハンドルをコピー
     </div>

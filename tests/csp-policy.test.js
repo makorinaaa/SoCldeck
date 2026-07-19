@@ -30,7 +30,7 @@ test('keeps executable event attributes out of application markup and templates'
 
   assert.doesNotMatch(
     sources,
-    /\son(?:click|input|change|dblclick|keydown|mouseenter|mouseleave|error)\s*=/i,
+    /\son(?:click|input|change|dblclick|keydown|mouseenter|mouseleave|mouseover|mouseout|error)\s*=/i,
   );
   assert.doesNotMatch(sources, /\beval\s*\(|\bnew\s+Function\b/);
 });
