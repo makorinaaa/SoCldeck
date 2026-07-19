@@ -1,5 +1,8 @@
 (function (global) {
-  function createUiUtils({ avatarBackgrounds = [], bskyIcon = '' } = {}) {
+  const textEncoder = new TextEncoder();
+  const textDecoder = new TextDecoder();
+
+  function createUiUtils({ avatarBackgrounds = [], bskyIcon = '', now = () => Date.now() } = {}) {
     function esc(value) {
       return String(value || '')
         .replace(/&/g, '&amp;')
@@ -9,7 +12,9 @@
     }
 
     function relTime(dateValue) {
-      const seconds = (Date.now() - new Date(dateValue)) / 1000;
+      const timestamp = new Date(dateValue).getTime();
+      if (!Number.isFinite(timestamp)) return '';
+      const seconds = Math.max(0, (now() - timestamp) / 1000);
       if (seconds < 60) return `${Math.floor(seconds)}s`;
       if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
       if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
@@ -36,19 +41,17 @@
 
     function formatText(text, facets, { delegated = false } = {}) {
       if (!facets || !facets.length) return esc(text).replace(/\n/g, '<br>');
-      const enc = new TextEncoder();
-      const bytes = enc.encode(text);
-      const dec = new TextDecoder();
+      const bytes = textEncoder.encode(text);
       const sorted = [...facets].sort((a, b) => a.index.byteStart - b.index.byteStart);
       let result = '';
       let pos = 0;
 
       for (const facet of sorted) {
         if (facet.index.byteStart > pos) {
-          result += esc(dec.decode(bytes.slice(pos, facet.index.byteStart))).replace(/\n/g, '<br>');
+          result += esc(textDecoder.decode(bytes.slice(pos, facet.index.byteStart))).replace(/\n/g, '<br>');
         }
 
-        const seg = dec.decode(bytes.slice(facet.index.byteStart, facet.index.byteEnd));
+        const seg = textDecoder.decode(bytes.slice(facet.index.byteStart, facet.index.byteEnd));
         const feat = facet.features?.[0];
         if (feat?.$type === 'app.bsky.richtext.facet#link') {
           result += `<a href="${esc(feat.uri)}" target="_blank">${esc(seg)}</a>`;
@@ -62,7 +65,7 @@
         pos = facet.index.byteEnd;
       }
 
-      if (pos < bytes.length) result += esc(dec.decode(bytes.slice(pos))).replace(/\n/g, '<br>');
+      if (pos < bytes.length) result += esc(textDecoder.decode(bytes.slice(pos))).replace(/\n/g, '<br>');
       return result;
     }
 

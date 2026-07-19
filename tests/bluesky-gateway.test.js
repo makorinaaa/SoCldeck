@@ -151,8 +151,8 @@ test('refreshes an expired session, persists it, and retries once', async () => 
   const gateway = createBlueskyGateway({
     vault,
     client: {
-      async notifications(jwt, limit) {
-        calls.push(['notifications', jwt, limit]);
+      async notifications(jwt, limit, cursor) {
+        calls.push(['notifications', jwt, limit, cursor]);
         if (jwt === SESSION.accessJwt) throw new AtprotoError('ExpiredToken', { status: 401, code: 'ExpiredToken' });
         return { notifications: [] };
       },
@@ -167,13 +167,13 @@ test('refreshes an expired session, persists it, and retries once', async () => 
     },
   });
 
-  const result = await gateway.execute('listNotifications', { limit: 40 });
+  const result = await gateway.execute('listNotifications', { limit: 40, cursor: 'notification-page' });
 
   assert.deepEqual(result, { notifications: [] });
   assert.deepEqual(calls, [
-    ['notifications', 'access-secret', 40],
+    ['notifications', 'access-secret', 40, 'notification-page'],
     ['refresh', 'refresh-secret'],
-    ['notifications', 'access-refreshed', 40],
+    ['notifications', 'access-refreshed', 40, 'notification-page'],
   ]);
   assert.equal(vault.getSession().accessJwt, 'access-refreshed');
 });

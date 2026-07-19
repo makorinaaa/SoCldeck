@@ -96,6 +96,43 @@ test('runs post confirmation through the generated WebView script', async () => 
   assert.equal(result.reason, 'content-cleared');
 });
 
+test('confirms a media post while timeline videos stay visible', async () => {
+  const runtime = loadConfirmationRuntime();
+  let attachmentsPresent = true;
+  const composerBlock = {
+    parentElement: null,
+    querySelector: selector => {
+      if (selector === '[data-testid="toolBar"]') return {};
+      if (selector.includes('[data-testid="attachments"]')) {
+        return attachmentsPresent ? {} : null;
+      }
+      return null;
+    },
+  };
+  const composer = { textContent: '', parentElement: composerBlock };
+  const documentLike = {
+    querySelectorAll: () => [],
+    querySelector: selector => {
+      if (selector === '[data-testid="tweetTextarea_0"]') return composer;
+      if (selector === '[data-sd-compose-submit="pending"]') return composer;
+      if (selector.includes('[data-testid="videoPlayer"]')) return {};
+      return null;
+    },
+  };
+
+  const result = await vm.runInNewContext(runtime.createConfirmationScript({
+    hadText: false,
+    hadMedia: true,
+    maxChecks: 2,
+  }), {
+    document: documentLike,
+    setTimeout: callback => { attachmentsPresent = false; callback(); },
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.reason, 'content-cleared');
+});
+
 test('does not assume a media-only post succeeded when media was never observed', async () => {
   const result = await loadConfirmationRuntime().confirmXPost({
     hadText: false,

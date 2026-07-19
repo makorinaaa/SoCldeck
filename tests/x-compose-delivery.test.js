@@ -96,6 +96,41 @@ test('owns X video trimming and temporary file cleanup', async () => {
   ]);
 });
 
+test('preserves sub-second trim edges for X delivery', async () => {
+  const createDelivery = loadFactory();
+  const trimCalls = [];
+  let execution = 0;
+  const delivery = createDelivery({
+    createPreparationScript: () => 'prepare',
+    createConfirmationScript: () => 'confirm',
+    trimVideo: async (...args) => { trimCalls.push(args); return 'trimmed.mp4'; },
+    readFileBase64: async () => 'trimmed-data',
+    deleteTempFile: async () => {},
+  });
+
+  await delivery.execute({
+    text: '',
+    imageFiles: [],
+    video: {
+      file: { name: 'clip.mp4', type: 'video/mp4' },
+      trim: { startSeconds: 0.1, endSeconds: 19.9 },
+    },
+  }, {
+    webview: {
+      async executeJavaScript() {
+        execution += 1;
+        if (execution === 1) return { status: 'ready' };
+        if (execution === 3) return { status: 'succeeded' };
+        return 'ok';
+      },
+    },
+    videoPath: 'clip.mp4',
+    videoDuration: 20,
+  });
+
+  assert.deepEqual(trimCalls, [['clip.mp4', 0.1, 19.9]]);
+});
+
 test('stops X delivery when the WebView composer is not ready', async () => {
   const createDelivery = loadFactory();
   const delivery = createDelivery({

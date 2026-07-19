@@ -1,6 +1,7 @@
 (function (global) {
   const MAX_IMAGE_COUNT = 4;
   const MAX_VIDEO_SECONDS = 140;
+  const MIN_TRIM_SECONDS = 0.1;
 
   function toFiles(files) {
     return Array.from(files || []);
@@ -10,13 +11,26 @@
     return Boolean(file?.type?.startsWith('image/'));
   }
 
+  function fileExtension(file) {
+    return String(file?.name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  }
+
   function isVideoFile(file) {
-    return Boolean(file?.type?.startsWith('video/'));
+    return Boolean(file?.type?.startsWith('video/'))
+      || (!file?.type && ['mp4', 'mov', 'm4v', 'webm'].includes(fileExtension(file)));
+  }
+
+  function matchesVideoTypes(file, allowedTypes) {
+    if (!allowedTypes) return true;
+    if (allowedTypes.has(file?.type)) return true;
+    return !file?.type
+      && fileExtension(file) === 'mp4'
+      && allowedTypes.has('video/mp4');
   }
 
   function firstVideo(files, allowedTypes = null) {
     return toFiles(files).find(file => (
-      isVideoFile(file) && (!allowedTypes || allowedTypes.has(file.type))
+      isVideoFile(file) && matchesVideoTypes(file, allowedTypes)
     )) || null;
   }
 
@@ -28,14 +42,8 @@
     return Math.max(0, maxCount - Number(currentCount || 0));
   }
 
-  function clampTrimPercent({ value, otherValue, minGapPercent = 1, direction }) {
-    const number = Number.parseFloat(value);
-    const other = Number.parseFloat(otherValue);
-    if (!Number.isFinite(number)) return 0;
-    if (!Number.isFinite(other)) return number;
-    if (direction === 'in' && number >= other - minGapPercent) return other - minGapPercent;
-    if (direction === 'out' && number <= other + minGapPercent) return other + minGapPercent;
-    return number;
+  function clamp(value, minimum, maximum) {
+    return Math.min(maximum, Math.max(minimum, value));
   }
 
   function createMediaDraft({
@@ -125,25 +133,59 @@
       return true;
     }
 
-    function setTrimPercent(edge, value) {
+    function setTrimSeconds(edge, value) {
       if (!video?.durationSeconds) return null;
       const isStart = edge === 'start';
-      const otherSeconds = isStart ? video.trim.endSeconds : video.trim.startSeconds;
-      const otherPercent = (otherSeconds / video.durationSeconds) * 100;
-      const percent = clampTrimPercent({
-        value,
-        otherValue: otherPercent,
-        direction: isStart ? 'in' : 'out',
-      });
-      const seconds = (percent / 100) * video.durationSeconds;
+      if (!isStart && edge !== 'end') return null;
+      const requestedSeconds = Number.parseFloat(value);
+      if (!Number.isFinite(requestedSeconds)) return null;
+      const minimumGap = Math.min(MIN_TRIM_SECONDS, video.durationSeconds);
+      const seconds = isStart
+        ? clamp(requestedSeconds, 0, Math.max(0, video.trim.endSeconds - minimumGap))
+        : clamp(requestedSeconds, Math.min(video.durationSeconds, video.trim.startSeconds + minimumGap), video.durationSeconds);
       if (isStart) video.trim.startSeconds = seconds;
       else video.trim.endSeconds = seconds;
       const snapshot = copyVideo();
       return {
-        percent,
+        percent: (seconds / video.durationSeconds) * 100,
         trim: snapshot.trim,
         trimDurationSeconds: snapshot.trimDurationSeconds,
       };
+    }
+
+    function setTrimPercent(edge, value) {
+      if (!video?.durationSeconds) return null;
+      const percent = clamp(Number.parseFloat(value), 0, 100);
+      if (!Number.isFinite(percent)) return null;
+      return setTrimSeconds(edge, (percent / 100) * video.durationSeconds);
+    }
+
+    function validateVideo({
+      allowedMimeTypes = null,
+      maxDurationSeconds = null,
+      requirePath = false,
+    } = {}) {
+      if (!video) return { valid: true };
+      const allowedTypes = allowedMimeTypes ? new Set(allowedMimeTypes) : null;
+      if (allowedTypes && !matchesVideoTypes(video.file, allowedTypes)) {
+        return {
+          valid: false,
+          reason: 'unsupported-video',
+          mimeType: video.file?.type || '',
+        };
+      }
+      if (requirePath && !video.path) return { valid: false, reason: 'missing-path' };
+      const durationSeconds = Math.max(0, video.trim.endSeconds - video.trim.startSeconds);
+      const maximum = maxDurationSeconds == null ? null : Number(maxDurationSeconds);
+      if (Number.isFinite(maximum) && durationSeconds > maximum) {
+        return {
+          valid: false,
+          reason: 'duration-limit',
+          durationSeconds,
+          maxDurationSeconds: maximum,
+        };
+      }
+      return { valid: true };
     }
 
     function clear() {
@@ -158,8 +200,10 @@
       removeImage,
       removeVideo,
       setTrimPercent,
+      setTrimSeconds,
       setVideoDuration,
       updateAlt,
+      validateVideo,
     };
   }
 

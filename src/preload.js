@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 function isXPartition(partition) {
   return typeof partition === 'string' && /^persist:x(?:-\d+)?$/.test(partition);
@@ -98,6 +98,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // メモリクリア
   clearMemory: () => ipcRenderer.invoke('clear-memory'),
   getMemoryMetrics: () => ipcRenderer.invoke('get-memory-metrics'),
+
+  // ユーザーが選択したFileだけをローカルパスへ解決
+  getPathForFile: file => webUtils.getPathForFile(file),
 
   // 動画トリミング（メインプロセスのffmpegで実行）
   trimVideo: (filePath, startSec, endSec) =>

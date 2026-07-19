@@ -1,5 +1,8 @@
 (function (global) {
   const MAX_RENDERED_ITEMS = 300;
+  const PAGE_LIMIT = 40;
+  const PREPEND_LIMIT = 30;
+  const RELATIVE_TIME_INTERVAL_MS = 60_000;
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -36,6 +39,8 @@
     intents = {},
     schedule = global.setTimeout || (callback => callback()),
     cancelSchedule = global.clearTimeout || (() => {}),
+    scheduleInterval = global.setInterval || (() => null),
+    cancelInterval = global.clearInterval || (() => {}),
     requestFrame = global.requestAnimationFrame || (callback => callback()),
     now = () => new Date().toISOString(),
     hoverDelay = 300,
@@ -49,6 +54,31 @@
     let activeDetail = null;
     let activeRepostMenu = null;
     let detailSequence = 0;
+    let relativeTimeTimer = null;
+
+    function updateRelativeTimes() {
+      if (!ui?.relTime) return;
+      const hosts = Array.from(columns.values(), column => column.host);
+      if (activeDetail?.overlay) hosts.push(activeDetail.overlay);
+      hosts.forEach(host => {
+        Array.from(host?.querySelectorAll?.('.p-time[data-created-at], .nago[data-created-at]') || [])
+          .forEach(element => {
+            const createdAt = element.dataset?.createdAt;
+            if (createdAt) element.textContent = ui.relTime(createdAt);
+          });
+      });
+    }
+
+    function startRelativeTimeUpdates() {
+      if (relativeTimeTimer !== null || (columns.size === 0 && !activeDetail)) return;
+      relativeTimeTimer = scheduleInterval(updateRelativeTimes, RELATIVE_TIME_INTERVAL_MS);
+    }
+
+    function stopRelativeTimeUpdates() {
+      if (relativeTimeTimer === null || columns.size > 0 || activeDetail) return;
+      cancelInterval(relativeTimeTimer);
+      relativeTimeTimer = null;
+    }
 
     function closeRepostMenu(ownerId = null) {
       if (!activeRepostMenu || (ownerId && activeRepostMenu.ownerId !== ownerId)) return;
@@ -79,6 +109,7 @@
       if (profileCardOwnerId === ownerId) removeProfileCard();
       overlay.remove?.();
       activeDetail = null;
+      stopRelativeTimeUpdates();
     }
 
     function positionProfileCard(card, target) {
@@ -280,7 +311,7 @@
 
       return `<div class="post" role="link" tabindex="0" data-uri="${escapeHtml(uri)}" data-cid="${escapeHtml(cid)}" data-likeuri="${escapeHtml(post.viewer?.like || '')}" data-reposturi="${escapeHtml(post.viewer?.repost || '')}" data-author-did="${escapeHtml(author.did || '')}" data-author-handle="${escapeHtml(author.handle || '')}">
         ${repostLabel}
-        <div class="post-top">${avatar}<div class="post-meta"><div class="meta-row"><span class="p-name" title="${escapeHtml(author.displayName || author.handle || '')}">${escapeHtml(author.displayName || author.handle || '')}</span><span class="p-handle">@${escapeHtml(author.handle || '')}</span><span class="p-time">${escapeHtml(time)}</span></div></div></div>
+        <div class="post-top">${avatar}<div class="post-meta"><div class="meta-row"><span class="p-name" title="${escapeHtml(author.displayName || author.handle || '')}">${escapeHtml(author.displayName || author.handle || '')}</span><span class="p-handle">@${escapeHtml(author.handle || '')}</span><span class="p-time" data-created-at="${escapeHtml(record.createdAt || '')}">${escapeHtml(time)}</span></div></div></div>
         <div class="p-body">${body}</div>${imageHtml}${videoHtml}
         <div class="p-acts">
           <button class="pa rep" data-bsky-action="reply">${icons.reply || ''} <span>${Number(post.replyCount) || 0}</span></button>
@@ -310,6 +341,15 @@
         .join('');
     }
 
+    function getNotificationIdentity(notification) {
+      return notification.uri || [
+        notification.indexedAt,
+        notification.reason,
+        notification.author?.did,
+        notification.reasonSubject,
+      ].filter(Boolean).join('|');
+    }
+
     function renderNotification(notification) {
       const author = notification.author || {};
       const reason = notification.reason || '';
@@ -331,17 +371,12 @@
       };
       const targetUri = notification.reasonSubject
         || (['reply', 'mention', 'quote'].includes(reason) ? notification.uri : '');
-      const identity = notification.uri || [
-        notification.indexedAt,
-        reason,
-        author.did,
-        notification.reasonSubject,
-      ].filter(Boolean).join('|');
+      const identity = getNotificationIdentity(notification);
       const avatar = ui?.renderAvatar ? ui.renderAvatar(author, 28, { delegated: true }) : '';
       const time = ui?.relTime ? ui.relTime(notification.indexedAt) : '';
       return `<div class="notif" role="button" tabindex="0" data-time="${escapeHtml(notification.indexedAt || '')}" data-notification-uri="${escapeHtml(identity)}" data-notification-reason="${escapeHtml(reason)}" data-author-did="${escapeHtml(author.did || '')}" data-author-handle="${escapeHtml(author.handle || '')}" data-target-uri="${escapeHtml(targetUri)}">
         <div class="ntype nt${escapeHtml(reason)}">${notificationIcons[reason] || icons.bell || ''} ${escapeHtml(labels[reason] || reason)}</div>
-        <div class="nrow">${avatar}<div class="ninfo"><div class="nwho">${escapeHtml(author.displayName || author.handle || '')}</div><div class="nex">@${escapeHtml(author.handle || '')}</div><div class="nago">${escapeHtml(time)}</div></div></div>
+        <div class="nrow">${avatar}<div class="ninfo"><div class="nwho">${escapeHtml(author.displayName || author.handle || '')}</div><div class="nex">@${escapeHtml(author.handle || '')}</div><div class="nago" data-created-at="${escapeHtml(notification.indexedAt || '')}">${escapeHtml(time)}</div></div></div>
       </div>`;
     }
 
@@ -530,6 +565,7 @@
       overlay.addEventListener?.('pointerout', detailHandlers.pointerOutHandler);
       documentRef.body.appendChild(overlay);
       activeDetail = { overlay, ownerId: detailOwnerId };
+      startRelativeTimeUpdates();
       const body = overlay.querySelector?.('.bsky-post-detail-body');
 
       try {
@@ -785,6 +821,50 @@
         searchHandler,
         searchKeyHandler,
       });
+      startRelativeTimeUpdates();
+    }
+
+    function getPageItems(column, data) {
+      return column.type === 'notif' ? (data.notifications || []) : (data.feed || []);
+    }
+
+    function getItemIdentity(column, item) {
+      if (column.type !== 'notif') return item.post?.uri || item.uri || '';
+      return getNotificationIdentity(item);
+    }
+
+    function collectExistingIdentities(column) {
+      const selector = column.type === 'notif'
+        ? '.notif[data-notification-uri]'
+        : '.post[data-uri]';
+      return new Set(
+        Array.from(column.host.querySelectorAll?.(selector) || [])
+          .map(element => column.type === 'notif'
+            ? element.dataset?.notificationUri
+            : element.dataset?.uri)
+          .filter(Boolean),
+      );
+    }
+
+    function deduplicateItems(column, items) {
+      const seen = new Set();
+      return items.filter(item => {
+        const identity = getItemIdentity(column, item);
+        if (!identity) return true;
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+      });
+    }
+
+    async function fetchPage(column, { limit, cursor }) {
+      if (column.type === 'feed') {
+        return adapter.getFeed({ feedUri: column.feedUri, limit, cursor });
+      }
+      if (column.type === 'notif') {
+        return adapter.listNotifications(cursor ? { limit, cursor } : { limit });
+      }
+      return adapter.getTimeline({ limit, cursor });
     }
 
     async function refresh(id, { mode = 'replace' } = {}) {
@@ -802,15 +882,29 @@
       }
 
       const isPrepend = mode === 'prepend';
+      const existingIdentities = isPrepend ? collectExistingIdentities(column) : new Set();
+      let gapReplaced = false;
       let data;
       try {
-        const request = { limit: isPrepend ? 10 : 40, cursor: isPrepend ? null : column.cursor };
-        if (column.type === 'feed') {
-          data = await adapter.getFeed({ feedUri: column.feedUri, ...request });
-        } else if (column.type === 'notif') {
-          data = await adapter.listNotifications({ limit: request.limit });
-        } else {
-          data = await adapter.getTimeline(request);
+        const limit = isPrepend ? PREPEND_LIMIT : PAGE_LIMIT;
+        data = await fetchPage(column, { limit, cursor: isPrepend ? null : column.cursor });
+        const firstPageItems = getPageItems(column, data);
+        const firstPageAllNew = isPrepend
+          && existingIdentities.size > 0
+          && firstPageItems.length > 0
+          && firstPageItems.every(item => !existingIdentities.has(getItemIdentity(column, item)));
+        if (firstPageAllNew && data.cursor) {
+          const nextPage = await fetchPage(column, { limit: PREPEND_LIMIT, cursor: data.cursor });
+          const nextPageItems = getPageItems(column, nextPage);
+          const overlapFound = nextPageItems.some(item => existingIdentities.has(getItemIdentity(column, item)));
+          gapReplaced = !overlapFound
+            && Boolean(nextPage.cursor);
+          data = {
+            ...nextPage,
+            ...(column.type === 'notif'
+              ? { notifications: [...firstPageItems, ...nextPageItems] }
+              : { feed: [...firstPageItems, ...nextPageItems] }),
+          };
         }
       } catch (error) {
         if (columns.get(id) === column && column.revision === revision && mode === 'replace') {
@@ -822,36 +916,16 @@
       if (columns.get(id) !== column || column.revision !== revision) {
         return { status: 'deferred', detail: 'column-disposed' };
       }
-      let items = column.type === 'notif' ? (data.notifications || []) : (data.feed || []);
-      if (isPrepend) {
-        if (column.type === 'notif') {
-          const existingNotificationUris = new Set(
-            Array.from(column.host.querySelectorAll?.('.notif[data-notification-uri]') || [])
-              .map(element => element.dataset?.notificationUri)
-              .filter(Boolean),
-          );
-          items = items.filter(item => {
-            const identity = item.uri || [
-              item.indexedAt,
-              item.reason,
-              item.author?.did,
-              item.reasonSubject,
-            ].filter(Boolean).join('|');
-            return !existingNotificationUris.has(identity);
-          });
-        } else {
+      let items = deduplicateItems(column, getPageItems(column, data));
+      if (isPrepend && !gapReplaced) {
+        if (column.type !== 'notif') {
           syncPostMetrics(column.host, items);
           reapplyPendingReactions();
-          const existingUris = new Set(
-            Array.from(column.host.querySelectorAll?.('.post[data-uri]') || [])
-              .map(element => element.dataset?.uri)
-              .filter(Boolean),
-          );
-          items = items.filter(item => {
-            const uri = item.post?.uri || item.uri;
-            return !uri || !existingUris.has(uri);
-          });
         }
+        items = items.filter(item => {
+          const identity = getItemIdentity(column, item);
+          return !identity || !existingIdentities.has(identity);
+        });
         if (items.length === 0) return { status: 'succeeded', detail: 'no-changes' };
       } else if (column.type !== 'notif') {
         column.cursor = data.cursor || null;
@@ -871,7 +945,7 @@
         trimRenderedItems(column.host, { removeFrom: 'start', preserveScroll: true });
         return { status: 'succeeded', detail: 'appended' };
       }
-      if (isPrepend) {
+      if (isPrepend && !gapReplaced) {
         if (!renderedItems) return { status: 'succeeded', detail: 'filtered' };
         const previousScrollTop = Number(column.host.scrollTop) || 0;
         const wasAtTop = previousScrollTop < 50;
@@ -897,9 +971,9 @@
         }
         return { status: 'succeeded', detail: 'new-items' };
       }
-      column.host.innerHTML = renderedItems
-        || `<div class="feed-empty">${column.type === 'notif' ? '通知がありません' : '投稿がありません'}</div>`;
-      column.host.innerHTML += loadMore;
+      column.host.innerHTML = (renderedItems
+        || `<div class="feed-empty">${column.type === 'notif' ? '通知がありません' : '投稿がありません'}</div>`)
+        + loadMore;
       trimRenderedItems(column.host, { removeFrom: 'end' });
       if (column.type === 'notif' && mode === 'replace') {
         try {
@@ -911,7 +985,7 @@
           onOutcome({ kind: 'notification-seen', status: 'failed', columnId: id, error });
         }
       }
-      return { status: 'succeeded', detail: 'replaced' };
+      return { status: 'succeeded', detail: gapReplaced ? 'gap-replaced' : 'replaced' };
     }
 
     function dispose(id) {
@@ -928,6 +1002,7 @@
       column.searchInput?.removeEventListener?.('keydown', column.searchKeyHandler);
       column.searchButton?.removeEventListener?.('click', column.searchHandler);
       columns.delete(id);
+      stopRelativeTimeUpdates();
       clearProfileHoverTimer(id);
       if (profileCardOwnerId === id) removeProfileCard();
       closeRepostMenu(id);

@@ -103,7 +103,11 @@ function createAtprotoClient({
       jwt,
     ),
     search: (jwt, query, limit) => get('app.bsky.feed.searchPosts', { q: query, limit }, jwt),
-    notifications: (jwt, limit) => get('app.bsky.notification.listNotifications', { limit }, jwt),
+    notifications: (jwt, limit, cursor) => get(
+      'app.bsky.notification.listNotifications',
+      cursor ? { limit, cursor } : { limit },
+      jwt,
+    ),
     updateSeen: (jwt, seenAt) => post('app.bsky.notification.updateSeen', { seenAt }, jwt),
     getUnreadCount: jwt => get('app.bsky.notification.getUnreadCount', {}, jwt),
     getProfile: (jwt, actor) => get('app.bsky.actor.getProfile', { actor }, jwt),

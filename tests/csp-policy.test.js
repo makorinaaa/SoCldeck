@@ -50,3 +50,13 @@ test('loads delegated actions before renderer and blocks production DevTools', (
   assert.match(preload, /devToolsEnabled: isDevelopment/);
   assert.doesNotMatch(main, /lower === 'content-security-policy'/);
 });
+
+test('resolves user-selected video paths through the Electron WebUtils bridge', () => {
+  const preload = read('src/preload.js');
+  const renderer = read('src/renderer.js');
+
+  assert.match(preload, /webUtils/);
+  assert.match(preload, /getPathForFile:\s*file\s*=>\s*webUtils\.getPathForFile\(file\)/);
+  assert.match(renderer, /window\.electronAPI\?\.getPathForFile\?\.\(file\)/);
+  assert.doesNotMatch(renderer, /file\.path\s*\?/);
+});

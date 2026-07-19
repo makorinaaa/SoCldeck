@@ -63,6 +63,24 @@ test('normalizes AT Protocol errors for Gateway refresh decisions', async () => 
   );
 });
 
+test('paginates Bluesky notifications with the supplied cursor', async () => {
+  const calls = [];
+  const client = createAtprotoClient({
+    fetchImpl: async (url, options) => {
+      calls.push([url, options]);
+      return response({ body: { notifications: [], cursor: 'next-page' } });
+    },
+  });
+
+  const result = await client.notifications('access-token', 30, 'cursor-1');
+
+  assert.deepEqual(result, { notifications: [], cursor: 'next-page' });
+  assert.equal(
+    calls[0][0],
+    'https://bsky.social/xrpc/app.bsky.notification.listNotifications?limit=30&cursor=cursor-1',
+  );
+});
+
 test('creates post records for the Gateway-selected repository', async () => {
   const calls = [];
   const client = createAtprotoClient({

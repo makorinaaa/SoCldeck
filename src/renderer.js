@@ -6,14 +6,19 @@ const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
 const xComposeMediaDraft = composeMedia.createMediaDraft({
   supportsVideo: true,
-  resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
+  resolveFilePath: file => IS_ELECTRON
+    ? window.electronAPI?.getPathForFile?.(file) || null
+    : null,
 });
 const bskyComposeMediaDraft = composeMedia.createMediaDraft({
   supportsVideo: true,
   videoMimeTypes: ['video/mp4'],
-  resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
+  resolveFilePath: file => IS_ELECTRON
+    ? window.electronAPI?.getPathForFile?.(file) || null
+    : null,
 });
 const composeRequests = window.SocialDeckComposeRequest;
+const composeCrossPostPlan = window.SocialDeckComposeCrossPostPlan;
 const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
 const notificationCenter = window.SocialDeckNotificationCenter;
@@ -109,7 +114,7 @@ const columnShellRuntime = window.SocialDeckColumnShellRuntime.createColumnShell
     if (type === 'refresh') return refreshColumn(id, target);
     if (type === 'remove') return removeCol(id);
     if (type === 'back') return wvBack(id);
-    if (type === 'settings') return openColSettings(id, columnType);
+    if (type === 'settings') return settingsModals.openColumnSettings(id, columnType);
     if (type === 'scroll-top' && kind === 'x') return wvScrollTop(id);
     if (type === 'scroll-top' && kind === 'bsky') return bskyScrollTop(id);
     if (type === 'scroll-top' && kind === 'schedule') return animeScheduleScrollTop(id);
@@ -211,65 +216,6 @@ function restoreColLayout() {
 // ─── NG WORD / MUTE ──────────────────────────────
 const muteRules = window.SocialDeckMuteRules.createMuteRules();
 
-function openNgSettings() {
-  const ngData = muteRules.getRules();
-  document.getElementById('ng-modal-ov')?.remove();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'ng-modal-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-
-  const wordsList = ngData.words.map((w, i) =>
-    `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
-      <span style="flex:1;font-size:12px;color:var(--text1)">${esc(w)}</span>
-      <button data-action="remove-ng-rule" data-rule-kind="word" data-rule-index="${i}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
-
-  const usersList = ngData.users.map((u, i) =>
-    `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
-      <span style="flex:1;font-size:12px;color:var(--text1)">@${esc(u)}</span>
-      <button data-action="remove-ng-rule" data-rule-kind="user" data-rule-index="${i}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
-    </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
-
-  ov.innerHTML = `<div class="modal" style="width:380px;max-height:80vh;overflow-y:auto">
-    <h2 style="margin-bottom:16px">NGワード / ミュート設定</h2>
-    <div style="margin-bottom:18px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">NGワード（投稿本文）</div>
-      ${wordsList}
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <input id="ng-word-input" type="text" placeholder="キーワードを追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button data-action="add-ng-rule" data-rule-kind="word" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
-      </div>
-    </div>
-    <div style="margin-bottom:18px">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">ミュートユーザー</div>
-      ${usersList}
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <input id="ng-user-input" type="text" placeholder="@handle を追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-        <button data-action="add-ng-rule" data-rule-kind="user" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
-      </div>
-    </div>
-    <button data-action="remove-element" data-target-id="ng-modal-ov" class="btn-cancel">閉じる</button>
-  </div>`;
-  document.body.appendChild(ov);
-  setTimeout(() => document.getElementById('ng-word-input')?.focus(), 50);
-}
-
-function addNg(type) {
-  const inputId = type === 'word' ? 'ng-word-input' : 'ng-user-input';
-  const input = document.getElementById(inputId);
-  const { value: val } = muteRules.add(type, input?.value);
-  if (!val) return;
-  openNgSettings();
-  refilterBskyCols();
-  toast('NG ' + type + ': ' + val + ' added');
-}
-
-function removeNg(type, idx) {
-  muteRules.remove(type, idx);
-  openNgSettings();
-  refilterBskyCols();
-}
-
 // NGルール変更時に全Bskyカラムを再読み込みして即時反映
 function refilterBskyCols() {
   document.querySelectorAll('.col').forEach(col => {
@@ -346,6 +292,66 @@ const memoryCleaner = window.SocialDeckMemoryCleaner.createMemoryCleaner({
     return { blueskyItemsRemoved, xNotificationReadersDisposed };
   },
 });
+const settingsModals = window.SocialDeckSettingsModalsRuntime.createSettingsModalsRuntime({
+  documentRef: document,
+  storage: localStorage,
+  muteRules,
+  appearance: appearanceRuntime,
+  memoryCleaner,
+  columns: {
+    getRefreshInterval: id => columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS),
+    setRefreshInterval: (id, ms) => columnLifecycle.setRefreshInterval(id, ms),
+    persistLayout: () => columnLifecycle.persist(),
+    setFontSize: (id, colType, fontSize) => {
+      if (colType === 'wv') {
+        xWebViewRuntime.setFontSize(id, fontSize);
+      } else {
+        const feed = document.getElementById(`feed-${id}`);
+        if (feed) feed.style.fontSize = fontSize + 'px';
+      }
+    },
+  },
+  ui: { escape: esc },
+  intents: {
+    toast: message => toast(message),
+    refilterColumns: () => refilterBskyCols(),
+  },
+});
+const mentionSuggest = window.SocialDeckComposeMentionSuggest.createComposeMentionSuggest({
+  documentRef: document,
+  windowRef: window,
+  searchActors: async query => (
+    (await authenticatedBskyAdapter.searchActors({ query, limit: 6 })).actors || []
+  ),
+  isAvailable: () => Boolean(state.b),
+  ui: { escape: esc, avatarBackground: avBgFor },
+});
+const columnPicker = window.SocialDeckColumnPicker.createColumnPicker({
+  documentRef: document,
+  getAccounts: () => ({ x: state.xs || [], b: state.b }),
+  getColumnDefinitions: networkId => networkAdapters.getColumnDefinitions(networkId),
+  createColumn: plan => columnLifecycle.create(plan),
+  ui: { escape: esc },
+  intents: {
+    toast,
+    close: modalId => closeOv(modalId),
+    requestXListInput: accountIndex => openXListDialog(accountIndex),
+  },
+});
+const widgetMode = window.SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
+  documentRef: document,
+  widgetHost: IS_ELECTRON
+    ? {
+        getOpacity: () => window.electronAPI.widgetGetOpacity(),
+        setOpacity: opacity => window.electronAPI.widgetSetOpacity(opacity),
+        getTop: () => window.electronAPI.widgetGetTop(),
+        toggleTop: () => window.electronAPI.widgetToggleTop(),
+        close: () => window.electronAPI.closeWidget(),
+      }
+    : null,
+  columnRuntime,
+  intents: { toast, reload: () => location.reload() },
+});
 const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
   getIsColumnDragging: () => Boolean(dragSrc),
 });
@@ -363,7 +369,7 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
   coordinator: composeCoordinator,
   view: composeModalView,
   intents: {
-    submit: networkId => networkId === 'x' ? doXPost() : doSend(),
+    submit: networkId => composeSubmission.submit(networkId),
     closed: networkId => {
       if (networkId === 'b') replyTarget = null;
     },
@@ -372,7 +378,29 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
       state.composePreferences = { ...(state.composePreferences || {}), [name]: value };
       saveState();
     },
-    onBlueskyTextInput: onCompTextareaInput,
+    onBlueskyTextInput: event => mentionSuggest.onInput(event),
+  },
+});
+const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmission({
+  modalRuntime: {
+    getSnapshot: networkId => composeModalRuntime.getSnapshot(networkId),
+    setBusy: (networkId, busy, label, options) => composeModalRuntime.setBusy(networkId, busy, label, options),
+    close: networkId => composeModalRuntime.close(networkId),
+  },
+  coordinator: composeCoordinator,
+  createRequest: composeRequests.createComposeRequest,
+  adapters: networkAdapters,
+  createCrossPostPlan: composeCrossPostPlan.createCrossPostPlan,
+  mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
+  executeXDelivery: (delivery, context) => executeXComposeDelivery(delivery, context),
+  getBlueskyAccount: () => state.b,
+  getReplyTarget: () => replyTarget,
+  maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
+  formatSeconds: fmtSec,
+  ui: {
+    toast,
+    confirm: message => confirm(message),
+    clearTrimStatus: () => setFFmpegStatus(''),
   },
 });
 const authenticatedBskyAdapter = bskyGateway;
@@ -418,41 +446,6 @@ bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumns
 
 
 function saveState() { stateStore.save(state); }
-
-function syncAppearanceSettings(appearance) {
-  document.querySelectorAll('.appearance-theme').forEach(button => {
-    button.classList.toggle('primary', button.dataset.theme === appearance.theme);
-  });
-  document.querySelectorAll('.appearance-swatch').forEach(button => {
-    button.classList.toggle('selected', button.dataset.accent === appearance.accent);
-  });
-  const custom = document.getElementById('appearance-custom-color');
-  if (custom && custom.value !== appearance.accent) custom.value = appearance.accent;
-}
-
-function openAppearanceSettings() {
-  const appearance = appearanceRuntime.begin();
-  syncAppearanceSettings(appearance);
-  document.getElementById('appearanceMod')?.classList.add('on');
-}
-
-function previewAppearance(partial) {
-  const appearance = appearanceRuntime.preview(partial);
-  syncAppearanceSettings(appearance);
-}
-
-function cancelAppearance(event = null, overlay = null) {
-  if (event && overlay && event.target !== overlay) return;
-  appearanceRuntime.cancel();
-  document.getElementById('appearanceMod')?.classList.remove('on');
-}
-
-function saveAppearance() {
-  const appearance = appearanceRuntime.commit();
-  syncAppearanceSettings(appearance);
-  document.getElementById('appearanceMod')?.classList.remove('on');
-  toast('テーマ設定を保存しました');
-}
 
 async function initializeBlueskySession() {
   try {
@@ -1196,7 +1189,6 @@ function fmtSec(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-// ── 画像追加 ──
 function executeXComposeDelivery(delivery, context = {}) {
   return xWebViewRuntime.executeCompose(
     delivery,
@@ -1204,152 +1196,6 @@ function executeXComposeDelivery(delivery, context = {}) {
     (preparedDelivery, preparedContext) =>
       networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext),
   );
-}
-
-async function doXOriginCrossPost(text) {
-  const compose = composeModalRuntime.getSnapshot('x');
-  const media = compose.media;
-  const account = compose.selectedAccount;
-  if (!account) { toast('Xアカウントを選択してください'); return; }
-  if (!state.b) { toast('Bluesky にログインしていません'); return; }
-
-  const xRequest = composeRequests.createComposeRequest({
-    networkId: 'x',
-    accountId: account.username || account.partition,
-    text,
-    images: media.images.map(image => ({ file: image.file })),
-    replyTo: null,
-  });
-  const bRequest = composeRequests.createComposeRequest({
-    networkId: 'b',
-    accountId: state.b.did,
-    text,
-    images: media.images,
-    replyTo: null,
-  });
-  const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
-  const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
-  const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
-  const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
-
-  const hasUnknown = composeCoordinator.getStatus('x').hasUnknownCross;
-  let retryUnknown = false;
-  if (hasUnknown) {
-    retryUnknown = confirm(
-      '投稿先で未投稿であることを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
-    );
-    if (!retryUnknown) return;
-  }
-
-  setComposeBusy('xPostMod', 'x-sndb', true, 'X + Blueskyへ送信中...');
-  const result = await composeCoordinator.submitCrossPost([
-    {
-      id: 'x',
-      request: xRequest,
-      deliver: () => executeXComposeDelivery(xDelivery),
-      completionPlan: xCompletion,
-    },
-    {
-      id: 'b',
-      request: bRequest,
-      deliver: () => networkAdapters.executeComposeDelivery(bDelivery),
-      completionPlan: bCompletion,
-    },
-  ], { retryUnknown });
-  setComposeBusy('xPostMod', 'x-sndb', false);
-
-  if (result.status === 'succeeded') {
-    closeOv('xPostMod');
-    toast('XとBlueskyへ投稿しました');
-    return;
-  }
-
-  composeModalRuntime.setBusy(
-    'x',
-    false,
-    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
-    { locked: true },
-  );
-  const failed = result.results.filter(target => target.status !== 'succeeded')
-    .map(target => target.id === 'x' ? 'X' : 'Bluesky')
-    .join(' / ');
-  toast(result.status === 'unknown'
-    ? `${failed}の投稿結果を確認できませんでした`
-    : `${failed}への投稿に失敗しました`);
-}
-
-async function doXPost() {
-  const compose = composeModalRuntime.getSnapshot('x');
-  const media = compose.media;
-  const crossPosting = compose.crossPost;
-  const composeStatus = composeCoordinator.getStatus('x');
-  if (composeStatus.isSending) return;
-  if (!crossPosting && composeStatus.hasUnknownSingle) {
-    const confirmedMissing = confirm(
-      'X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
-    );
-    if (!confirmedMissing) return;
-  }
-  const text = compose.text.trim();
-  if (!text && media.images.length === 0 && !media.video) return;
-  if (crossPosting) {
-    await doXOriginCrossPost(text);
-    return;
-  }
-
-  const acc = compose.selectedAccount;
-  if (!acc) { toast('Xアカウントを選択してください'); return; }
-
-  // 動画の長さチェック
-  if (media.video) {
-    const trimDur = media.video.trimDurationSeconds;
-    if (trimDur > 140) {
-      toast(`動画が長すぎます（${fmtSec(trimDur)}）。2分20秒以内にトリミングしてください`);
-      return;
-    }
-  }
-
-  const request = composeRequests.createComposeRequest({
-    networkId: 'x',
-    accountId: acc.username || acc.partition,
-    text,
-    images: media.images.map(image => ({ file: image.file })),
-    video: media.video
-      ? {
-          file: media.video.file,
-          trim: media.video.trim,
-        }
-      : null,
-  });
-  const delivery = networkAdapters.prepareComposeDelivery(request);
-  const completionPlan = networkAdapters.prepareComposeCompletion(request);
-
-  setComposeBusy('xPostMod', 'x-sndb', true, '送信中…');
-  const result = await composeCoordinator.submitSingle({
-    networkId: 'x',
-    request,
-    deliver: () => executeXComposeDelivery(delivery, {
-      videoPath: media.video?.path || null,
-      videoDuration: media.video?.durationSeconds || 0,
-    }),
-    completionPlan,
-  });
-
-  setComposeBusy('xPostMod', 'x-sndb', false);
-  if (result.status === 'succeeded') {
-    closeOv('xPostMod');
-    return;
-  }
-
-  if (result.status === 'unknown') {
-    composeModalRuntime.setBusy('x', false, '確認後に再試行');
-    toast('投稿結果を確認できませんでした。X上で投稿状況を確認してください');
-    return;
-  }
-
-  setFFmpegStatus('');
-  composeModalRuntime.setBusy('x', false, '再試行');
-  toast('X post error: ' + result.error.message);
 }
 
 function openImg(urls, startIndex = 0) {
@@ -1369,275 +1215,6 @@ async function resolveMentionDids(facets) {
     const res = await authenticatedBskyAdapter.resolveHandle({ handle });
     return res.did;
   });
-}
-
-async function doCrossPost(text) {
-  const compose = composeModalRuntime.getSnapshot('b');
-  const media = compose.media;
-  const account = compose.crossPostXAccount;
-  if (!account) { toast('Xアカウントを選択してください'); return; }
-
-  const bRequest = composeRequests.createComposeRequest({
-    networkId: 'b',
-    accountId: state.b.did,
-    text,
-    images: media.images,
-    replyTo: null,
-  });
-  const xRequest = composeRequests.createComposeRequest({
-    networkId: 'x',
-    accountId: account.username || account.partition,
-    text,
-    images: media.images.map(image => ({ file: image.file })),
-    replyTo: null,
-  });
-  const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
-  const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
-  const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
-  const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
-
-  const hasUnknown = composeCoordinator.getStatus('b').hasUnknownCross;
-  let retryUnknown = false;
-  if (hasUnknown) {
-    retryUnknown = confirm('X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。');
-    if (!retryUnknown) return;
-  }
-
-  setComposeBusy('compMod', 'sndb', true, 'X + Blueskyへ送信中...');
-  const result = await composeCoordinator.submitCrossPost([
-    {
-      id: 'x',
-      request: xRequest,
-      deliver: () => executeXComposeDelivery(xDelivery),
-      completionPlan: xCompletion,
-    },
-    {
-      id: 'b',
-      request: bRequest,
-      deliver: () => networkAdapters.executeComposeDelivery(bDelivery),
-      completionPlan: bCompletion,
-    },
-  ], { retryUnknown });
-  setComposeBusy('compMod', 'sndb', false);
-
-  if (result.status === 'succeeded') {
-    closeOv('compMod');
-    toast('XとBlueskyへ投稿しました');
-    return;
-  }
-
-  composeModalRuntime.setBusy(
-    'b',
-    false,
-    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
-    { locked: true },
-  );
-  const failed = result.results.filter(target => target.status !== 'succeeded')
-    .map(target => target.id === 'x' ? 'X' : 'Bluesky')
-    .join(' / ');
-  toast(result.status === 'unknown'
-    ? 'Xの投稿結果を確認できませんでした'
-    : `${failed}への投稿に失敗しました`);
-}
-
-async function doSend() {
-  const compose = composeModalRuntime.getSnapshot('b');
-  const media = compose.media;
-  if (composeCoordinator.getStatus('b').isSending) return;
-  const text = compose.text.trim();
-  if (!text && media.images.length === 0 && !media.video) return;
-  if (!state.b) { toast('Bluesky にログインしていません'); return; }
-  if (!replyTarget && compose.crossPost) {
-    await doCrossPost(text);
-    return;
-  }
-
-  if (media.video?.trimDurationSeconds > 180) {
-    toast(`動画が長すぎます（${fmtSec(media.video.trimDurationSeconds)}）。3分以内にトリミングしてください`);
-    return;
-  }
-
-  const request = composeRequests.createComposeRequest({
-    networkId: 'b',
-    accountId: state.b.did,
-    text,
-    images: media.images,
-    video: media.video
-      ? {
-          file: media.video.file,
-          sourcePath: media.video.path,
-          durationSeconds: media.video.durationSeconds,
-          trim: media.video.trim,
-        }
-      : null,
-    replyTo: replyTarget
-      ? {
-          root: {
-            uri: replyTarget.rootUri || replyTarget.uri,
-            cid: replyTarget.rootCid || replyTarget.cid,
-          },
-          parent: { uri: replyTarget.uri, cid: replyTarget.cid },
-        }
-      : null,
-  });
-  const delivery = networkAdapters.prepareComposeDelivery(request);
-  const completionPlan = networkAdapters.prepareComposeCompletion(request);
-
-  setComposeBusy('compMod', 'sndb', true, '送信中…');
-  const result = await composeCoordinator.submitSingle({
-    networkId: 'b',
-    request,
-    deliver: () => networkAdapters.executeComposeDelivery(delivery),
-    completionPlan,
-  });
-
-  setComposeBusy('compMod', 'sndb', false);
-  if (result.status === 'succeeded') {
-    closeOv('compMod');
-    return;
-  }
-
-  composeModalRuntime.setBusy('b', false, '再試行');
-  toast(`Post error: ${result.error.message}`);
-}
-
-// ─── ADD COLUMN MODAL ───────────────────────────
-function buildOptGrid() {
-  const og = document.getElementById('opt-grid');
-  og.innerHTML = '';
-
-  // X: アカウントごとにセクションを分けて表示
-  if (state.xs && state.xs.length > 0) {
-    const xDefinitions = networkAdapters.getColumnDefinitions('x');
-    state.xs.forEach((acc, idx) => {
-      og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:${idx > 0 ? 10 : 0}px;padding:4px 0;border-bottom:1px solid var(--border)">
-        <span style="display:inline-flex;align-items:center;gap:5px">
-          <span style="width:14px;height:14px;border-radius:50%;background:${acc.bg};display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${acc.initials}</span>
-          X · ${esc(acc.username)}
-        </span>
-      </div>`;
-      xDefinitions.forEach(def => {
-        og.innerHTML += mkOptX(def.id, def.icon, def.label, def.description, idx);
-      });
-    });
-  }
-
-  // Bluesky
-  if (state.b) {
-    if (state.xs && state.xs.length > 0) {
-      og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">Bluesky · @${state.b.handle}</div>`;
-    }
-    networkAdapters.getColumnDefinitions('b').filter(def => def.picker !== false).forEach(def => {
-      og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'b');
-    });
-  }
-
-  og.innerHTML += `<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--text3);letter-spacing:.06em;margin-top:10px;padding:4px 0;border-bottom:1px solid var(--border)">情報</div>`;
-  networkAdapters.getColumnDefinitions('anime').filter(def => def.picker !== false).forEach(def => {
-    og.innerHTML += mkOpt(def.id, def.icon, def.label, def.description, false, 'anime');
-  });
-}
-
-function mkOptX(type, icon, name, desc, accountIdx) {
-  return `<button class="opt" data-action="add-column" data-definition-id="${esc(type)}" data-network="x" data-account-index="${accountIdx}">
-    <div style="width:16px;height:16px;margin-bottom:5px">${icon}</div>
-    <div class="oname">${name}</div>
-    <div class="odesc">${desc}</div>
-  </button>`;
-}
-
-function mkOpt(id, icon, name, desc, disabled, plat) {
-  return `<button class="opt${disabled ? ' disabled' : ''}" data-action="add-column" data-definition-id="${esc(id)}" data-network="${esc(plat)}"${disabled ? ' disabled' : ''}>
-    <div style="width:16px;height:16px;margin-bottom:5px">${icon}</div>
-    <div class="oname">${name}</div>
-    <div class="odesc">${desc}</div>
-  </button>`;
-}
-
-let extraColN = 0;
-function nextColumnId(prefix) {
-  let id;
-  do {
-    extraColN += 1;
-    id = `${prefix}-${extraColN}`;
-  } while (document.getElementById(`col-${id}`));
-  return id;
-}
-
-function addColFromModal(definitionId, network, accountIdx) {
-  closeOv('addMod');
-  // X: アカウントindexをIDに含めて一意にする
-  const id = network === 'x'
-    ? nextColumnId(`x${accountIdx}-${definitionId}`)
-    : nextColumnId(definitionId);
-  const xAccount = network === 'x' ? state.xs?.[accountIdx ?? 0] : null;
-  const result = columnLifecycle.create({
-    networkId: network,
-    definitionId,
-    id,
-    account: xAccount ? { ...xAccount, index: accountIdx ?? 0 } : null,
-  });
-
-  if (result.status === 'input-required' && result.plan.input === 'x-list') {
-    openXListDialog(accountIdx);
-    return;
-  }
-  if (result.status !== 'created') {
-    toast('Column type is unavailable');
-    return;
-  }
-
-  const cols = document.getElementById('cols');
-  const lastCol = cols.querySelector('.col:last-of-type');
-  if (lastCol) lastCol.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-  toast('Column added');
-}
-
-function openColSettings(id, colType) {
-  const ms = columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS);
-  const cur = Math.round(ms / 1000);
-  const curFs = parseInt(localStorage.getItem(`col_fs_${id}`)) || 13;
-  document.getElementById('col-settings-ov')?.remove();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'col-settings-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-  ov.innerHTML = `<div class="modal" style="width:300px">
-    <h2 style="margin-bottom:14px">Column settings</h2>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Auto refresh interval</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[15,30,60,120,300,0].map(s=>`<button data-action="apply-column-interval" data-column-id="${esc(id)}" data-interval-ms="${s * 1000}"
-        style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===s?'var(--accent)':'var(--border2)'};background:${cur===s?'var(--accent-dim)':'transparent'};color:${cur===s?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
-        ${s===0?'OFF':s<60?s+' sec':s/60+' min'}</button>`).join('')}
-    </div>
-    <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Font size</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-      ${[11,12,13,14,15,16].map(fs=>`<button data-action="apply-column-font-size" data-column-id="${esc(id)}" data-column-type="${esc(colType)}" data-font-size="${fs}"
-        style="padding:5px 11px;border-radius:6px;border:1px solid ${curFs===fs?'var(--accent)':'var(--border2)'};background:${curFs===fs?'var(--accent-dim)':'transparent'};color:${curFs===fs?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
-        ${fs}px</button>`).join('')}
-    </div>
-    <button data-action="remove-element" data-target-id="col-settings-ov" class="btn-cancel">Close</button>
-  </div>`;
-  document.body.appendChild(ov);
-}
-function applyInterval(id, ms) {
-  columnLifecycle.setRefreshInterval(id, ms);
-  const label = ms===0?'OFF':ms<60000?(ms/1000)+' sec':(ms/60000)+' min';
-  toast('Auto refresh: '+label);
-  document.getElementById('col-settings-ov')?.remove();
-  columnLifecycle.persist();
-}
-
-function applyColFontSize(id, colType, fs) {
-  localStorage.setItem(`col_fs_${id}`, fs);
-  if (colType === 'wv') {
-    xWebViewRuntime.setFontSize(id, fs);
-  } else {
-    // Bskyのfeedにfont-sizeを適用
-    const feed = document.getElementById(`feed-${id}`);
-    if (feed) feed.style.fontSize = fs + 'px';
-  }
-  toast(`文字サイズ: ${fs}px`);
-  document.getElementById('col-settings-ov')?.remove();
 }
 
 function showPostMenu({ handle, x, y }) {
@@ -1857,111 +1434,6 @@ function startMemoryCleaner() {
   memoryCleaner.start();
 }
 
-function getMemInterval() {
-  return memoryCleaner.getInterval();
-}
-
-function formatMemoryMb(valueKb) {
-  const value = Number(valueKb);
-  return Number.isFinite(value) ? `${(value / 1024).toFixed(1)} MB` : '計測不可';
-}
-
-function renderMemoryMetrics(snapshot) {
-  const target = document.getElementById('memory-metrics');
-  if (!target) return;
-  const host = snapshot?.host;
-  const runtime = snapshot?.runtime || {};
-  if (!host) {
-    target.innerHTML = '<span style="color:var(--text3)">Electronで起動するとプロセスメモリを確認できます。</span>';
-    return;
-  }
-  const groups = host.groups || {};
-  target.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-      <strong style="font-size:18px;color:var(--text1)">${formatMemoryMb(host.totalKb)}</strong>
-      <span style="color:var(--text3)">${host.processCount || 0}プロセス</span>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr auto;gap:5px 12px;color:var(--text2)">
-      <span>メイン</span><span>${formatMemoryMb(groups.browser)}</span>
-      <span>画面・WebView</span><span>${formatMemoryMb(groups.renderer)}</span>
-      <span>GPU</span><span>${formatMemoryMb(groups.gpu)}</span>
-      <span>その他</span><span>${formatMemoryMb((groups.utility || 0) + (groups.other || 0))}</span>
-    </div>
-    <div style="border-top:1px solid var(--border);margin-top:9px;padding-top:8px;color:var(--text3)">
-      Bluesky ${runtime.blueskyItems || 0}件 / ${runtime.blueskyColumns || 0}カラム<br>
-      X WebView ${runtime.xColumnWebViews || 0}個 / 通知Reader ${runtime.xNotificationReaders || 0}個
-    </div>`;
-}
-
-async function refreshMemoryMetrics() {
-  const target = document.getElementById('memory-metrics');
-  if (target) target.textContent = '計測中…';
-  try {
-    renderMemoryMetrics(await memoryCleaner.measure());
-  } catch (error) {
-    if (target) target.textContent = `計測できませんでした: ${error.message}`;
-  }
-}
-
-async function runMemoryClear(showToast = true) {
-  const button = document.querySelector('[data-action="clear-memory-now"]');
-  if (button) button.disabled = true;
-  try {
-    const result = await memoryCleaner.clear({ includeCache: true });
-    renderMemoryMetrics(result.after);
-    if (showToast) {
-      const removed = result.runtimeCleanup?.blueskyItemsRemoved || 0;
-      const readers = result.runtimeCleanup?.xNotificationReadersDisposed || 0;
-      toast(`メモリを整理しました（投稿${removed}件・Reader ${readers}個を解放）`);
-    }
-    return result;
-  } catch (error) {
-    if (showToast) toast(`メモリ整理エラー: ${error.message}`);
-    return null;
-  } finally {
-    if (button) button.disabled = false;
-  }
-}
-
-function openMemSettings() {
-  document.getElementById('mem-settings-ov')?.remove();
-  const cur = getMemInterval();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'mem-settings-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-  ov.innerHTML = `
-    <div class="modal" style="width:340px">
-      <h2 style="margin-bottom:6px">メモリ管理</h2>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">長時間利用時の描画データを定期的に整理します。</p>
-      <div id="memory-metrics" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:11px;margin-bottom:12px">計測中…</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:7px">自動整理の間隔</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-        ${[[15*60000,'15分'],[30*60000,'30分'],[60*60000,'1時間'],[120*60000,'2時間'],[0,'OFF']].map(([ms, label]) => `
-          <button data-action="apply-memory-interval" data-interval-ms="${ms}"
-            style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===ms?'var(--accent)':'var(--border2)'};background:${cur===ms?'var(--accent-dim)':'transparent'};color:${cur===ms?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
-            ${label}
-          </button>`).join('')}
-      </div>
-      <button data-action="clear-memory-now"
-        style="width:100%;padding:8px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;margin-bottom:8px">
-        今すぐ整理（キャッシュを含む）
-      </button>
-      <div style="display:flex;gap:7px">
-        <button data-action="refresh-memory-metrics" class="btn-cancel">再計測</button>
-        <button data-action="remove-element" data-target-id="mem-settings-ov" class="btn-cancel">閉じる</button>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  refreshMemoryMetrics();
-}
-
-function applyMemInterval(ms) {
-  memoryCleaner.setIntervalMs(ms);
-  const label = ms === 0 ? 'OFF' : ms < 3600000 ? (ms/60000)+'分' : (ms/3600000)+'時間';
-  toast(`メモリ自動整理: ${label}`);
-  document.getElementById('mem-settings-ov')?.remove();
-}
-
 function scrollToStart() {
   document.getElementById('cols')?.scrollTo({ left: 0, behavior: 'smooth' });
 }
@@ -2040,92 +1512,6 @@ function confirmXList(accountIdx) {
   toast('List column added');
 }
 
-function openAddMod() { buildOptGrid(); document.getElementById('addMod').classList.add('on'); }
-// ─── MENTION SUGGEST ────────────────────────────
-let _mentionTimer = null;
-let _mentionLastQ = '';
-
-async function onCompTextareaInput(e) {
-  const ta = e.target;
-  const val = ta.value;
-  const pos = ta.selectionStart;
-
-  // カーソル前の @word を検出
-  const before = val.slice(0, pos);
-  const m = before.match(/@([a-zA-Z0-9._-]*)$/);
-
-  const box = document.getElementById('mention-suggest');
-  if (!m || m[1].length < 1) {
-    if (box) box.style.display = 'none';
-    return;
-  }
-  const q = m[1];
-  if (q === _mentionLastQ) return;
-  _mentionLastQ = q;
-
-  clearTimeout(_mentionTimer);
-  _mentionTimer = setTimeout(async () => {
-    if (!state.b || q.length < 1) return;
-    try {
-      const data = await authenticatedBskyAdapter.searchActors({ query: q, limit: 6 });
-      const actors = data.actors || [];
-      if (!actors.length) { if (box) box.style.display = 'none'; return; }
-
-      // ボックス作成 or 再利用
-      let suggest = document.getElementById('mention-suggest');
-      if (!suggest) {
-        suggest = document.createElement('div');
-        suggest.id = 'mention-suggest';
-        suggest.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:600;min-width:220px;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,.5);max-height:220px;overflow-y:auto';
-        document.body.appendChild(suggest);
-      }
-
-      const rect = ta.getBoundingClientRect();
-      suggest.style.left = Math.min(rect.left + 8, window.innerWidth - 310) + 'px';
-      suggest.style.top  = (rect.bottom + 4) + 'px';
-
-      suggest.innerHTML = actors.map(a => {
-        const av = a.avatar ? `<img src="${esc(a.avatar)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">` : (a.handle || '?').slice(0, 2).toUpperCase();
-        const bg = avBgFor(a.handle);
-        return `<div data-action="insert-mention" data-handle="${esc(a.handle)}"
-          style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;transition:background .1s"
-          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-          <div style="width:28px;height:28px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden">${av}</div>
-          <div style="min-width:0">
-            <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.displayName || a.handle)}</div>
-            <div style="font-size:10px;color:var(--text3)">@${esc(a.handle)}</div>
-          </div>
-        </div>`;
-      }).join('');
-
-      suggest.style.display = 'block';
-    } catch {}
-  }, 200);
-}
-
-function insertMention(handle) {
-  const ta = document.getElementById('cta');
-  if (!ta) return;
-  const pos = ta.selectionStart;
-  const before = ta.value.slice(0, pos);
-  const after = ta.value.slice(pos);
-  const replaced = before.replace(/@([a-zA-Z0-9._-]*)$/, `@${handle} `);
-  ta.value = replaced + after;
-  ta.selectionStart = ta.selectionEnd = replaced.length;
-  ta.focus();
-  ta.dispatchEvent(new Event('input', { bubbles: true }));
-  const suggest = document.getElementById('mention-suggest');
-  if (suggest) suggest.style.display = 'none';
-  _mentionLastQ = '';
-}
-
-document.addEventListener('click', e => {
-  const suggest = document.getElementById('mention-suggest');
-  if (suggest && !e.target.closest('#mention-suggest') && !e.target.closest('#cta')) {
-    suggest.style.display = 'none';
-  }
-});
-
 function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
   const networkId = modalId === 'xPostMod' ? 'x' : 'b';
   composeModalRuntime.setBusy(networkId, busy, busy ? busyLabel : null);
@@ -2165,7 +1551,7 @@ function createUiActionHandlers() {
     'open-login': () => openLoginScreen(),
     'open-about': () => openAbout(),
     'close-app': () => window.electronAPI?.close(),
-    'open-add-column': () => openAddMod(),
+    'open-add-column': () => columnPicker.open(),
     'refresh-all': () => refreshAll(),
     'zoom-in': () => window.electronAPI?.zoomIn(),
     'zoom-out': () => window.electronAPI?.zoomOut(),
@@ -2180,14 +1566,14 @@ function createUiActionHandlers() {
     'scroll-start': () => scrollToStart(),
     'open-x-post': () => openXPost(),
     'open-b-post': () => openComp(),
-    'open-ng-settings': () => openNgSettings(),
-    'open-memory-settings': () => openMemSettings(),
-    'open-appearance-settings': () => openAppearanceSettings(),
-    'preview-appearance-theme': ({ dataset }) => previewAppearance({ theme: dataset.theme }),
-    'preview-appearance-accent': ({ dataset }) => previewAppearance({ accent: dataset.accent }),
-    'preview-appearance-custom': ({ value }) => previewAppearance({ accent: value }),
-    'cancel-appearance': ({ event, target }) => cancelAppearance(event, target),
-    'save-appearance': () => saveAppearance(),
+    'open-ng-settings': () => settingsModals.openNgSettings(),
+    'open-memory-settings': () => settingsModals.openMemorySettings(),
+    'open-appearance-settings': () => settingsModals.openAppearanceSettings(),
+    'preview-appearance-theme': ({ dataset }) => settingsModals.previewAppearance({ theme: dataset.theme }),
+    'preview-appearance-accent': ({ dataset }) => settingsModals.previewAppearance({ accent: dataset.accent }),
+    'preview-appearance-custom': ({ value }) => settingsModals.previewAppearance({ accent: value }),
+    'cancel-appearance': ({ event, target }) => settingsModals.cancelAppearance(event, target),
+    'save-appearance': () => settingsModals.saveAppearance(),
     'close-overlay': ({ dataset, event, target }) => (
       closeOv(dataset.overlayId, target.classList.contains('ov') ? event : undefined)
     ),
@@ -2195,8 +1581,8 @@ function createUiActionHandlers() {
     'install-update': () => installUpdate(),
     'close-lightbox': ({ event }) => lbClose(event),
     'move-lightbox': ({ dataset }) => lbMove(integer(dataset.direction)),
-    'remove-ng-rule': ({ dataset }) => removeNg(dataset.ruleKind, integer(dataset.ruleIndex)),
-    'add-ng-rule': ({ dataset }) => addNg(dataset.ruleKind),
+    'remove-ng-rule': ({ dataset }) => settingsModals.removeNgRule(dataset.ruleKind, integer(dataset.ruleIndex)),
+    'add-ng-rule': ({ dataset }) => settingsModals.addNgRule(dataset.ruleKind),
     'remove-element': ({ dataset }) => removeElement(dataset.targetId),
     'close-quote': () => {
       removeElement('quote-modal-ov');
@@ -2204,33 +1590,33 @@ function createUiActionHandlers() {
     },
     'update-quote-count': () => updQuoteCC(),
     'submit-quote': () => doQuotePost(),
-    'add-column': ({ dataset }) => addColFromModal(
+    'add-column': ({ dataset }) => columnPicker.addColumn(
       dataset.definitionId,
       dataset.network,
       dataset.accountIndex === undefined ? undefined : integer(dataset.accountIndex),
     ),
-    'apply-column-interval': ({ dataset }) => applyInterval(
+    'apply-column-interval': ({ dataset }) => settingsModals.applyColumnInterval(
       dataset.columnId,
       integer(dataset.intervalMs),
     ),
-    'apply-column-font-size': ({ dataset }) => applyColFontSize(
+    'apply-column-font-size': ({ dataset }) => settingsModals.applyColumnFontSize(
       dataset.columnId,
       dataset.columnType,
       integer(dataset.fontSize, 13),
     ),
     'add-ng-user': ({ dataset }) => addNgUser(dataset.handle),
     'copy-handle': ({ dataset }) => copyHandle(dataset.handle),
-    'apply-memory-interval': ({ dataset }) => applyMemInterval(integer(dataset.intervalMs)),
+    'apply-memory-interval': ({ dataset }) => settingsModals.applyMemoryInterval(integer(dataset.intervalMs)),
     'clear-memory-now': () => {
-      runMemoryClear(true);
+      settingsModals.clearMemoryNow(true);
     },
-    'refresh-memory-metrics': () => refreshMemoryMetrics(),
+    'refresh-memory-metrics': () => settingsModals.refreshMemoryMetrics(),
     'confirm-x-list': ({ dataset }) => confirmXList(integer(dataset.accountIndex)),
-    'insert-mention': ({ dataset }) => insertMention(dataset.handle),
-    'widget-select-column': ({ value }) => wgSelectCol(value),
-    'widget-set-opacity': ({ value }) => window.electronAPI?.widgetSetOpacity(Number(value) / 100),
-    'widget-toggle-top': () => wgToggleTop(),
-    'widget-close': () => window.electronAPI?.closeWidget(),
+    'insert-mention': ({ dataset }) => mentionSuggest.insert(dataset.handle),
+    'widget-select-column': ({ value }) => widgetMode.selectColumn(value),
+    'widget-set-opacity': ({ value }) => widgetMode.setOpacity(value),
+    'widget-toggle-top': () => widgetMode.toggleTop(),
+    'widget-close': () => widgetMode.close(),
   };
 }
 
@@ -2270,7 +1656,7 @@ document.addEventListener('keydown', e => {
     quoteTarget = null;
   }
   if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'n') { e.preventDefault(); openAddMod(); }
+    if (e.key === 'n') { e.preventDefault(); columnPicker.open(); }
     if (e.key === 'r') { e.preventDefault(); refreshAll(); }
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -2282,17 +1668,17 @@ document.addEventListener('keydown', e => {
         if (btn && !btn.disabled) doQuotePost();
       } else if (xMod?.classList.contains('on')) {
         const btn = document.getElementById('x-sndb');
-        if (btn && !btn.disabled) doXPost();
+        if (btn && !btn.disabled) composeSubmission.submit('x');
       } else if (bMod?.classList.contains('on')) {
         const btn = document.getElementById('sndb');
-        if (btn && !btn.disabled) doSend();
+        if (btn && !btn.disabled) composeSubmission.submit('b');
       }
     }
   }
 });
 
 if (IS_ELECTRON) {
-  window.electronAPI.on('add-column', () => openAddMod());
+  window.electronAPI.on('add-column', () => columnPicker.open());
   window.electronAPI.on('refresh-all', () => refreshAll());
   window.electronAPI.on('scroll-left', () => { document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }); });
   window.electronAPI.on('scroll-right', () => { document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }); });
@@ -2443,138 +1829,6 @@ startMemoryCleaner();
 const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 
 if (IS_WIDGET) {
-  initWidgetMode();
+  widgetMode.init();
 }
 
-async function initWidgetMode() {
-  document.body.classList.add('widget-mode');
-
-  // ウィジェット用スタイルを注入
-  const ws = document.createElement('style');
-  ws.textContent = `
-    body.widget-mode { background: transparent !important; }
-    body.widget-mode .sidebar,
-    body.widget-mode .topbar,
-    body.widget-mode #login-screen { display: none !important; }
-    body.widget-mode .main { margin: 0 !important; }
-    body.widget-mode #cols {
-      padding: 0 !important;
-      gap: 0 !important;
-      background: transparent !important;
-    }
-    body.widget-mode .col {
-      width: 100% !important;
-      min-width: 100% !important;
-      height: calc(100vh - 34px) !important;
-      border-radius: 0 0 10px 10px !important;
-      border: 1px solid var(--border) !important;
-      border-top: none !important;
-    }
-    body.widget-mode .col .col-actions .cbtn { display: none !important; }
-    body.widget-mode .col .col-actions .cbtn.wg-keep { display: flex !important; }
-    /* ドラッグハンドルバー */
-    #widget-bar {
-      height: 34px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 8px;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-bottom: 1px solid var(--border2);
-      border-radius: 10px 10px 0 0;
-      -webkit-app-region: drag;
-      user-select: none;
-    }
-    #widget-bar .wg-title {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text2);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex: 1;
-      overflow: hidden;
-      white-space: nowrap;
-    }
-    #widget-bar button {
-      -webkit-app-region: no-drag;
-      width: 22px;
-      height: 22px;
-      border-radius: 5px;
-      border: none;
-      background: transparent;
-      color: var(--text3);
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: inherit;
-      flex-shrink: 0;
-    }
-    #widget-bar button:hover { background: var(--bg3); color: var(--text1); }
-    #widget-bar button.active { color: var(--accent); }
-    #widget-bar button svg { width: 13px; height: 13px; }
-    #widget-bar input[type="range"] {
-      -webkit-app-region: no-drag;
-      width: 60px;
-      accent-color: var(--accent);
-    }
-  `;
-  document.head.appendChild(ws);
-
-  // ドラッグハンドルバーを挿入
-  const bar = document.createElement('div');
-  bar.id = 'widget-bar';
-
-  let colOptions = '';
-  try {
-    const fullLayout = columnRuntime.readStoredLayout();
-    const selId = columnRuntime.getWidgetColumnId() || fullLayout[0]?.id;
-    colOptions = fullLayout.map(c =>
-      `<option value="${c.id}" ${c.id === selId ? 'selected' : ''}>${(c.title || c.id)}${c.sub ? ' · ' + c.sub : ''}</option>`
-    ).join('');
-  } catch {}
-
-  bar.innerHTML = `
-    <div class="wg-title">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>
-      <select id="wg-col-select" data-change-action="widget-select-column"
-        style="-webkit-app-region:no-drag;background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text2);font-size:10px;font-family:inherit;padding:2px 4px;max-width:150px">
-        ${colOptions}
-      </select>
-    </div>
-    <input type="range" min="30" max="100" value="100" title="Opacity" id="wg-opacity"
-      data-input-action="widget-set-opacity">
-    <button id="wg-top-btn" title="Always on top" data-action="widget-toggle-top">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>
-    </button>
-    <button title="Close" data-action="widget-close">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  `;
-  document.body.prepend(bar);
-
-  if (IS_ELECTRON) {
-    try {
-      const op = await window.electronAPI.widgetGetOpacity();
-      const slider = document.getElementById('wg-opacity');
-      if (slider && op) { slider.value = Math.round(op * 100); window.electronAPI.widgetSetOpacity(op); }
-      const isTop = await window.electronAPI.widgetGetTop();
-      if (isTop) document.getElementById('wg-top-btn')?.classList.add('active');
-    } catch {}
-  }
-}
-
-async function wgToggleTop() {
-  if (!IS_ELECTRON) return;
-  const next = await window.electronAPI.widgetToggleTop();
-  const btn = document.getElementById('wg-top-btn');
-  if (btn) btn.classList.toggle('active', next);
-  toast(next ? 'Always on top enabled' : 'Always on top disabled');
-}
-
-function wgSelectCol(colId) {
-  columnRuntime.setWidgetColumnId(colId);
-  location.reload();
-}

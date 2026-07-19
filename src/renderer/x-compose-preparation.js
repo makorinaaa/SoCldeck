@@ -30,12 +30,21 @@
 
   function observeXComposer(documentLike) {
     const composer = documentLike.querySelector('[data-testid="tweetTextarea_0"]');
-    const media = documentLike.querySelector([
-      '[data-testid="attachments"]',
-      '[data-testid="videoPlayer"]',
-      'button[aria-label*="Remove media"]',
-      'button[aria-label*="メディアを削除"]',
-    ].join(','));
+    // タイムライン上の動画ポストを添付と誤検知しないよう、
+    // 投稿欄とツールバーを含む最近接祖先だけをメディア検査の対象にする
+    let scope = composer ? composer.parentElement : null;
+    while (scope && !scope.querySelector?.('[data-testid="toolBar"]')) {
+      scope = scope.parentElement;
+    }
+    if (!scope && composer) scope = composer.parentElement;
+    const media = scope
+      ? scope.querySelector([
+        '[data-testid="attachments"]',
+        '[data-testid="videoPlayer"]',
+        'button[aria-label*="Remove media"]',
+        'button[aria-label*="メディアを削除"]',
+      ].join(','))
+      : null;
     return {
       composerFound: !!composer,
       textEmpty: !composer || !String(composer.textContent || '').trim(),

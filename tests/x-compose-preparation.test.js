@@ -38,20 +38,28 @@ test('clears stale X compose content before reporting ready', async () => {
 
 test('runs X composer preparation through the generated WebView script', async () => {
   const runtime = loadPreparationRuntime();
+  let mediaPresent = true;
+  const composerBlock = {
+    parentElement: null,
+    querySelector: selector => {
+      if (selector === '[data-testid="toolBar"]') return {};
+      if (selector.includes('[data-testid="attachments"]')) {
+        return mediaPresent ? {} : null;
+      }
+      return null;
+    },
+  };
   const composer = {
     textContent: 'stale post',
+    parentElement: composerBlock,
     focus: () => {},
     dispatchEvent: () => {},
     removeAttribute: () => {},
   };
-  let mediaPresent = true;
   const removeButton = { click: () => { mediaPresent = false; } };
   const documentLike = {
     querySelector: selector => {
       if (selector === '[data-testid="tweetTextarea_0"]') return composer;
-      if (selector.includes('[data-testid="attachments"]')) {
-        return mediaPresent ? {} : null;
-      }
       return null;
     },
     querySelectorAll: selector => selector.includes('Remove media') && mediaPresent
@@ -75,6 +83,40 @@ test('runs X composer preparation through the generated WebView script', async (
   assert.equal(result.status, 'ready');
   assert.equal(composer.textContent, '');
   assert.equal(mediaPresent, false);
+});
+
+test('ignores timeline videos outside the composer during preparation', async () => {
+  const runtime = loadPreparationRuntime();
+  const composerBlock = {
+    parentElement: null,
+    querySelector: selector => (selector === '[data-testid="toolBar"]' ? {} : null),
+  };
+  const composer = {
+    textContent: '',
+    parentElement: composerBlock,
+    focus: () => {},
+    dispatchEvent: () => {},
+    removeAttribute: () => {},
+  };
+  const documentLike = {
+    querySelector: selector => {
+      if (selector === '[data-testid="tweetTextarea_0"]') return composer;
+      if (selector.includes('[data-testid="videoPlayer"]')) return {};
+      return null;
+    },
+    querySelectorAll: () => [],
+  };
+
+  const result = await vm.runInNewContext(runtime.createPreparationScript({ maxChecks: 2 }), {
+    document: documentLike,
+    window: {
+      getSelection: () => ({ removeAllRanges: () => {}, addRange: () => {} }),
+    },
+    InputEvent: class InputEvent {},
+    setTimeout: callback => callback(),
+  });
+
+  assert.equal(result.status, 'ready');
 });
 
 test('blocks delivery when stale X compose content cannot be cleared', async () => {

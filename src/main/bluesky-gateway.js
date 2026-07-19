@@ -182,6 +182,7 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
         return authenticated(account => client.notifications(
           account.accessJwt,
           readLimit(payload.limit, 40),
+          readOptionalString(payload.cursor, 'cursor'),
         ));
       case 'markNotificationsSeen':
         return authenticated(account => client.updateSeen(
