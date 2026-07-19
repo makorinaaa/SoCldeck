@@ -429,16 +429,33 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 #lightbox-close{position:absolute;top:14px;right:14px;background:rgba(0,0,0,.5);border:none;color:#fff;font-size:18px;width:36px;height:36px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center}
 #lightbox-counter{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.7);font-size:12px}
 
-/* ── TRIM SLIDER THUMBS ── */
-#x-trim-in::-webkit-slider-thumb,#x-trim-out::-webkit-slider-thumb,
-#b-trim-in::-webkit-slider-thumb,#b-trim-out::-webkit-slider-thumb{
-  -webkit-appearance:none;appearance:none;
-  width:14px;height:14px;border-radius:50%;
-  background:var(--accent);cursor:grab;
-  box-shadow:0 0 0 2px var(--bg2);
-}
-#x-trim-in::-webkit-slider-thumb:active,#x-trim-out::-webkit-slider-thumb:active,
-#b-trim-in::-webkit-slider-thumb:active,#b-trim-out::-webkit-slider-thumb:active{cursor:grabbing}
+/* ── VIDEO TRIMMER ── */
+.video-trimmer{margin-top:9px;padding:9px;border:1px solid var(--border);border-radius:7px;background:var(--bg2)}
+.trim-summary{display:flex;justify-content:space-between;gap:10px;font-size:10px;color:var(--text3);margin-bottom:7px}
+.trim-summary b{color:var(--text1);font-variant-numeric:tabular-nums}
+.trim-timeline{position:relative;height:58px;border:1px solid var(--border2);border-radius:6px;overflow:hidden;background:var(--bg3);cursor:crosshair;touch-action:none}
+.trim-thumbnails{position:absolute;inset:0;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;overflow:hidden;pointer-events:none}
+.trim-thumbnails img{width:100%;height:100%;object-fit:cover;display:block;opacity:.72}
+.trim-highlight{position:absolute;top:0;height:100%;background:rgba(78,154,240,.18);border-left:2px solid var(--accent);border-right:2px solid var(--accent);pointer-events:none;z-index:2}
+.trim-range{position:absolute;inset:0;width:100%;height:100%;margin:0;-webkit-appearance:none;appearance:none;background:transparent;outline:none;pointer-events:none;z-index:4}
+.trim-range::-webkit-slider-runnable-track{height:100%;background:transparent}
+.trim-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:10px;height:58px;border:2px solid var(--accent);border-radius:3px;background:var(--bg1);cursor:ew-resize;pointer-events:auto;box-shadow:0 0 0 1px rgba(0,0,0,.65)}
+.trim-range::-webkit-slider-thumb:active{background:var(--accent)}
+.trim-playhead{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;z-index:5;box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+.trim-current{position:absolute;top:3px;transform:translateX(-50%);padding:1px 4px;border-radius:3px;background:rgba(0,0,0,.78);color:#fff;font-size:9px;font-variant-numeric:tabular-nums;pointer-events:none;z-index:6;white-space:nowrap}
+.trim-edge-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+.trim-edge{display:grid;grid-template-columns:auto minmax(64px,1fr) repeat(4,auto);align-items:center;gap:3px}
+.trim-edge-name{min-width:25px;padding:4px 5px;border:1px solid var(--border2);border-radius:4px;background:var(--bg3);color:var(--text2);font-size:9px;font-weight:700;cursor:pointer}
+.trim-time-input{min-width:0;width:100%;padding:4px 6px;border:1px solid var(--border2);border-radius:4px;background:var(--bg1);color:var(--text1);font:10px ui-monospace,SFMono-Regular,Consolas,monospace;text-align:center;outline:none}
+.trim-time-input:focus{border-color:var(--accent)}
+.trim-nudge{min-width:27px;padding:4px 3px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text3);font-size:9px;cursor:pointer}
+.trim-nudge:hover,.trim-edge-name:hover{border-color:var(--accent);color:var(--accent)}
+.trim-actions{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:8px}
+.trim-action{padding:5px 8px;border:1px solid var(--border2);border-radius:5px;background:var(--bg3);color:var(--text2);font-size:10px;cursor:pointer}
+.trim-action.primary{border-color:var(--accent);color:var(--accent)}
+.trim-loop{display:flex;align-items:center;gap:4px;margin-left:auto;color:var(--text3);font-size:10px;cursor:pointer}
+.trim-status{font-size:10px;color:var(--text3);text-align:center;min-height:14px;margin-top:5px}
+@media (max-width:560px){.trim-edge-grid{grid-template-columns:1fr}.trim-loop{margin-left:0}}
 
 /* ── NEW POST FADE-IN ── */
 @keyframes sdNewFade {
@@ -808,26 +825,44 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
       <div id="x-video-wrap" style="display:none;margin-top:8px">
         <video id="x-video-preview" controls playsinline
           style="width:100%;border-radius:8px;background:#000;display:block;max-height:200px"></video>
-        <div id="x-trim-bar" style="margin-top:8px;padding:0 2px">
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:6px">
-            <span>開始: <b id="x-trim-start-label">0:00</b></span>
-            <span>終了: <b id="x-trim-end-label">--</b></span>
-            <span>長さ: <b id="x-trim-dur-label">--</b></span>
+        <div id="x-trim-bar" class="video-trimmer">
+          <div class="trim-summary">
+            <span>開始 <b id="x-trim-start-label">0:00.0</b></span>
+            <span>終了 <b id="x-trim-end-label">--</b></span>
+            <span>選択 <b id="x-trim-dur-label">--</b></span>
           </div>
-          <!-- in点スライダー -->
-          <div style="position:relative;height:20px;margin-bottom:4px">
-            <div id="x-trim-highlight" style="position:absolute;top:8px;height:4px;background:var(--accent);border-radius:2px;pointer-events:none"></div>
-            <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
-            <input type="range" id="x-trim-in" min="0" max="100" value="0" step="0.1"
-              style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
+          <div id="x-trim-timeline" class="trim-timeline" data-compose-trim-timeline="x" title="クリックして再生位置を移動">
+            <div id="x-trim-thumbnails" class="trim-thumbnails"></div>
+            <div id="x-trim-highlight" class="trim-highlight"></div>
+            <input type="range" id="x-trim-in" class="trim-range" min="0" max="100" value="0" step="0.01" aria-label="開始位置">
+            <input type="range" id="x-trim-out" class="trim-range" min="0" max="100" value="100" step="0.01" aria-label="終了位置">
+            <div id="x-trim-playhead" class="trim-playhead"><span id="x-trim-current-label" class="trim-current">0:00.0</span></div>
           </div>
-          <!-- out点スライダー -->
-          <div style="position:relative;height:20px;margin-bottom:6px">
-            <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
-            <input type="range" id="x-trim-out" min="0" max="100" value="100" step="0.1"
-              style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
+          <div class="trim-edge-grid">
+            <div class="trim-edge">
+              <button class="trim-edge-name" data-compose-action="jump-trim-edge" data-trim-edge="start" title="開始位置へ移動">IN</button>
+              <input id="x-trim-start-input" class="trim-time-input" data-compose-trim-time="start" value="0:00.0" inputmode="decimal" aria-label="開始時刻">
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="-1" title="1秒戻す">-1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="-0.1" title="0.1秒戻す">-.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="0.1" title="0.1秒進める">+.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="1" title="1秒進める">+1</button>
+            </div>
+            <div class="trim-edge">
+              <button class="trim-edge-name" data-compose-action="jump-trim-edge" data-trim-edge="end" title="終了位置へ移動">OUT</button>
+              <input id="x-trim-end-input" class="trim-time-input" data-compose-trim-time="end" value="0:00.0" inputmode="decimal" aria-label="終了時刻">
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="-1" title="1秒戻す">-1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="-0.1" title="0.1秒戻す">-.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="0.1" title="0.1秒進める">+.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="1" title="1秒進める">+1</button>
+            </div>
           </div>
-          <div id="x-ffmpeg-status" style="font-size:10px;color:var(--text3);text-align:center;min-height:14px"></div>
+          <div class="trim-actions">
+            <button class="trim-action" data-compose-action="set-trim-edge" data-trim-edge="start">現在位置をIN</button>
+            <button class="trim-action" data-compose-action="set-trim-edge" data-trim-edge="end">現在位置をOUT</button>
+            <button class="trim-action primary" data-compose-action="preview-trim">選択範囲を再生</button>
+            <label class="trim-loop"><input type="checkbox" id="x-trim-loop">範囲をループ</label>
+          </div>
+          <div id="x-ffmpeg-status" class="trim-status"></div>
         </div>
       </div>
     </div>
@@ -866,6 +901,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
         Xにも投稿
       </label>
       <select id="cross-post-x-account" style="display:none;min-width:0;flex:1;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:5px 7px;color:var(--text1);font-family:inherit;font-size:11px"></select>
+      <span id="b-cross-post-note" style="color:var(--text3)"></span>
     </div>
     <div id="b-reply-preview" class="bsky-reply-preview" style="display:none;border:1px solid var(--border2);border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:11px;color:var(--text3);align-items:center;gap:7px"></div>
     <div class="comp-wrap">
@@ -889,24 +925,44 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
       <div id="b-video-wrap" style="display:none;margin-top:8px">
         <video id="b-video-preview" controls playsinline
           style="width:100%;border-radius:8px;background:#000;display:block;max-height:200px"></video>
-        <div style="margin-top:8px;padding:0 2px">
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);margin-bottom:6px">
-            <span>開始: <b id="b-trim-start-label">0:00</b></span>
-            <span>終了: <b id="b-trim-end-label">--</b></span>
-            <span>長さ: <b id="b-trim-dur-label">--</b></span>
+        <div class="video-trimmer">
+          <div class="trim-summary">
+            <span>開始 <b id="b-trim-start-label">0:00.0</b></span>
+            <span>終了 <b id="b-trim-end-label">--</b></span>
+            <span>選択 <b id="b-trim-dur-label">--</b></span>
           </div>
-          <div style="position:relative;height:20px;margin-bottom:4px">
-            <div id="b-trim-highlight" style="position:absolute;top:8px;height:4px;background:var(--accent);border-radius:2px;pointer-events:none"></div>
-            <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
-            <input type="range" id="b-trim-in" min="0" max="100" value="0" step="0.1"
-              style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
+          <div id="b-trim-timeline" class="trim-timeline" data-compose-trim-timeline="b" title="クリックして再生位置を移動">
+            <div id="b-trim-thumbnails" class="trim-thumbnails"></div>
+            <div id="b-trim-highlight" class="trim-highlight"></div>
+            <input type="range" id="b-trim-in" class="trim-range" min="0" max="100" value="0" step="0.01" aria-label="開始位置">
+            <input type="range" id="b-trim-out" class="trim-range" min="0" max="100" value="100" step="0.01" aria-label="終了位置">
+            <div id="b-trim-playhead" class="trim-playhead"><span id="b-trim-current-label" class="trim-current">0:00.0</span></div>
           </div>
-          <div style="position:relative;height:20px;margin-bottom:6px">
-            <div style="position:absolute;top:8px;left:0;right:0;height:4px;background:var(--bg3);border-radius:2px"></div>
-            <input type="range" id="b-trim-out" min="0" max="100" value="100" step="0.1"
-              style="position:absolute;top:0;left:0;width:100%;height:20px;appearance:none;background:transparent;outline:none;cursor:pointer;-webkit-appearance:none">
+          <div class="trim-edge-grid">
+            <div class="trim-edge">
+              <button class="trim-edge-name" data-compose-action="jump-trim-edge" data-trim-edge="start" title="開始位置へ移動">IN</button>
+              <input id="b-trim-start-input" class="trim-time-input" data-compose-trim-time="start" value="0:00.0" inputmode="decimal" aria-label="開始時刻">
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="-1" title="1秒戻す">-1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="-0.1" title="0.1秒戻す">-.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="0.1" title="0.1秒進める">+.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="start" data-trim-delta="1" title="1秒進める">+1</button>
+            </div>
+            <div class="trim-edge">
+              <button class="trim-edge-name" data-compose-action="jump-trim-edge" data-trim-edge="end" title="終了位置へ移動">OUT</button>
+              <input id="b-trim-end-input" class="trim-time-input" data-compose-trim-time="end" value="0:00.0" inputmode="decimal" aria-label="終了時刻">
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="-1" title="1秒戻す">-1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="-0.1" title="0.1秒戻す">-.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="0.1" title="0.1秒進める">+.1</button>
+              <button class="trim-nudge" data-compose-action="nudge-trim-edge" data-trim-edge="end" data-trim-delta="1" title="1秒進める">+1</button>
+            </div>
           </div>
-          <div id="b-ffmpeg-status" style="font-size:10px;color:var(--text3);text-align:center;min-height:14px"></div>
+          <div class="trim-actions">
+            <button class="trim-action" data-compose-action="set-trim-edge" data-trim-edge="start">現在位置をIN</button>
+            <button class="trim-action" data-compose-action="set-trim-edge" data-trim-edge="end">現在位置をOUT</button>
+            <button class="trim-action primary" data-compose-action="preview-trim">選択範囲を再生</button>
+            <label class="trim-loop"><input type="checkbox" id="b-trim-loop">範囲をループ</label>
+          </div>
+          <div id="b-ffmpeg-status" class="trim-status"></div>
         </div>
       </div>
     </div>
@@ -957,6 +1013,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/anime-schedule-runtime.js"></script>
 <script src="renderer/network-adapters.js"></script>
 <script src="renderer/compose-request.js"></script>
+<script src="renderer/compose-cross-post-plan.js"></script>
 <script src="renderer/compose-attempt.js"></script>
 <script src="renderer/cross-post-runtime.js"></script>
 <script src="renderer/compose-completion.js"></script>

@@ -62,6 +62,13 @@ function createMutableVideoDraft() {
       video.trimDurationSeconds = video.trim.endSeconds - video.trim.startSeconds;
       return { percent: seconds, trim: { ...video.trim }, trimDurationSeconds: video.trimDurationSeconds };
     },
+    setTrimSeconds(edge, value) {
+      const seconds = Number(value);
+      if (edge === 'start') video.trim.startSeconds = seconds;
+      else video.trim.endSeconds = seconds;
+      video.trimDurationSeconds = video.trim.endSeconds - video.trim.startSeconds;
+      return { percent: seconds, trim: { ...video.trim }, trimDurationSeconds: video.trimDurationSeconds };
+    },
     setVideoDuration(duration) {
       video.durationSeconds = duration;
       video.trim.endSeconds = duration;
@@ -134,6 +141,201 @@ test('DOM view delegates Compose input, submit, and close events', () => {
     ['account', 1],
     ['close', 'x'],
   ]);
+});
+
+test('DOM view provides precise LosslessCut-style trim controls', async () => {
+  const xModal = createElement();
+  const bModal = createElement();
+  const video = createElement();
+  video.id = 'x-video-preview';
+  video.currentTime = 12.5;
+  video.duration = 120;
+  video.paused = true;
+  let playCount = 0;
+  video.play = async () => { playCount += 1; video.paused = false; };
+  video.pause = () => { video.paused = true; };
+  const timeline = createElement();
+  timeline.id = 'x-trim-timeline';
+  timeline.dataset.composeTrimTimeline = 'x';
+  timeline.getBoundingClientRect = () => ({ left: 10, width: 200 });
+  const startInput = createElement();
+  startInput.id = 'x-trim-start-input';
+  startInput.dataset.composeTrimTime = 'start';
+  startInput.value = '1:02.5';
+  const playhead = createElement();
+  const currentLabel = createElement();
+  const thumbnails = createElement();
+  const loop = createElement();
+  loop.checked = false;
+  const ids = {
+    xPostMod: xModal,
+    compMod: bModal,
+    'x-video-preview': video,
+    'x-trim-timeline': timeline,
+    'x-trim-start-input': startInput,
+    'x-trim-playhead': playhead,
+    'x-trim-current-label': currentLabel,
+    'x-trim-thumbnails': thumbnails,
+    'x-trim-loop': loop,
+  };
+  const documentRef = { activeElement: null, getElementById: id => ids[id] || null };
+  const events = [];
+  const view = loadRuntime().createComposeModalDomView({
+    documentRef,
+    urlApi: { createObjectURL: () => 'blob:clip', revokeObjectURL() {} },
+    generateThumbnails: async ({ sourceUrl, durationSeconds }) => {
+      assert.equal(sourceUrl, 'blob:clip');
+      assert.equal(durationSeconds, 120);
+      return ['data:image/jpeg;base64,frame-one', 'data:image/jpeg;base64,frame-two'];
+    },
+  });
+  view.connect({
+    trimSecondsChanged: (networkId, edge, seconds) => {
+      events.push([networkId, edge, seconds]);
+      return { media: { video: { trim: { startSeconds: 10, endSeconds: 80 } } } };
+    },
+  });
+  view.render({
+    networkId: 'x', xAccounts: [], blueskyAccount: null, selectedAccount: null,
+    selectedXAccountIndex: 0, text: '', crossPost: false, crossPostAvailable: false,
+    media: {
+      images: [],
+      video: {
+        file: { name: 'clip.mp4', type: 'video/mp4' },
+        durationSeconds: 120,
+        trim: { startSeconds: 10, endSeconds: 80 },
+        trimDurationSeconds: 70,
+      },
+    },
+    reply: null, busy: false, locked: false, actionLabel: 'ポスト', characterCount: 0,
+    characterLimit: 280, canSubmit: true, previewOpen: false, targets: ['X'],
+  });
+  startInput.value = '1:02.5';
+
+  const setIn = createElement();
+  setIn.dataset = { composeAction: 'set-trim-edge', trimEdge: 'start' };
+  xModal.dispatch('click', { target: setIn });
+
+  const nudgeOut = createElement();
+  nudgeOut.dataset = { composeAction: 'nudge-trim-edge', trimEdge: 'end', trimDelta: '-1' };
+  xModal.dispatch('click', { target: nudgeOut });
+
+  xModal.dispatch('change', { target: startInput });
+  xModal.dispatch('click', { target: timeline, clientX: 110 });
+
+  const preview = createElement();
+  preview.dataset = { composeAction: 'preview-trim' };
+  xModal.dispatch('click', { target: preview });
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.deepEqual(events, [
+    ['x', 'start', 12.5],
+    ['x', 'end', 79],
+    ['x', 'start', 62.5],
+  ]);
+  assert.equal(video.currentTime, 10);
+  assert.equal(playCount, 1);
+  assert.match(thumbnails.innerHTML, /frame-one/);
+  assert.match(thumbnails.innerHTML, /frame-two/);
+
+  video.currentTime = 30;
+  video.dispatch('timeupdate', { target: video });
+  assert.equal(playhead.style.left, '25%');
+  assert.equal(currentLabel.textContent, '0:30.0');
+});
+
+test('DOM view loops the selected trim range and jumps to its edges', () => {
+  const xModal = createElement();
+  const bModal = createElement();
+  const video = createElement();
+  video.id = 'x-video-preview';
+  video.currentTime = 0;
+  video.duration = 120;
+  video.paused = true;
+  let playCount = 0;
+  video.play = async () => { playCount += 1; video.paused = false; };
+  video.pause = () => { video.paused = true; };
+  const startInput = createElement();
+  startInput.id = 'x-trim-start-input';
+  startInput.dataset.composeTrimTime = 'start';
+  const playhead = createElement();
+  const currentLabel = createElement();
+  const loop = createElement();
+  loop.checked = false;
+  const ids = {
+    xPostMod: xModal,
+    compMod: bModal,
+    'x-video-preview': video,
+    'x-trim-start-input': startInput,
+    'x-trim-playhead': playhead,
+    'x-trim-current-label': currentLabel,
+    'x-trim-loop': loop,
+  };
+  const documentRef = { activeElement: null, getElementById: id => ids[id] || null };
+  const events = [];
+  const view = loadRuntime().createComposeModalDomView({
+    documentRef,
+    urlApi: { createObjectURL: () => 'blob:clip', revokeObjectURL() {} },
+    generateThumbnails: async () => [],
+  });
+  view.connect({
+    trimSecondsChanged: (networkId, edge, seconds) => events.push([networkId, edge, seconds]),
+  });
+  view.render({
+    networkId: 'x', xAccounts: [], blueskyAccount: null, selectedAccount: null,
+    selectedXAccountIndex: 0, text: '', crossPost: false, crossPostAvailable: false,
+    media: {
+      images: [],
+      video: {
+        file: { name: 'clip.mp4', type: 'video/mp4' },
+        durationSeconds: 120,
+        trim: { startSeconds: 10, endSeconds: 80 },
+        trimDurationSeconds: 70,
+      },
+    },
+    reply: null, busy: false, locked: false, actionLabel: 'ポスト', characterCount: 0,
+    characterLimit: 280, canSubmit: true, previewOpen: false, targets: ['X'],
+  });
+
+  const jumpIn = createElement();
+  jumpIn.dataset = { composeAction: 'jump-trim-edge', trimEdge: 'start' };
+  xModal.dispatch('click', { target: jumpIn });
+  assert.equal(video.currentTime, 10);
+  const jumpOut = createElement();
+  jumpOut.dataset = { composeAction: 'jump-trim-edge', trimEdge: 'end' };
+  xModal.dispatch('click', { target: jumpOut });
+  assert.equal(video.currentTime, 80);
+  assert.equal(currentLabel.textContent, '1:20.0');
+
+  const preview = createElement();
+  preview.dataset = { composeAction: 'preview-trim' };
+  xModal.dispatch('click', { target: preview });
+  assert.equal(video.currentTime, 10);
+  assert.equal(playCount, 1);
+
+  loop.checked = true;
+  video.currentTime = 79.99;
+  video.dispatch('timeupdate', { target: video });
+  assert.equal(video.currentTime, 10);
+  assert.equal(playCount, 2);
+
+  loop.checked = false;
+  video.currentTime = 79.99;
+  video.dispatch('timeupdate', { target: video });
+  assert.equal(video.currentTime, 80);
+  assert.equal(video.paused, true);
+
+  video.currentTime = 90;
+  video.dispatch('timeupdate', { target: video });
+  assert.equal(video.currentTime, 90);
+  assert.equal(playCount, 2);
+
+  startInput.value = 'abc';
+  xModal.dispatch('change', { target: startInput });
+  assert.equal(startInput.value, '0:10.0');
+  assert.deepEqual(events, []);
 });
 
 test('DOM view renders an X Compose snapshot without inline handlers', () => {
@@ -211,6 +413,44 @@ test('DOM view renders an X Compose snapshot without inline handlers', () => {
   view.render(snapshot);
   assert.equal(elements['x-img-area'].style.pointerEvents, 'none');
   assert.equal(elements['x-acc-select'].style.pointerEvents, 'none');
+});
+
+test('DOM view replaces previews when a different video has the same file name', () => {
+  const ids = ['xPostMod', 'compMod', 'x-video-wrap', 'x-video-preview', 'x-img-preview', 'x-img-drop'];
+  const elements = Object.fromEntries(ids.map(id => [id, createElement()]));
+  const urls = [];
+  const view = loadRuntime().createComposeModalDomView({
+    documentRef: { getElementById: id => elements[id] || null },
+    urlApi: {
+      createObjectURL: file => {
+        const url = `blob:${file.identity}`;
+        urls.push(url);
+        return url;
+      },
+      revokeObjectURL() {},
+    },
+  });
+  const snapshot = file => ({
+    networkId: 'x', xAccounts: [], blueskyAccount: null, selectedAccount: null,
+    selectedXAccountIndex: 0, text: '', crossPost: false, crossPostAvailable: false,
+    media: {
+      images: [],
+      video: {
+        file,
+        durationSeconds: 30,
+        trim: { startSeconds: 0, endSeconds: 30 },
+        trimDurationSeconds: 30,
+      },
+    },
+    reply: null, busy: false, locked: false, actionLabel: 'ポスト', characterCount: 0,
+    characterLimit: 280, canSubmit: true, previewOpen: false, targets: ['X'],
+  });
+
+  view.render(snapshot({ name: 'clip.mp4', identity: 'first' }));
+  view.render(snapshot({ name: 'clip.mp4', identity: 'second' }));
+
+  assert.deepEqual(urls, ['blob:first', 'blob:second']);
+  assert.equal(elements['x-video-preview'].src, 'blob:second');
 });
 
 test('DOM view preserves the active ALT input when only its value changes', () => {
@@ -469,7 +709,7 @@ test('routes image attachment, alt text, and removal through the Media Draft', (
   assert.equal(snapshot.canSubmit, false);
 });
 
-test('owns X video metadata and trim interactions while disabling cross-posting', () => {
+test('owns X video metadata and keeps MP4 cross-posting available', () => {
   let handlers;
   const xMedia = createMutableVideoDraft();
   const runtime = loadRuntime().createComposeModalRuntime({
@@ -487,8 +727,8 @@ test('owns X video metadata and trim interactions while disabling cross-posting'
   handlers.trimChanged('x', 'end', 100);
   let snapshot = runtime.getSnapshot('x');
 
-  assert.equal(snapshot.crossPostAvailable, false);
-  assert.equal(snapshot.crossPost, false);
+  assert.equal(snapshot.crossPostAvailable, true);
+  assert.equal(snapshot.crossPost, true);
   assert.equal(snapshot.media.video.durationSeconds, 120);
   assert.deepEqual(plain(snapshot.media.video.trim), { startSeconds: 5, endSeconds: 100 });
   assert.equal(snapshot.canSubmit, true);
@@ -500,7 +740,7 @@ test('owns X video metadata and trim interactions while disabling cross-posting'
   assert.equal(snapshot.crossPost, true);
 });
 
-test('owns Bluesky video metadata and disables X cross-posting', () => {
+test('owns Bluesky video metadata and keeps X cross-posting available', () => {
   let handlers;
   const bMedia = createMutableVideoDraft();
   const runtime = loadRuntime().createComposeModalRuntime({
@@ -518,11 +758,33 @@ test('owns Bluesky video metadata and disables X cross-posting', () => {
   handlers.trimChanged('b', 'end', 170);
   const snapshot = runtime.getSnapshot('b');
 
-  assert.equal(snapshot.crossPostAvailable, false);
-  assert.equal(snapshot.crossPost, false);
+  assert.equal(snapshot.crossPostAvailable, true);
+  assert.equal(snapshot.crossPost, true);
   assert.equal(snapshot.media.video.durationSeconds, 200);
   assert.deepEqual(plain(snapshot.media.video.trim), { startSeconds: 10, endSeconds: 170 });
   assert.equal(snapshot.canSubmit, true);
+});
+
+test('routes precise trim positions through the Media Draft', () => {
+  let handlers;
+  const xMedia = createMutableVideoDraft();
+  const runtime = loadRuntime().createComposeModalRuntime({
+    getAccounts: () => ({ x: [{ username: '@first' }], b: null }),
+    mediaDrafts: { x: xMedia, b: createMediaDraft() },
+    coordinator: { resetCrossPost() {}, getStatus: () => ({ isSending: false }) },
+    view: { connect: nextHandlers => { handlers = nextHandlers; }, render() {} },
+  });
+  runtime.open('x');
+  handlers.filesAdded('x', [{ name: 'clip.mp4', type: 'video/mp4' }]);
+  handlers.videoMetadataLoaded('x', 120);
+
+  handlers.trimSecondsChanged('x', 'start', 12.25);
+  handlers.trimSecondsChanged('x', 'end', 89.75);
+
+  assert.deepEqual(plain(runtime.getSnapshot('x').media.video.trim), {
+    startSeconds: 12.25,
+    endSeconds: 89.75,
+  });
 });
 
 test('dispose releases the view and makes the Runtime terminal', () => {

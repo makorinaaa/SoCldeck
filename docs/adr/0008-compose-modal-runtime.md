@@ -6,4 +6,6 @@ The Runtime exposes `open`, `close`, `setBusy`, `getSnapshot`, and `dispose`. It
 
 Network delivery remains outside this Runtime. `renderer.js` is the composition root and connects submit intents to the existing Compose Coordinator and Network Adapters. Media validation and mutation remain owned by the network Media Drafts.
 
+Video trimming uses one shared timeline presentation for both networks. The Media Draft owns precise IN and OUT values, while the DOM View owns seeking, selected-range preview, frame thumbnails, and direct time editing. Cross-network attachment mapping is isolated behind `Compose Cross-post Plan`, which derives both network deliveries and preserves one selected video range without moving delivery mechanics into the modal.
+
 Unit tests cover the public lifecycle, account and cross-post state, replies, media actions, video trimming, busy state, disposal, and delegated DOM rendering. A source-layout guard keeps modal event and presentation code from returning to `renderer.js` or `index.html`.

@@ -238,6 +238,13 @@ test('keeps Compose modal presentation and events behind its Runtime', () => {
     renderer,
     /function (?:renderXImgPreviews|renderBImgPreviews|updateXCrossPostControls|updateCrossPostControls|updXCC|updCC)\b/,
   );
+  const crossPostPlanIndex = index.indexOf(
+    '<script src="renderer/compose-cross-post-plan.js"></script>',
+  );
+  assert.notEqual(crossPostPlanIndex, -1);
+  assert.ok(crossPostPlanIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckComposeCrossPostPlan/);
+  assert.match(renderer, /createSharedCrossPostPlan\(\{/);
 });
 
 test('keeps Account Session lifecycle and presentation behind its Runtime', () => {

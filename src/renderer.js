@@ -6,14 +6,19 @@ const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
 const composeMedia = window.SocialDeckComposeMedia;
 const xComposeMediaDraft = composeMedia.createMediaDraft({
   supportsVideo: true,
-  resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
+  resolveFilePath: file => IS_ELECTRON
+    ? window.electronAPI?.getPathForFile?.(file) || null
+    : null,
 });
 const bskyComposeMediaDraft = composeMedia.createMediaDraft({
   supportsVideo: true,
   videoMimeTypes: ['video/mp4'],
-  resolveFilePath: file => IS_ELECTRON && file.path ? file.path : null,
+  resolveFilePath: file => IS_ELECTRON
+    ? window.electronAPI?.getPathForFile?.(file) || null
+    : null,
 });
 const composeRequests = window.SocialDeckComposeRequest;
+const composeCrossPostPlan = window.SocialDeckComposeCrossPostPlan;
 const xComposePreparation = window.SocialDeckXComposePreparation;
 const xPostConfirmation = window.SocialDeckXPostConfirmation;
 const notificationCenter = window.SocialDeckNotificationCenter;
@@ -1196,6 +1201,93 @@ function fmtSec(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+function validateCrossPostVideo(networkId) {
+  const validation = (networkId === 'x' ? xComposeMediaDraft : bskyComposeMediaDraft)
+    .validateVideo({
+      allowedMimeTypes: ['video/mp4'],
+      maxDurationSeconds: composeMedia.MAX_VIDEO_SECONDS,
+      requirePath: true,
+    });
+  if (validation.valid) return null;
+  if (validation.reason === 'unsupported-video') {
+    return '動画の同時投稿はMP4形式に対応しています';
+  }
+  if (validation.reason === 'missing-path') {
+    return '動画ファイルのパスを取得できないため同時投稿できません';
+  }
+  if (validation.reason === 'duration-limit') {
+    return `動画が長すぎます（${fmtSec(validation.durationSeconds)}）。同時投稿は2分20秒以内にしてください`;
+  }
+  return '動画を同時投稿できません';
+}
+
+function createSharedCrossPostPlan({ text, media, xAccountId }) {
+  return composeCrossPostPlan.createCrossPostPlan({
+    text,
+    media,
+    xAccountId,
+    blueskyAccountId: state.b.did,
+    createRequest: composeRequests.createComposeRequest,
+    prepareDelivery: request => networkAdapters.prepareComposeDelivery(request),
+    prepareCompletion: request => networkAdapters.prepareComposeCompletion(request),
+  });
+}
+
+function describeCrossPostFailure(result) {
+  const failures = result.results.filter(target => target.status !== 'succeeded');
+  const networks = failures.map(target => target.id === 'x' ? 'X' : 'Bluesky').join(' / ');
+  const reason = String(failures.find(target => target.error)?.error?.message || '').slice(0, 120);
+  return {
+    networks,
+    message: `${networks}への投稿に失敗しました${reason ? `: ${reason}` : ''}`,
+  };
+}
+
+async function submitSharedCrossPost({ ownerNetworkId, modalId, buttonId, plan }) {
+  const hasUnknown = composeCoordinator.getStatus(ownerNetworkId).hasUnknownCross;
+  let retryUnknown = false;
+  if (hasUnknown) {
+    retryUnknown = confirm(
+      '投稿先で未投稿であることを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
+    );
+    if (!retryUnknown) return;
+  }
+
+  setComposeBusy(modalId, buttonId, true, 'X + Blueskyへ送信中...');
+  const result = await composeCoordinator.submitCrossPost([
+    {
+      id: 'x',
+      request: plan.x.request,
+      deliver: () => executeXComposeDelivery(plan.x.delivery, plan.x.executionContext),
+      completionPlan: plan.x.completionPlan,
+    },
+    {
+      id: 'b',
+      request: plan.bluesky.request,
+      deliver: () => networkAdapters.executeComposeDelivery(plan.bluesky.delivery),
+      completionPlan: plan.bluesky.completionPlan,
+    },
+  ], { retryUnknown });
+  setComposeBusy(modalId, buttonId, false);
+
+  if (result.status === 'succeeded') {
+    closeOv(modalId);
+    toast('XとBlueskyへ投稿しました');
+    return;
+  }
+
+  composeModalRuntime.setBusy(
+    ownerNetworkId,
+    false,
+    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
+    { locked: true },
+  );
+  const failure = describeCrossPostFailure(result);
+  toast(result.status === 'unknown'
+    ? `${failure.networks}の投稿結果を確認できませんでした`
+    : failure.message);
+}
+
 // ── 画像追加 ──
 function executeXComposeDelivery(delivery, context = {}) {
   return xWebViewRuntime.executeCompose(
@@ -1212,70 +1304,19 @@ async function doXOriginCrossPost(text) {
   const account = compose.selectedAccount;
   if (!account) { toast('Xアカウントを選択してください'); return; }
   if (!state.b) { toast('Bluesky にログインしていません'); return; }
-
-  const xRequest = composeRequests.createComposeRequest({
-    networkId: 'x',
-    accountId: account.username || account.partition,
+  const videoError = validateCrossPostVideo('x');
+  if (videoError) { toast(videoError); return; }
+  const plan = createSharedCrossPostPlan({
     text,
-    images: media.images.map(image => ({ file: image.file })),
-    replyTo: null,
+    media,
+    xAccountId: account.username || account.partition,
   });
-  const bRequest = composeRequests.createComposeRequest({
-    networkId: 'b',
-    accountId: state.b.did,
-    text,
-    images: media.images,
-    replyTo: null,
+  await submitSharedCrossPost({
+    ownerNetworkId: 'x',
+    modalId: 'xPostMod',
+    buttonId: 'x-sndb',
+    plan,
   });
-  const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
-  const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
-  const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
-  const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
-
-  const hasUnknown = composeCoordinator.getStatus('x').hasUnknownCross;
-  let retryUnknown = false;
-  if (hasUnknown) {
-    retryUnknown = confirm(
-      '投稿先で未投稿であることを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
-    );
-    if (!retryUnknown) return;
-  }
-
-  setComposeBusy('xPostMod', 'x-sndb', true, 'X + Blueskyへ送信中...');
-  const result = await composeCoordinator.submitCrossPost([
-    {
-      id: 'x',
-      request: xRequest,
-      deliver: () => executeXComposeDelivery(xDelivery),
-      completionPlan: xCompletion,
-    },
-    {
-      id: 'b',
-      request: bRequest,
-      deliver: () => networkAdapters.executeComposeDelivery(bDelivery),
-      completionPlan: bCompletion,
-    },
-  ], { retryUnknown });
-  setComposeBusy('xPostMod', 'x-sndb', false);
-
-  if (result.status === 'succeeded') {
-    closeOv('xPostMod');
-    toast('XとBlueskyへ投稿しました');
-    return;
-  }
-
-  composeModalRuntime.setBusy(
-    'x',
-    false,
-    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
-    { locked: true },
-  );
-  const failed = result.results.filter(target => target.status !== 'succeeded')
-    .map(target => target.id === 'x' ? 'X' : 'Bluesky')
-    .join(' / ');
-  toast(result.status === 'unknown'
-    ? `${failed}の投稿結果を確認できませんでした`
-    : `${failed}への投稿に失敗しました`);
 }
 
 async function doXPost() {
@@ -1376,68 +1417,19 @@ async function doCrossPost(text) {
   const media = compose.media;
   const account = compose.crossPostXAccount;
   if (!account) { toast('Xアカウントを選択してください'); return; }
-
-  const bRequest = composeRequests.createComposeRequest({
-    networkId: 'b',
-    accountId: state.b.did,
+  const videoError = validateCrossPostVideo('b');
+  if (videoError) { toast(videoError); return; }
+  const plan = createSharedCrossPostPlan({
     text,
-    images: media.images,
-    replyTo: null,
+    media,
+    xAccountId: account.username || account.partition,
   });
-  const xRequest = composeRequests.createComposeRequest({
-    networkId: 'x',
-    accountId: account.username || account.partition,
-    text,
-    images: media.images.map(image => ({ file: image.file })),
-    replyTo: null,
+  await submitSharedCrossPost({
+    ownerNetworkId: 'b',
+    modalId: 'compMod',
+    buttonId: 'sndb',
+    plan,
   });
-  const bDelivery = networkAdapters.prepareComposeDelivery(bRequest);
-  const xDelivery = networkAdapters.prepareComposeDelivery(xRequest);
-  const bCompletion = networkAdapters.prepareComposeCompletion(bRequest);
-  const xCompletion = networkAdapters.prepareComposeCompletion(xRequest);
-
-  const hasUnknown = composeCoordinator.getStatus('b').hasUnknownCross;
-  let retryUnknown = false;
-  if (hasUnknown) {
-    retryUnknown = confirm('X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。');
-    if (!retryUnknown) return;
-  }
-
-  setComposeBusy('compMod', 'sndb', true, 'X + Blueskyへ送信中...');
-  const result = await composeCoordinator.submitCrossPost([
-    {
-      id: 'x',
-      request: xRequest,
-      deliver: () => executeXComposeDelivery(xDelivery),
-      completionPlan: xCompletion,
-    },
-    {
-      id: 'b',
-      request: bRequest,
-      deliver: () => networkAdapters.executeComposeDelivery(bDelivery),
-      completionPlan: bCompletion,
-    },
-  ], { retryUnknown });
-  setComposeBusy('compMod', 'sndb', false);
-
-  if (result.status === 'succeeded') {
-    closeOv('compMod');
-    toast('XとBlueskyへ投稿しました');
-    return;
-  }
-
-  composeModalRuntime.setBusy(
-    'b',
-    false,
-    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
-    { locked: true },
-  );
-  const failed = result.results.filter(target => target.status !== 'succeeded')
-    .map(target => target.id === 'x' ? 'X' : 'Bluesky')
-    .join(' / ');
-  toast(result.status === 'unknown'
-    ? 'Xの投稿結果を確認できませんでした'
-    : `${failed}への投稿に失敗しました`);
 }
 
 async function doSend() {

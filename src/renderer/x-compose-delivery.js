@@ -153,7 +153,7 @@
           videoPath
           && trimVideo
           && readFileBase64
-          && (trimStart > 0.5 || (videoDuration > 0 && trimEnd < videoDuration - 0.5))
+          && (trimStart > 0.001 || (videoDuration > 0 && trimEnd < videoDuration - 0.001))
         );
         let videoDataUrl;
         if (needsTrim) {

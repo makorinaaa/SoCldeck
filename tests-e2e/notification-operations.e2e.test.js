@@ -569,6 +569,32 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   assert.equal(await page.locator('#b-img-preview').textContent(), '');
 });
 
+test('video Compose exposes precise trim controls and MP4 cross-posting', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  await page.evaluate(() => openXPost());
+  await page.locator('#x-img-file').setInputFiles({
+    name: 'shared.mp4',
+    mimeType: 'video/mp4',
+    buffer: Buffer.from('e2e-video-placeholder'),
+  });
+  await page.locator('#x-video-wrap').waitFor({ state: 'visible' });
+  await page.evaluate(() => {
+    const video = document.getElementById('x-video-preview');
+    Object.defineProperty(video, 'duration', { configurable: true, value: 120 });
+    video.dispatchEvent(new Event('loadedmetadata'));
+  });
+
+  assert.equal(await page.locator('#x-cross-post-b').isEnabled(), true);
+  assert.match(await page.locator('#x-cross-post-note').textContent(), /同じトリム範囲/);
+  await page.locator('#x-trim-start-input').fill('0:10.5');
+  await page.locator('#x-trim-start-input').press('Tab');
+  assert.equal(await page.locator('#x-trim-start-label').textContent(), '0:10.5');
+  assert.equal(await page.locator('#x-trim-timeline .trim-range').count(), 2);
+  assert.equal(await page.locator('[data-compose-action="preview-trim"]').first().isVisible(), true);
+});
+
 test('anime schedule Column can be added and persisted from the picker', async t => {
   const { page } = await launchApp(t, ANIME_SCHEDULE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
