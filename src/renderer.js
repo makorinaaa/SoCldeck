@@ -368,7 +368,7 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
   coordinator: composeCoordinator,
   view: composeModalView,
   intents: {
-    submit: networkId => networkId === 'x' ? doXPost() : doSend(),
+    submit: networkId => composeSubmission.submit(networkId),
     closed: networkId => {
       if (networkId === 'b') replyTarget = null;
     },
@@ -378,6 +378,28 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
       saveState();
     },
     onBlueskyTextInput: onCompTextareaInput,
+  },
+});
+const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmission({
+  modalRuntime: {
+    getSnapshot: networkId => composeModalRuntime.getSnapshot(networkId),
+    setBusy: (networkId, busy, label, options) => composeModalRuntime.setBusy(networkId, busy, label, options),
+    close: networkId => composeModalRuntime.close(networkId),
+  },
+  coordinator: composeCoordinator,
+  createRequest: composeRequests.createComposeRequest,
+  adapters: networkAdapters,
+  createCrossPostPlan: composeCrossPostPlan.createCrossPostPlan,
+  mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
+  executeXDelivery: (delivery, context) => executeXComposeDelivery(delivery, context),
+  getBlueskyAccount: () => state.b,
+  getReplyTarget: () => replyTarget,
+  maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
+  formatSeconds: fmtSec,
+  ui: {
+    toast,
+    confirm: message => confirm(message),
+    clearTrimStatus: () => setFFmpegStatus(''),
   },
 });
 const authenticatedBskyAdapter = bskyGateway;
@@ -1201,94 +1223,6 @@ function fmtSec(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-function validateCrossPostVideo(networkId) {
-  const validation = (networkId === 'x' ? xComposeMediaDraft : bskyComposeMediaDraft)
-    .validateVideo({
-      allowedMimeTypes: ['video/mp4'],
-      maxDurationSeconds: composeMedia.MAX_VIDEO_SECONDS,
-      requirePath: true,
-    });
-  if (validation.valid) return null;
-  if (validation.reason === 'unsupported-video') {
-    return '動画の同時投稿はMP4形式に対応しています';
-  }
-  if (validation.reason === 'missing-path') {
-    return '動画ファイルのパスを取得できないため同時投稿できません';
-  }
-  if (validation.reason === 'duration-limit') {
-    return `動画が長すぎます（${fmtSec(validation.durationSeconds)}）。同時投稿は2分20秒以内にしてください`;
-  }
-  return '動画を同時投稿できません';
-}
-
-function createSharedCrossPostPlan({ text, media, xAccountId }) {
-  return composeCrossPostPlan.createCrossPostPlan({
-    text,
-    media,
-    xAccountId,
-    blueskyAccountId: state.b.did,
-    createRequest: composeRequests.createComposeRequest,
-    prepareDelivery: request => networkAdapters.prepareComposeDelivery(request),
-    prepareCompletion: request => networkAdapters.prepareComposeCompletion(request),
-  });
-}
-
-function describeCrossPostFailure(result) {
-  const failures = result.results.filter(target => target.status !== 'succeeded');
-  const networks = failures.map(target => target.id === 'x' ? 'X' : 'Bluesky').join(' / ');
-  const reason = String(failures.find(target => target.error)?.error?.message || '').slice(0, 120);
-  return {
-    networks,
-    message: `${networks}への投稿に失敗しました${reason ? `: ${reason}` : ''}`,
-  };
-}
-
-async function submitSharedCrossPost({ ownerNetworkId, modalId, buttonId, plan }) {
-  const hasUnknown = composeCoordinator.getStatus(ownerNetworkId).hasUnknownCross;
-  let retryUnknown = false;
-  if (hasUnknown) {
-    retryUnknown = confirm(
-      '投稿先で未投稿であることを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
-    );
-    if (!retryUnknown) return;
-  }
-
-  setComposeBusy(modalId, buttonId, true, 'X + Blueskyへ送信中...');
-  const result = await composeCoordinator.submitCrossPost([
-    {
-      id: 'x',
-      request: plan.x.request,
-      deliver: () => executeXComposeDelivery(plan.x.delivery, plan.x.executionContext),
-      completionPlan: plan.x.completionPlan,
-    },
-    {
-      id: 'b',
-      request: plan.bluesky.request,
-      deliver: () => networkAdapters.executeComposeDelivery(plan.bluesky.delivery),
-      completionPlan: plan.bluesky.completionPlan,
-    },
-  ], { retryUnknown });
-  setComposeBusy(modalId, buttonId, false);
-
-  if (result.status === 'succeeded') {
-    closeOv(modalId);
-    toast('XとBlueskyへ投稿しました');
-    return;
-  }
-
-  composeModalRuntime.setBusy(
-    ownerNetworkId,
-    false,
-    result.status === 'unknown' ? '確認後に再試行' : '失敗分を再試行',
-    { locked: true },
-  );
-  const failure = describeCrossPostFailure(result);
-  toast(result.status === 'unknown'
-    ? `${failure.networks}の投稿結果を確認できませんでした`
-    : failure.message);
-}
-
-// ── 画像追加 ──
 function executeXComposeDelivery(delivery, context = {}) {
   return xWebViewRuntime.executeCompose(
     delivery,
@@ -1296,101 +1230,6 @@ function executeXComposeDelivery(delivery, context = {}) {
     (preparedDelivery, preparedContext) =>
       networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext),
   );
-}
-
-async function doXOriginCrossPost(text) {
-  const compose = composeModalRuntime.getSnapshot('x');
-  const media = compose.media;
-  const account = compose.selectedAccount;
-  if (!account) { toast('Xアカウントを選択してください'); return; }
-  if (!state.b) { toast('Bluesky にログインしていません'); return; }
-  const videoError = validateCrossPostVideo('x');
-  if (videoError) { toast(videoError); return; }
-  const plan = createSharedCrossPostPlan({
-    text,
-    media,
-    xAccountId: account.username || account.partition,
-  });
-  await submitSharedCrossPost({
-    ownerNetworkId: 'x',
-    modalId: 'xPostMod',
-    buttonId: 'x-sndb',
-    plan,
-  });
-}
-
-async function doXPost() {
-  const compose = composeModalRuntime.getSnapshot('x');
-  const media = compose.media;
-  const crossPosting = compose.crossPost;
-  const composeStatus = composeCoordinator.getStatus('x');
-  if (composeStatus.isSending) return;
-  if (!crossPosting && composeStatus.hasUnknownSingle) {
-    const confirmedMissing = confirm(
-      'X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
-    );
-    if (!confirmedMissing) return;
-  }
-  const text = compose.text.trim();
-  if (!text && media.images.length === 0 && !media.video) return;
-  if (crossPosting) {
-    await doXOriginCrossPost(text);
-    return;
-  }
-
-  const acc = compose.selectedAccount;
-  if (!acc) { toast('Xアカウントを選択してください'); return; }
-
-  // 動画の長さチェック
-  if (media.video) {
-    const trimDur = media.video.trimDurationSeconds;
-    if (trimDur > 140) {
-      toast(`動画が長すぎます（${fmtSec(trimDur)}）。2分20秒以内にトリミングしてください`);
-      return;
-    }
-  }
-
-  const request = composeRequests.createComposeRequest({
-    networkId: 'x',
-    accountId: acc.username || acc.partition,
-    text,
-    images: media.images.map(image => ({ file: image.file })),
-    video: media.video
-      ? {
-          file: media.video.file,
-          trim: media.video.trim,
-        }
-      : null,
-  });
-  const delivery = networkAdapters.prepareComposeDelivery(request);
-  const completionPlan = networkAdapters.prepareComposeCompletion(request);
-
-  setComposeBusy('xPostMod', 'x-sndb', true, '送信中…');
-  const result = await composeCoordinator.submitSingle({
-    networkId: 'x',
-    request,
-    deliver: () => executeXComposeDelivery(delivery, {
-      videoPath: media.video?.path || null,
-      videoDuration: media.video?.durationSeconds || 0,
-    }),
-    completionPlan,
-  });
-
-  setComposeBusy('xPostMod', 'x-sndb', false);
-  if (result.status === 'succeeded') {
-    closeOv('xPostMod');
-    return;
-  }
-
-  if (result.status === 'unknown') {
-    composeModalRuntime.setBusy('x', false, '確認後に再試行');
-    toast('投稿結果を確認できませんでした。X上で投稿状況を確認してください');
-    return;
-  }
-
-  setFFmpegStatus('');
-  composeModalRuntime.setBusy('x', false, '再試行');
-  toast('X post error: ' + result.error.message);
 }
 
 function openImg(urls, startIndex = 0) {
@@ -1410,87 +1249,6 @@ async function resolveMentionDids(facets) {
     const res = await authenticatedBskyAdapter.resolveHandle({ handle });
     return res.did;
   });
-}
-
-async function doCrossPost(text) {
-  const compose = composeModalRuntime.getSnapshot('b');
-  const media = compose.media;
-  const account = compose.crossPostXAccount;
-  if (!account) { toast('Xアカウントを選択してください'); return; }
-  const videoError = validateCrossPostVideo('b');
-  if (videoError) { toast(videoError); return; }
-  const plan = createSharedCrossPostPlan({
-    text,
-    media,
-    xAccountId: account.username || account.partition,
-  });
-  await submitSharedCrossPost({
-    ownerNetworkId: 'b',
-    modalId: 'compMod',
-    buttonId: 'sndb',
-    plan,
-  });
-}
-
-async function doSend() {
-  const compose = composeModalRuntime.getSnapshot('b');
-  const media = compose.media;
-  if (composeCoordinator.getStatus('b').isSending) return;
-  const text = compose.text.trim();
-  if (!text && media.images.length === 0 && !media.video) return;
-  if (!state.b) { toast('Bluesky にログインしていません'); return; }
-  if (!replyTarget && compose.crossPost) {
-    await doCrossPost(text);
-    return;
-  }
-
-  if (media.video?.trimDurationSeconds > 180) {
-    toast(`動画が長すぎます（${fmtSec(media.video.trimDurationSeconds)}）。3分以内にトリミングしてください`);
-    return;
-  }
-
-  const request = composeRequests.createComposeRequest({
-    networkId: 'b',
-    accountId: state.b.did,
-    text,
-    images: media.images,
-    video: media.video
-      ? {
-          file: media.video.file,
-          sourcePath: media.video.path,
-          durationSeconds: media.video.durationSeconds,
-          trim: media.video.trim,
-        }
-      : null,
-    replyTo: replyTarget
-      ? {
-          root: {
-            uri: replyTarget.rootUri || replyTarget.uri,
-            cid: replyTarget.rootCid || replyTarget.cid,
-          },
-          parent: { uri: replyTarget.uri, cid: replyTarget.cid },
-        }
-      : null,
-  });
-  const delivery = networkAdapters.prepareComposeDelivery(request);
-  const completionPlan = networkAdapters.prepareComposeCompletion(request);
-
-  setComposeBusy('compMod', 'sndb', true, '送信中…');
-  const result = await composeCoordinator.submitSingle({
-    networkId: 'b',
-    request,
-    deliver: () => networkAdapters.executeComposeDelivery(delivery),
-    completionPlan,
-  });
-
-  setComposeBusy('compMod', 'sndb', false);
-  if (result.status === 'succeeded') {
-    closeOv('compMod');
-    return;
-  }
-
-  composeModalRuntime.setBusy('b', false, '再試行');
-  toast(`Post error: ${result.error.message}`);
 }
 
 // ─── ADD COLUMN MODAL ───────────────────────────
@@ -2274,10 +2032,10 @@ document.addEventListener('keydown', e => {
         if (btn && !btn.disabled) doQuotePost();
       } else if (xMod?.classList.contains('on')) {
         const btn = document.getElementById('x-sndb');
-        if (btn && !btn.disabled) doXPost();
+        if (btn && !btn.disabled) composeSubmission.submit('x');
       } else if (bMod?.classList.contains('on')) {
         const btn = document.getElementById('sndb');
-        if (btn && !btn.disabled) doSend();
+        if (btn && !btn.disabled) composeSubmission.submit('b');
       }
     }
   }

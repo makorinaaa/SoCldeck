@@ -244,7 +244,25 @@ test('keeps Compose modal presentation and events behind its Runtime', () => {
   assert.notEqual(crossPostPlanIndex, -1);
   assert.ok(crossPostPlanIndex < rendererIndex);
   assert.match(renderer, /SocialDeckComposeCrossPostPlan/);
-  assert.match(renderer, /createSharedCrossPostPlan\(\{/);
+});
+
+test('keeps Compose submission orchestration behind Compose Submission', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const submissionIndex = index.indexOf(
+    '<script src="renderer/compose-submission.js"></script>',
+  );
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(submissionIndex, -1);
+  assert.ok(submissionIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckComposeSubmission\.createComposeSubmission\(\{/);
+  assert.match(renderer, /composeSubmission\.submit\(/);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:doXPost|doSend|doXOriginCrossPost|doCrossPost|submitSharedCrossPost|createSharedCrossPostPlan|validateCrossPostVideo|describeCrossPostFailure)\b/,
+  );
+  assert.doesNotMatch(renderer, /submitSingle\(|submitCrossPost\(/);
 });
 
 test('keeps Account Session lifecycle and presentation behind its Runtime', () => {
