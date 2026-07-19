@@ -1,6 +1,6 @@
 {
   "name": "socialdeck",
-  "version": "2.4.7",
+  "version": "2.4.8",
   "description": "TweetDeck風マルチカラムクライアント (X + Bluesky)",
   "main": "src/main.js",
   "scripts": {
