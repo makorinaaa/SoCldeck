@@ -1,7 +1,9 @@
 (function (global) {
+  const textEncoder = new TextEncoder();
+
   function createBskyRichText() {
     function byteLength(text) {
-      return new TextEncoder().encode(text).length;
+      return textEncoder.encode(text).length;
     }
 
     function buildFacets(text) {

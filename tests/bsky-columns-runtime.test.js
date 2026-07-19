@@ -294,13 +294,119 @@ test('prepends only unseen Timeline posts without advancing pagination', async (
 
   assert.deepEqual(plain(calls), [
     { limit: 40, cursor: null },
-    { limit: 10, cursor: null },
+    { limit: 30, cursor: null },
   ]);
   assert.equal(outcome.detail, 'new-items');
   assert.equal((host.innerHTML.match(/data-uri="at:\/\/post\/new"/g) || []).length, 1);
   assert.equal((host.innerHTML.match(/data-uri="at:\/\/post\/existing"/g) || []).length, 1);
   assert.ok(host.innerHTML.indexOf('new post') < host.innerHTML.indexOf('existing'));
   assert.match(host.innerHTML, /class="load-more"/);
+});
+
+test('fills an all-new Timeline prepend gap with one cursor page', async () => {
+  const calls = [];
+  const host = createFeedHost();
+  let requestCount = 0;
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {
+      async getTimeline(request) {
+        calls.push(request);
+        requestCount += 1;
+        if (requestCount === 1) {
+          return { cursor: 'older-page', feed: [{ post: {
+            uri: 'at://post/existing', cid: 'existing', author: { handle: 'old.test' }, record: { text: 'existing' },
+          } }] };
+        }
+        if (requestCount === 2) {
+          return {
+            cursor: 'gap-page',
+            feed: Array.from({ length: 2 }, (_, index) => ({ post: {
+              uri: `at://post/new-${index}`, cid: `new-${index}`, author: { handle: 'new.test' }, record: { text: `new ${index}` },
+            } })),
+          };
+        }
+        return { cursor: 'after-gap', feed: [
+          { post: { uri: 'at://post/new-1', cid: 'new-1', author: { handle: 'new.test' }, record: { text: 'duplicate page boundary' } } },
+          { post: { uri: 'at://post/new-2', cid: 'new-2', author: { handle: 'new.test' }, record: { text: 'new 2' } } },
+          { post: { uri: 'at://post/existing', cid: 'existing', author: { handle: 'old.test' }, record: { text: 'existing' } } },
+        ] };
+      },
+    },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  await runtime.refresh('b-home', { mode: 'replace' });
+  const outcome = await runtime.refresh('b-home', { mode: 'prepend' });
+
+  assert.deepEqual(plain(calls), [
+    { limit: 40, cursor: null },
+    { limit: 30, cursor: null },
+    { limit: 30, cursor: 'gap-page' },
+  ]);
+  assert.equal(outcome.detail, 'new-items');
+  assert.equal((host.innerHTML.match(/class="post"/g) || []).length, 4);
+  assert.equal((host.innerHTML.match(/data-uri="at:\/\/post\/existing"/g) || []).length, 1);
+});
+
+test('replaces a Timeline when two saturated prepend pages do not reach existing content', async () => {
+  const host = createFeedHost();
+  let requestCount = 0;
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {
+      async getTimeline() {
+        requestCount += 1;
+        if (requestCount === 1) {
+          return { cursor: 'older-page', feed: [{ post: {
+            uri: 'at://post/existing', cid: 'existing', author: { handle: 'old.test' }, record: { text: 'existing' },
+          } }] };
+        }
+        const offset = requestCount === 2 ? 0 : 30;
+        const length = requestCount === 2 ? 30 : 2;
+        return {
+          cursor: requestCount === 2 ? 'gap-page' : 'after-gap',
+          feed: Array.from({ length }, (_, index) => ({ post: {
+            uri: `at://post/new-${offset + index}`, cid: `new-${offset + index}`, author: { handle: 'new.test' }, record: { text: `new ${offset + index}` },
+          } })),
+        };
+      },
+    },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  await runtime.refresh('b-home', { mode: 'replace' });
+  const outcome = await runtime.refresh('b-home', { mode: 'prepend' });
+
+  assert.equal(outcome.detail, 'gap-replaced');
+  assert.equal((host.innerHTML.match(/class="post"/g) || []).length, 32);
+  assert.doesNotMatch(host.innerHTML, /data-uri="at:\/\/post\/existing"/);
+  assert.match(host.innerHTML, /class="load-more"/);
+});
+
+test('does not fetch a gap page when the Timeline has no rendered identities', async () => {
+  const calls = [];
+  const host = createFeedHost();
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {
+      async getTimeline(request) {
+        calls.push(request);
+        return { cursor: 'older-page', feed: [{ post: {
+          uri: 'at://post/new', cid: 'new', author: { handle: 'new.test' }, record: { text: 'new' },
+        } }] };
+      },
+    },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  const outcome = await runtime.refresh('b-home', { mode: 'prepend' });
+
+  assert.deepEqual(plain(calls), [{ limit: 30, cursor: null }]);
+  assert.equal(outcome.detail, 'new-items');
 });
 
 test('keeps only 300 Timeline items while prepending away from the top', async () => {
@@ -883,6 +989,115 @@ test('loads a custom Feed through the same Columns Runtime interface', async () 
   assert.match(host.innerHTML, /class="load-more"/);
 });
 
+test('updates all rendered relative times with one shared interval', () => {
+  const callbacks = [];
+  const cleared = [];
+  const createTimeHost = createdAt => {
+    const host = createFeedHost();
+    const time = { dataset: { createdAt }, textContent: 'stale' };
+    const baseQuerySelectorAll = host.querySelectorAll.bind(host);
+    host.querySelectorAll = selector => selector === '.p-time[data-created-at], .nago[data-created-at]'
+      ? [time]
+      : baseQuerySelectorAll(selector);
+    return { host, time };
+  };
+  const first = createTimeHost('2026-07-19T00:00:00.000Z');
+  const second = createTimeHost('2026-07-19T01:00:00.000Z');
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {},
+    muteRules: {},
+    ui: { relTime: value => value.endsWith('00:00:00.000Z') ? '2h' : '1h' },
+    scheduleInterval(callback, intervalMs) {
+      callbacks.push({ callback, intervalMs });
+      return 17;
+    },
+    cancelInterval(handle) { cleared.push(handle); },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host: first.host });
+  runtime.mount({ id: 'b-feed', type: 'feed', host: second.host });
+
+  assert.equal(callbacks.length, 1);
+  assert.equal(callbacks[0].intervalMs, 60_000);
+  callbacks[0].callback();
+  assert.equal(first.time.textContent, '2h');
+  assert.equal(second.time.textContent, '1h');
+
+  runtime.dispose('b-home');
+  assert.deepEqual(cleared, []);
+  runtime.dispose('b-feed');
+  assert.deepEqual(cleared, [17]);
+});
+
+test('keeps the relative-time interval alive while a post detail remains open', async () => {
+  const cleared = [];
+  const host = createFeedHost();
+  const documentRef = createDetailDocument();
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {
+      getThread: async request => ({ thread: {
+        post: { uri: request.uri, cid: 'detail', author: { handle: 'detail.test' }, record: { text: 'detail' } },
+      } }),
+    },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => 'now', renderAvatar: () => '' },
+    documentRef,
+    scheduleInterval: () => 17,
+    cancelInterval: handle => cleared.push(handle),
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  await runtime.openPost({ uri: 'at://post/detail' });
+  runtime.dispose('b-home');
+
+  assert.deepEqual(cleared, []);
+  await documentRef.nodes[0].dispatch('click', {
+    target: { closest: selector => selector === '[data-bsky-detail-close]' ? {} : null },
+  });
+  assert.deepEqual(cleared, [17]);
+});
+
+test('renders relative time source timestamps for later refreshes', async () => {
+  const host = createFeedHost();
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [{ post: {
+      uri: 'at://post/time', cid: 'time', author: { handle: 'time.test' },
+      record: { text: 'timed post', createdAt: '2026-07-19T01:02:03.000Z' },
+    } }] }) },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '5m', renderAvatar: () => '' },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  await runtime.refresh('b-home', { mode: 'replace' });
+
+  assert.match(host.innerHTML, /class="p-time" data-created-at="2026-07-19T01:02:03\.000Z">5m<\/span>/);
+});
+
+test('builds replacement feed HTML with one final assignment', async () => {
+  const base = createFeedHost();
+  let html = '';
+  let assignments = 0;
+  const host = {
+    ...base,
+    get innerHTML() { return html; },
+    set innerHTML(value) { assignments += 1; html = value; },
+  };
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ cursor: 'next', feed: [{ post: {
+      uri: 'at://post/once', cid: 'once', author: { handle: 'once.test' }, record: { text: 'once' },
+    } }] }) },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+  });
+
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+  await runtime.refresh('b-home', { mode: 'replace' });
+
+  assert.equal(assignments, 2);
+  assert.match(host.innerHTML, /class="load-more"/);
+});
+
 test('owns Search controls and renders matching Bluesky posts', async () => {
   const calls = [];
   const host = createFeedHost();
@@ -991,7 +1206,7 @@ test('prepends only newer Notifications without marking them seen', async () => 
   assert.deepEqual(plain(calls), [
     ['list', { limit: 40 }],
     ['seen', { seenAt: '2026-07-16T03:00:00.000Z' }],
-    ['list', { limit: 10 }],
+    ['list', { limit: 30 }],
   ]);
   assert.equal(outcome.detail, 'new-items');
   assert.equal((host.innerHTML.match(/data-time="2026-07-16T02:00:00.000Z"/g) || []).length, 1);
