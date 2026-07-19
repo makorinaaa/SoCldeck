@@ -325,6 +325,26 @@ const lightboxRuntime = window.SocialDeckLightboxRuntime.createLightboxRuntime()
 const memoryCleaner = window.SocialDeckMemoryCleaner.createMemoryCleaner({
   key: MEM_KEY,
   clearMemory: IS_ELECTRON ? () => window.electronAPI?.clearMemory?.() : null,
+  getMemoryMetrics: IS_ELECTRON ? () => window.electronAPI?.getMemoryMetrics?.() : null,
+  getRuntimeMetrics: () => {
+    const bluesky = bskyColumnsRuntime?.getMemoryStats?.() || {};
+    const x = xWebViewRuntime?.getMemoryStats?.() || {};
+    return {
+      blueskyColumns: bluesky.columnCount || 0,
+      blueskyItems: bluesky.renderedItemCount || 0,
+      xColumnWebViews: x.columnWebViewCount || 0,
+      xNotificationReaders: x.notificationReaderCount || 0,
+    };
+  },
+  trimRuntime: () => {
+    const blueskyItemsRemoved = bskyColumnsRuntime?.trimAll?.() || 0;
+    const desktopNotificationsEnabled = desktopNotificationRuntime
+      ?.getSnapshot?.().rules.enabled === true;
+    const xNotificationReadersDisposed = desktopNotificationsEnabled
+      ? 0
+      : xWebViewRuntime?.disposeNotificationReaders?.() || 0;
+    return { blueskyItemsRemoved, xNotificationReadersDisposed };
+  },
 });
 const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
   getIsColumnDragging: () => Boolean(dragSrc),
@@ -552,6 +572,7 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
         accountId: account.username || account.partition || `persist:x-${accountIndex}`,
         host: document.getElementById('notif-center-x-readers'),
         script: notificationCenter.buildXNotificationExtractionScript(40),
+        retainReader: desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
       });
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
@@ -587,9 +608,12 @@ desktopNotificationRuntime = window.SocialDeckDesktopNotificationRuntime.createD
   subscribeActivation: handler => window.electronAPI?.onDesktopNotificationActivated?.(handler) || (() => {}),
   view: desktopNotificationView,
   intents: {
-    saved: rules => toast(rules.enabled
-      ? 'デスクトップ通知を有効にしました'
-      : 'デスクトップ通知を無効にしました'),
+    saved: rules => {
+      if (!rules.enabled) xWebViewRuntime.disposeNotificationReaders();
+      toast(rules.enabled
+        ? 'デスクトップ通知を有効にしました'
+        : 'デスクトップ通知を無効にしました');
+    },
     activate: item => {
       if (item.networkId === 'x') return openXNotificationCenterItem(item);
       if (item.targetUri) {
@@ -1837,9 +1861,66 @@ function getMemInterval() {
   return memoryCleaner.getInterval();
 }
 
+function formatMemoryMb(valueKb) {
+  const value = Number(valueKb);
+  return Number.isFinite(value) ? `${(value / 1024).toFixed(1)} MB` : '計測不可';
+}
+
+function renderMemoryMetrics(snapshot) {
+  const target = document.getElementById('memory-metrics');
+  if (!target) return;
+  const host = snapshot?.host;
+  const runtime = snapshot?.runtime || {};
+  if (!host) {
+    target.innerHTML = '<span style="color:var(--text3)">Electronで起動するとプロセスメモリを確認できます。</span>';
+    return;
+  }
+  const groups = host.groups || {};
+  target.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <strong style="font-size:18px;color:var(--text1)">${formatMemoryMb(host.totalKb)}</strong>
+      <span style="color:var(--text3)">${host.processCount || 0}プロセス</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:5px 12px;color:var(--text2)">
+      <span>メイン</span><span>${formatMemoryMb(groups.browser)}</span>
+      <span>画面・WebView</span><span>${formatMemoryMb(groups.renderer)}</span>
+      <span>GPU</span><span>${formatMemoryMb(groups.gpu)}</span>
+      <span>その他</span><span>${formatMemoryMb((groups.utility || 0) + (groups.other || 0))}</span>
+    </div>
+    <div style="border-top:1px solid var(--border);margin-top:9px;padding-top:8px;color:var(--text3)">
+      Bluesky ${runtime.blueskyItems || 0}件 / ${runtime.blueskyColumns || 0}カラム<br>
+      X WebView ${runtime.xColumnWebViews || 0}個 / 通知Reader ${runtime.xNotificationReaders || 0}個
+    </div>`;
+}
+
+async function refreshMemoryMetrics() {
+  const target = document.getElementById('memory-metrics');
+  if (target) target.textContent = '計測中…';
+  try {
+    renderMemoryMetrics(await memoryCleaner.measure());
+  } catch (error) {
+    if (target) target.textContent = `計測できませんでした: ${error.message}`;
+  }
+}
+
 async function runMemoryClear(showToast = true) {
-  await memoryCleaner.clear();
-  if (showToast) toast('Memory cleared');
+  const button = document.querySelector('[data-action="clear-memory-now"]');
+  if (button) button.disabled = true;
+  try {
+    const result = await memoryCleaner.clear({ includeCache: true });
+    renderMemoryMetrics(result.after);
+    if (showToast) {
+      const removed = result.runtimeCleanup?.blueskyItemsRemoved || 0;
+      const readers = result.runtimeCleanup?.xNotificationReadersDisposed || 0;
+      toast(`メモリを整理しました（投稿${removed}件・Reader ${readers}個を解放）`);
+    }
+    return result;
+  } catch (error) {
+    if (showToast) toast(`メモリ整理エラー: ${error.message}`);
+    return null;
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function openMemSettings() {
@@ -1849,11 +1930,13 @@ function openMemSettings() {
   ov.className = 'ov on'; ov.id = 'mem-settings-ov';
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
   ov.innerHTML = `
-    <div class="modal" style="width:300px">
-      <h2 style="margin-bottom:6px">Memory auto clear</h2>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:14px">Reduce memory growth during long sessions.</p>
+    <div class="modal" style="width:340px">
+      <h2 style="margin-bottom:6px">メモリ管理</h2>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">長時間利用時の描画データを定期的に整理します。</p>
+      <div id="memory-metrics" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:11px;margin-bottom:12px">計測中…</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:7px">自動整理の間隔</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
-        ${[[15*60000,'15 min'],[30*60000,'30 min'],[60*60000,'1 hour'],[120*60000,'2 hours'],[0,'OFF']].map(([ms, label]) => `
+        ${[[15*60000,'15分'],[30*60000,'30分'],[60*60000,'1時間'],[120*60000,'2時間'],[0,'OFF']].map(([ms, label]) => `
           <button data-action="apply-memory-interval" data-interval-ms="${ms}"
             style="padding:5px 11px;border-radius:6px;border:1px solid ${cur===ms?'var(--accent)':'var(--border2)'};background:${cur===ms?'var(--accent-dim)':'transparent'};color:${cur===ms?'var(--accent)':'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
             ${label}
@@ -1861,17 +1944,21 @@ function openMemSettings() {
       </div>
       <button data-action="clear-memory-now"
         style="width:100%;padding:8px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;margin-bottom:8px">
-        Clear now
+        今すぐ整理（キャッシュを含む）
       </button>
-      <button data-action="remove-element" data-target-id="mem-settings-ov" class="btn-cancel">Close</button>
+      <div style="display:flex;gap:7px">
+        <button data-action="refresh-memory-metrics" class="btn-cancel">再計測</button>
+        <button data-action="remove-element" data-target-id="mem-settings-ov" class="btn-cancel">閉じる</button>
+      </div>
     </div>`;
   document.body.appendChild(ov);
+  refreshMemoryMetrics();
 }
 
 function applyMemInterval(ms) {
   memoryCleaner.setIntervalMs(ms);
-  const label = ms === 0 ? 'OFF' : ms < 3600000 ? (ms/60000)+' min' : (ms/3600000)+' hour';
-  toast(`Memory auto clear: ${label}`);
+  const label = ms === 0 ? 'OFF' : ms < 3600000 ? (ms/60000)+'分' : (ms/3600000)+'時間';
+  toast(`メモリ自動整理: ${label}`);
   document.getElementById('mem-settings-ov')?.remove();
 }
 
@@ -2136,8 +2223,8 @@ function createUiActionHandlers() {
     'apply-memory-interval': ({ dataset }) => applyMemInterval(integer(dataset.intervalMs)),
     'clear-memory-now': () => {
       runMemoryClear(true);
-      removeElement('mem-settings-ov');
     },
+    'refresh-memory-metrics': () => refreshMemoryMetrics(),
     'confirm-x-list': ({ dataset }) => confirmXList(integer(dataset.accountIndex)),
     'insert-mention': ({ dataset }) => insertMention(dataset.handle),
     'widget-select-column': ({ value }) => wgSelectCol(value),

@@ -1,4 +1,6 @@
 (function (global) {
+  const MAX_RENDERED_ITEMS = 300;
+
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -6,6 +8,22 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  }
+
+  function trimRenderedItems(host, { removeFrom = 'end', preserveScroll = false } = {}) {
+    const items = Array.from(host?.querySelectorAll?.('.post, .notif') || []);
+    const overflow = items.length - MAX_RENDERED_ITEMS;
+    if (overflow <= 0) return 0;
+    const removed = removeFrom === 'start'
+      ? items.slice(0, overflow)
+      : items.slice(items.length - overflow);
+    const previousScrollTop = Number(host.scrollTop) || 0;
+    const removedHeight = removed.reduce((height, item) => height + (item.offsetHeight || 0), 0);
+    removed.forEach(item => item.remove?.());
+    if (preserveScroll && removeFrom === 'start') {
+      host.scrollTop = Math.max(0, previousScrollTop - removedHeight);
+    }
+    return removed.length;
   }
 
   function createBlueskyColumnsRuntime({
@@ -850,6 +868,7 @@
       if (mode === 'append') {
         column.host.querySelector?.('.load-more')?.remove();
         column.host.insertAdjacentHTML?.('beforeend', renderedItems + loadMore);
+        trimRenderedItems(column.host, { removeFrom: 'start', preserveScroll: true });
         return { status: 'succeeded', detail: 'appended' };
       }
       if (isPrepend) {
@@ -870,10 +889,7 @@
           });
         }
         schedule?.(() => addedElements.forEach(element => element.classList?.remove?.('sd-new')), 600);
-        if (column.host.scrollTop < 100) {
-          const renderedItems = column.host.querySelectorAll?.('.post, .notif') || [];
-          for (let index = 300; index < renderedItems.length; index += 1) renderedItems[index].remove?.();
-        }
+        trimRenderedItems(column.host, { removeFrom: 'end' });
         if (column.badge) {
           column.badge.textContent = `+${items.length}`;
           column.badge.style.display = '';
@@ -884,6 +900,7 @@
       column.host.innerHTML = renderedItems
         || `<div class="feed-empty">${column.type === 'notif' ? '通知がありません' : '投稿がありません'}</div>`;
       column.host.innerHTML += loadMore;
+      trimRenderedItems(column.host, { removeFrom: 'end' });
       if (column.type === 'notif' && mode === 'replace') {
         try {
           await adapter.markNotificationsSeen({ seenAt });
@@ -917,7 +934,31 @@
       return true;
     }
 
-    return { dispose, mount, openPost, refresh };
+    function getMemoryStats() {
+      let renderedItemCount = 0;
+      columns.forEach(column => {
+        renderedItemCount += column.host?.querySelectorAll?.('.post, .notif')?.length || 0;
+      });
+      return { columnCount: columns.size, renderedItemCount };
+    }
+
+    function trimAll() {
+      let removed = 0;
+      columns.forEach(column => {
+        const items = Array.from(column.host?.querySelectorAll?.('.post, .notif') || []);
+        const overflow = Math.max(0, items.length - MAX_RENDERED_ITEMS);
+        const overflowHeight = items.slice(0, overflow)
+          .reduce((height, item) => height + (Number(item.offsetHeight) || 0), 0);
+        const preserveScroll = (Number(column.host?.scrollTop) || 0) > overflowHeight + 50;
+        removed += trimRenderedItems(column.host, {
+          removeFrom: preserveScroll ? 'start' : 'end',
+          preserveScroll,
+        });
+      });
+      return removed;
+    }
+
+    return { dispose, getMemoryStats, mount, openPost, refresh, trimAll };
   }
 
   global.SocialDeckBlueskyColumnsRuntime = { createBlueskyColumnsRuntime };

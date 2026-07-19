@@ -217,12 +217,18 @@ test('removes hidden readers that no longer match a Network Account', () => {
 });
 
 test('reuses a visible notification Column for extraction', async () => {
-  const { runtime, columns } = createHarness();
+  const { runtime, columns, elements } = createHarness();
   const notificationWebView = createWebView({
     partition: 'persist:x-0',
     src: 'https://x.com/notifications',
   });
   notificationWebView.executeJavaScript = async script => [{ script }];
+  const hiddenReader = createWebView({
+    id: 'x-notif-reader-0',
+    partition: 'persist:x-0',
+    src: 'https://x.com/notifications',
+  });
+  elements.set(hiddenReader.id, hiddenReader);
   columns.push({
     dataset: { definitionId: 'x-notif-new' },
     querySelector: () => notificationWebView,
@@ -236,6 +242,7 @@ test('reuses a visible notification Column for extraction', async () => {
   });
 
   assert.deepEqual(JSON.parse(JSON.stringify(items)), [{ script: 'extract' }]);
+  assert.equal(hiddenReader.removed, true);
 });
 
 test('uses a hidden reader when the visible notification Column shows a post', async () => {
@@ -259,12 +266,89 @@ test('uses a hidden reader when the visible notification Column shows a post', a
     accountId: '@alice',
     host,
     script: 'extract-hidden',
+    retainReader: true,
   });
 
   assert.equal(webviews.length, 1);
   assert.equal(webviews[0].id, 'x-notif-reader-0');
   assert.equal(webviews[0].preload, 'file:///preload.js');
+  assert.equal(webviews[0].webpreferences, 'backgroundThrottling=true');
+  assert.equal(webviews[0].removed, undefined);
   assert.deepEqual(JSON.parse(JSON.stringify(items)), [{ script: 'extract-hidden' }]);
+});
+
+test('disposes a transient hidden notification reader after extraction', async () => {
+  const { runtime, columns, webviews } = createHarness();
+  columns.push({
+    dataset: { definitionId: 'x-notif-new' },
+    querySelector: () => createWebView({
+      partition: 'persist:x-0',
+      src: 'https://x.com/alice/status/123',
+    }),
+  });
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+
+  const items = await runtime.listNotifications({
+    accountId: '@alice',
+    host: {
+      appendChild(webview) {
+        webview.executeJavaScript = async script => [{ script }];
+      },
+    },
+    script: 'extract-once',
+    retainReader: false,
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(items)), [{ script: 'extract-once' }]);
+  assert.equal(webviews[0].removed, true);
+});
+
+test('disposes every hidden notification reader without removing X Columns', () => {
+  const { runtime, webviews } = createHarness();
+  const column = createWebView({ id: 'wv-x-home', src: 'https://x.com/home' });
+  const firstReader = createWebView({ id: 'x-notif-reader-0', src: 'https://x.com/notifications' });
+  const secondReader = createWebView({ id: 'x-notif-reader-1', src: 'https://x.com/notifications' });
+  webviews.push(column, firstReader, secondReader);
+
+  assert.equal(runtime.disposeNotificationReaders(), 2);
+  assert.equal(column.removed, undefined);
+  assert.equal(firstReader.removed, true);
+  assert.equal(secondReader.removed, true);
+});
+
+test('reports X Column and hidden notification reader counts', () => {
+  const { runtime, webviews } = createHarness();
+  webviews.push(
+    createWebView({ id: 'wv-x-home', src: 'https://x.com/home' }),
+    createWebView({ id: 'wv-x-notif', src: 'https://x.com/notifications' }),
+    createWebView({ id: 'x-notif-reader-0', src: 'https://x.com/notifications' }),
+    createWebView({ id: 'wv-b-profile', src: 'https://bsky.app/profile/alice.test' }),
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.getMemoryStats())), {
+    columnWebViewCount: 2,
+    notificationReaderCount: 1,
+  });
+});
+
+test('uses a lightweight overlay instead of a captured page during silent reload', async () => {
+  const { runtime, elements } = createHarness();
+  const webview = createWebView({ id: 'wv-x-home', src: 'https://x.com/home' });
+  let captures = 0;
+  webview.capturePage = async () => {
+    captures += 1;
+    return { toDataURL: () => 'data:image/png;base64,large' };
+  };
+  const overlay = { style: {} };
+  elements.set(webview.id, webview);
+  elements.set('wvov-x-home', overlay);
+
+  await runtime.reload('x-home');
+
+  assert.equal(captures, 0);
+  assert.equal(overlay.style.display, 'block');
+  assert.equal(overlay.style.backgroundImage, '');
+  assert.equal(overlay.style.backgroundColor, '#000');
 });
 
 test('opens a notification subject inside the reusable notification Column', async () => {

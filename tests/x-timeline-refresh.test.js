@@ -33,13 +33,17 @@ function createTimelineDocument({
   home = null,
   notifications = null,
   links = [],
+  pathname = '',
+  replyComposer = null,
 }) {
   return {
+    location: { pathname },
     scrollingElement: { scrollTop },
     documentElement: { scrollTop },
     querySelector: selector => {
       if (selector === '[data-testid="AppTabBar_Home_Link"]') return home;
       if (selector === '[data-testid="AppTabBar_Notifications_Link"]') return notifications;
+      if (selector === '[role="dialog"] [data-testid^="tweetTextarea_"]') return replyComposer;
       if (selector.includes('newTweetsButton')) return banner;
       return null;
     },
@@ -93,6 +97,39 @@ test('leaves a timeline unchanged while the user is scrolled down', async () => 
   });
 
   assert.equal(result, 'deferred');
+  assert.deepEqual(clicks, []);
+});
+
+test('keeps an open reply composer visible during an automatic refresh', async () => {
+  const state = { content: 'reply-composer' };
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike: createTimelineDocument({
+      tabs: [],
+      pathname: '/home',
+      replyComposer: {},
+      home: { click: () => { state.content = 'blank'; } },
+    }),
+    schedule: callback => callback(),
+    destination: 'home',
+  });
+
+  assert.equal(result, 'interaction-open');
+  assert.equal(state.content, 'reply-composer');
+});
+
+test('keeps a post detail page visible during an automatic refresh', async () => {
+  const clicks = [];
+  const result = await loadRefreshRuntime().refreshXNavigation({
+    documentLike: createTimelineDocument({
+      tabs: [],
+      pathname: '/alice/status/123',
+      home: createNavigationLink('home', clicks),
+    }),
+    schedule: callback => callback(),
+    destination: 'home',
+  });
+
+  assert.equal(result, 'interaction-open');
   assert.deepEqual(clicks, []);
 });
 

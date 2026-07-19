@@ -276,6 +276,23 @@ test('X Column refresh falls back to WebView reload when timeline refresh is una
   assert.deepEqual(calls, [['navigation', 'x-home', 'home'], ['reload', 'x-home']]);
 });
 
+test('X Column refresh stays deferred while the user has an interaction open', async () => {
+  const registry = createRegistry();
+  const calls = [];
+
+  const result = await registry.executeColumnRefresh('x-home', {
+    networkId: 'x',
+    kind: 'webview',
+    definitionId: 'x-home-new',
+  }, {
+    refreshXNavigation: async () => 'interaction-open',
+    reloadWebView: id => calls.push(['reload', id]),
+  });
+
+  assert.deepEqual(plain(result), { status: 'deferred', detail: 'interaction-open' });
+  assert.deepEqual(calls, []);
+});
+
 test('X notifications refresh uses its in-page navigation link', async () => {
   const registry = createRegistry();
   const calls = [];

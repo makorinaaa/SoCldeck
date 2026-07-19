@@ -231,16 +231,8 @@
         setRefreshBusy(id, true);
       }
       if (silent && overlay && webview.style.display !== 'none') {
-        try {
-          const image = await webview.capturePage();
-          overlay.style.backgroundImage = `url(${image.toDataURL()})`;
-          overlay.style.backgroundSize = '100% auto';
-          overlay.style.backgroundRepeat = 'no-repeat';
-          overlay.style.backgroundPosition = 'top left';
-        } catch {
-          overlay.style.backgroundImage = '';
-          overlay.style.backgroundColor = '#000';
-        }
+        overlay.style.backgroundImage = '';
+        overlay.style.backgroundColor = '#000';
         overlay.style.display = 'block';
         overlay.style.opacity = '1';
         webview.dataset.sdPrevOpacity = webview.style.opacity || '';
@@ -286,7 +278,7 @@
         const result = await refreshNavigation(id, destination);
         const accepted = new Set([
           'home-clicked', 'notifications-clicked', 'banner-clicked',
-          'deferred', 'not-following', 'queued',
+          'deferred', 'not-following', 'interaction-open', 'queued',
         ]);
         return accepted.has(result) ? { status: result } : reload(id);
       }));
@@ -419,10 +411,13 @@
     }
 
     function getNotificationReader(host, account) {
-      const visible = findVisibleNotificationWebView(account.partition);
-      if (visible) return visible;
-      if (!host || !isElectron || account.loginPending) return null;
       const id = `x-notif-reader-${account.index}`;
+      const visible = findVisibleNotificationWebView(account.partition);
+      if (visible) {
+        documentRef.getElementById(id)?.remove();
+        return visible;
+      }
+      if (!host || !isElectron || account.loginPending) return null;
       let webview = documentRef.getElementById(id);
       if (webview && webview.partition !== account.partition) {
         webview.remove();
@@ -433,7 +428,7 @@
       webview = documentRef.createElement('webview');
       webview.id = id;
       webview.setAttribute('partition', account.partition);
-      webview.setAttribute('webpreferences', 'backgroundThrottling=false');
+      webview.setAttribute('webpreferences', 'backgroundThrottling=true');
       const preloadPath = getPreloadPath();
       if (preloadPath) webview.setAttribute('preload', preloadPath);
       webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
@@ -442,13 +437,42 @@
       return webview;
     }
 
-    async function listNotifications({ accountId, host, script }) {
+    function disposeNotificationReaders() {
+      let disposed = 0;
+      documentRef.querySelectorAll('webview').forEach(webview => {
+        if (!/^x-notif-reader-\d+$/.test(webview.id || '')) return;
+        webview.remove();
+        disposed += 1;
+      });
+      return disposed;
+    }
+
+    function getMemoryStats() {
+      let columnWebViewCount = 0;
+      let notificationReaderCount = 0;
+      documentRef.querySelectorAll('webview').forEach(webview => {
+        const id = String(webview.id || '');
+        if (/^x-notif-reader-\d+$/.test(id)) {
+          notificationReaderCount += 1;
+        } else if (/^wv-x-/.test(id)) {
+          columnWebViewCount += 1;
+        }
+      });
+      return { columnWebViewCount, notificationReaderCount };
+    }
+
+    async function listNotifications({ accountId, host, script, retainReader = false }) {
       const account = findAccount(accountId);
       if (!account) return [];
       const webview = getNotificationReader(host, account);
       if (!webview) return [];
-      await waitUntilReady(webview, 'X通知ページを読み込めませんでした');
-      return await webview.executeJavaScript(script) || [];
+      const hiddenReader = /^x-notif-reader-\d+$/.test(webview.id || '');
+      try {
+        await waitUntilReady(webview, 'X通知ページを読み込めませんでした');
+        return await webview.executeJavaScript(script) || [];
+      } finally {
+        if (hiddenReader && !retainReader) webview.remove();
+      }
     }
 
     async function openNotificationTarget({ columnId, item, notificationUrl, activationScript }) {
@@ -470,8 +494,10 @@
 
     return {
       back,
+      disposeNotificationReaders,
       disposeColumn,
       executeCompose,
+      getMemoryStats,
       listNotifications,
       mountColumn,
       navigate,

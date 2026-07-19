@@ -192,6 +192,56 @@ test('baselines existing notifications and emits each later match once', async (
   assert.deepEqual(storage.read('socialdeck_desktop_notification_rules').knownIds.sort(), ['b:new', 'b:old']);
 });
 
+test('checks for desktop notifications every 30 seconds by default', async () => {
+  const intervals = [];
+  const runtime = loadModule().createDesktopNotificationRuntime({
+    storage: createStorage({ rules: { enabled: true } }),
+    fetchItems: async () => [],
+    setIntervalImpl: (callback, delay) => {
+      intervals.push({ callback, delay });
+      return 1;
+    },
+    clearIntervalImpl() {},
+  });
+
+  await runtime.start();
+
+  assert.equal(intervals.length, 1);
+  assert.equal(intervals[0].delay, 30_000);
+});
+
+test('retains activation targets only for the bounded notification history', async () => {
+  let activateDesktop;
+  const activations = [];
+  const items = Array.from({ length: 1_005 }, (_, index) => notification({ id: `item-${index}` }));
+  const runtime = loadModule().createDesktopNotificationRuntime({
+    storage: createStorage({
+      rules: { enabled: true, onlyWhenUnfocused: true },
+      baselined: true,
+      knownIds: [],
+      knownIdsVersion: 2,
+    }),
+    fetchItems: async () => items,
+    isAppFocused: () => true,
+    subscribeActivation: handler => {
+      activateDesktop = handler;
+      return () => {};
+    },
+    intents: { activate: item => activations.push(item.id) },
+    setIntervalImpl: () => 1,
+    clearIntervalImpl() {},
+  });
+
+  await runtime.start();
+
+  assert.equal((await activateDesktop('b:item-0')).status, 'activated');
+  assert.deepEqual(activations, ['item-0']);
+  assert.deepEqual(plain(await activateDesktop('b:item-1004')), {
+    status: 'ignored',
+    detail: 'not-found',
+  });
+});
+
 test('emits a later X reaction from another actor on the same post', async () => {
   const shown = [];
   const center = loadNotificationCenter();

@@ -198,6 +198,11 @@ test('keeps desktop notification rules and settings behind their Runtime', () =>
     /SocialDeckDesktopNotificationRuntime\.createDesktopNotificationRuntime\(\{/,
   );
   assert.match(main, /createDesktopNotificationService\(\{/);
+  assert.match(
+    renderer,
+    /retainReader: desktopNotificationRuntime\?\.getSnapshot\(\)\.rules\.enabled === true/,
+  );
+  assert.match(renderer, /if \(!rules\.enabled\) xWebViewRuntime\.disposeNotificationReaders\(\)/);
   assert.doesNotMatch(modal, /\son(?:click|change|input)=/i);
   assert.doesNotMatch(
     renderer,

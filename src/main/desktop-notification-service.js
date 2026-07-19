@@ -11,8 +11,27 @@ function sanitizeDesktopNotification(payload) {
   return { key, title, body };
 }
 
-function createDesktopNotificationService({ NotificationClass, getWindow = () => null } = {}) {
+function resolveWindowsNotificationIdentity({ appId, execPath, isPackaged } = {}) {
+  const identity = isPackaged ? appId : execPath;
+  return String(identity || '').trim();
+}
+
+function createDesktopNotificationService({
+  NotificationClass,
+  getWindow = () => null,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+  retentionMs = 10 * 60 * 1000,
+} = {}) {
   const activeNotifications = new Set();
+  const retentionTimers = new Map();
+
+  function release(nativeNotification, clearTimer = true) {
+    activeNotifications.delete(nativeNotification);
+    const timer = retentionTimers.get(nativeNotification);
+    retentionTimers.delete(nativeNotification);
+    if (clearTimer && timer != null) clearTimeoutFn(timer);
+  }
 
   function show(payload) {
     const notification = sanitizeDesktopNotification(payload);
@@ -24,7 +43,7 @@ function createDesktopNotificationService({ NotificationClass, getWindow = () =>
     });
     activeNotifications.add(nativeNotification);
     nativeNotification.on('click', () => {
-      activeNotifications.delete(nativeNotification);
+      release(nativeNotification);
       const window = getWindow();
       if (!window || window.isDestroyed?.()) return;
       if (window.isMinimized?.()) window.restore?.();
@@ -32,15 +51,22 @@ function createDesktopNotificationService({ NotificationClass, getWindow = () =>
       window.focus?.();
       window.webContents?.send?.('desktop-notification-activated', notification.key);
     });
-    nativeNotification.on('close', () => activeNotifications.delete(nativeNotification));
+    nativeNotification.on('close', () => release(nativeNotification));
+    const timer = setTimeoutFn(() => release(nativeNotification, false), retentionMs);
+    timer?.unref?.();
+    retentionTimers.set(nativeNotification, timer);
     nativeNotification.show();
     return true;
   }
 
-  return { show };
+  return {
+    getActiveCount: () => activeNotifications.size,
+    show,
+  };
 }
 
 module.exports = {
   createDesktopNotificationService,
+  resolveWindowsNotificationIdentity,
   sanitizeDesktopNotification,
 };
