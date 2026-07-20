@@ -159,6 +159,29 @@ test('keeps API-backed Bluesky Columns behind their Runtime', () => {
   );
 });
 
+test('keeps Bluesky post view, reactions, and profile card behind their modules', () => {
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const runtime = fs.readFileSync(
+    path.join(projectRoot, 'src', 'renderer', 'bsky-columns-runtime.js'),
+    'utf8',
+  );
+  const runtimeIndex = index.indexOf('<script src="renderer/bsky-columns-runtime.js"></script>');
+
+  assert.notEqual(runtimeIndex, -1);
+  for (const script of ['bsky-post-view.js', 'bsky-reactions.js', 'bsky-profile-card.js']) {
+    const scriptIndex = index.indexOf(`<script src="renderer/${script}"></script>`);
+    assert.notEqual(scriptIndex, -1, `${script} must be loaded`);
+    assert.ok(scriptIndex < runtimeIndex, `${script} must load before bsky-columns-runtime.js`);
+  }
+  assert.match(runtime, /SocialDeckBlueskyPostView\?\.createBlueskyPostView/);
+  assert.match(runtime, /SocialDeckBlueskyReactions\?\.createBlueskyReactions/);
+  assert.match(runtime, /SocialDeckBlueskyProfileCard\?\.createBlueskyProfileCard/);
+  assert.doesNotMatch(
+    runtime,
+    /function (?:renderPost|renderNotification|renderThreadReplies|collectThreadParents|getNotificationIdentity|toggleLike|toggleRepost|openRepostMenu|closeRepostMenu|syncReactionAcrossColumns|syncPostMetrics|reapplyPendingReactions|showProfileCard|positionProfileCard|toggleProfileFollow|removeProfileCard)\b/,
+  );
+});
+
 test('keeps Notification Center state and rendering behind its Runtime', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
@@ -288,6 +311,21 @@ test('keeps mention suggestions, the Column picker, and widget mode behind their
     /function (?:onCompTextareaInput|insertMention|buildOptGrid|mkOptX|mkOpt|nextColumnId|addColFromModal|openAddMod|initWidgetMode|wgToggleTop|wgSelectCol)\b/,
   );
   assert.doesNotMatch(renderer, /mention-suggest|opt-grid|widget-bar/);
+});
+
+test('keeps quote posting behind Compose Quote', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const quoteIndex = index.indexOf('<script src="renderer/compose-quote.js"></script>');
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(quoteIndex, -1);
+  assert.ok(quoteIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckComposeQuote\.createComposeQuote\(\{/);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:openQuoteModal|doQuotePost|updQuoteCC)\b|quoteTarget|app\.bsky\.embed\.record/,
+  );
 });
 
 test('keeps Compose submission orchestration behind Compose Submission', () => {

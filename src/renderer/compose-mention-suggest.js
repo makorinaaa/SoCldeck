@@ -29,7 +29,7 @@
       if (!suggest) {
         suggest = documentRef.createElement('div');
         suggest.id = boxId;
-        suggest.style.cssText = 'position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:600;min-width:220px;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,.5);max-height:220px;overflow-y:auto';
+        suggest.className = 'mention-suggest-box';
         documentRef.body.appendChild(suggest);
       }
 
@@ -39,16 +39,14 @@
 
       suggest.innerHTML = actors.map(actor => {
         const avatar = actor.avatar
-          ? `<img src="${escape(actor.avatar)}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`
+          ? `<img src="${escape(actor.avatar)}">`
           : (actor.handle || '?').slice(0, 2).toUpperCase();
         const background = avatarBackground(actor.handle);
-        return `<div data-action="insert-mention" data-handle="${escape(actor.handle)}"
-          style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;transition:background .1s"
-          onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-          <div style="width:28px;height:28px;border-radius:50%;background:${background};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden">${avatar}</div>
+        return `<div data-action="insert-mention" data-handle="${escape(actor.handle)}" class="mention-item hover-row">
+          <div class="mention-av" style="background:${background}">${avatar}</div>
           <div style="min-width:0">
-            <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escape(actor.displayName || actor.handle)}</div>
-            <div style="font-size:10px;color:var(--text3)">@${escape(actor.handle)}</div>
+            <div class="mention-name">${escape(actor.displayName || actor.handle)}</div>
+            <div class="mention-handle">@${escape(actor.handle)}</div>
           </div>
         </div>`;
       }).join('');

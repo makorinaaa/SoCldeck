@@ -155,8 +155,8 @@ test('marks the active column interval and applies changes through the column bo
   runtime.openColumnSettings('bsky-1', 'bsky');
   const overlay = documentRef.appended[0];
   assert.equal(overlay.id, 'col-settings-ov');
-  assert.match(overlay.innerHTML, /data-column-id="bsky-1" data-interval-ms="60000"\s+style="[^"]*var\(--accent\)/);
-  assert.match(overlay.innerHTML, /data-font-size="13"\s+style="[^"]*var\(--accent\)/);
+  assert.match(overlay.innerHTML, /class="chip-btn on" data-action="apply-column-interval" data-column-id="bsky-1" data-interval-ms="60000"/);
+  assert.match(overlay.innerHTML, /class="chip-btn on"[^>]*data-font-size="13"/);
 
   runtime.applyColumnInterval('bsky-1', 30000);
   assert.deepEqual(calls.intervals, [['bsky-1', 30000]]);
@@ -184,7 +184,7 @@ test('renders memory metrics after opening the memory settings modal', async () 
   runtime.openMemorySettings();
   const overlay = documentRef.appended[0];
   assert.equal(overlay.id, 'mem-settings-ov');
-  assert.match(overlay.innerHTML, /data-interval-ms="1800000"\s+style="[^"]*var\(--accent\)/);
+  assert.match(overlay.innerHTML, /class="chip-btn on"[^>]*data-interval-ms="1800000"/);
   documentRef.register(metricsTarget);
   await runtime.refreshMemoryMetrics();
   assert.match(metricsTarget.innerHTML, /2\.0 MB/);

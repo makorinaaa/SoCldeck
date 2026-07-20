@@ -352,6 +352,26 @@ const widgetMode = window.SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
   columnRuntime,
   intents: { toast, reload: () => location.reload() },
 });
+const composeQuote = window.SocialDeckComposeQuote.createComposeQuote({
+  documentRef: document,
+  getAccount: () => state.b,
+  buildFacets: text => buildFacets(text),
+  resolveMentionDids: facets => resolveMentionDids(facets),
+  createPostRecord: record => authenticatedBskyAdapter.createPostRecord({ record }),
+  avatarFallbackBackground: AVBG[0],
+  ui: { escape: esc },
+  intents: {
+    toast,
+    refreshTimelines: () => {
+      document.querySelectorAll('.col').forEach(col => {
+        if (col.dataset.type === 'timeline') {
+          const cid = col.id?.replace('col-', '');
+          if (cid) silentRefreshBsky(cid, 'timeline', null);
+        }
+      });
+    },
+  },
+});
 const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
   getIsColumnDragging: () => Boolean(dragSrc),
 });
@@ -412,7 +432,7 @@ bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumns
   documentRef: document,
   intents: {
     reply: ({ uri, cid, handle }) => openReply(uri, cid, handle),
-    quote: ({ uri, cid, handle }) => openQuoteModal(uri, cid, handle),
+    quote: ({ uri, cid, handle }) => composeQuote.open(uri, cid, handle),
     openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
     openProfile: ({ did, handle }) => showProfile(did || handle),
     openPostMenu: ({ handle, x, y }) => showPostMenu({ handle, x, y }),
@@ -992,90 +1012,6 @@ async function refreshColumn(id, button) {
   }
 }
 
-// 引用リポストモーダル
-let quoteTarget = null;
-function openQuoteModal(uri, cid, handle) {
-  quoteTarget = { uri, cid, handle };
-  document.getElementById('quote-modal-ov')?.remove();
-
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'quote-modal-ov';
-  ov.onclick = e => { if (e.target === ov) { ov.remove(); quoteTarget = null; } };
-
-  const avBg = state.b?.bg || AVBG[0];
-  const avInner = state.b?.avatar
-    ? `<img src="${state.b.avatar}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`
-    : (state.b?.initials || '?');
-
-  ov.innerHTML = `
-    <div class="cmodal">
-      <div class="chead">
-        <h2 style="display:flex;align-items:center;gap:8px">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color:#0085ff"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
-          引用リポスト
-        </h2>
-        <button data-action="close-quote"
-          style="background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:2px 6px">✕</button>
-      </div>
-      <!-- 引用元プレビュー -->
-      <div style="border:1px solid var(--border2);border-radius:8px;padding:9px 11px;margin-bottom:12px;font-size:12px;color:var(--text2)">
-        <div style="font-weight:700;color:var(--text2);margin-bottom:3px">@${esc(handle)} の投稿を引用</div>
-        <div style="color:var(--text3);font-size:11px">${esc(uri.split('/').pop())}</div>
-      </div>
-      <div class="comp-wrap">
-        <div class="comp-av" style="background:${avBg};position:relative;overflow:hidden">${avInner}</div>
-        <textarea class="comp-ta" id="quote-ta" placeholder="コメントを追加…" maxlength="300" data-input-action="update-quote-count"></textarea>
-      </div>
-      <div class="comp-foot">
-        <span class="cc" id="quote-cct">0 / 300</span>
-        <button class="send-btn" id="quote-sndb" data-action="submit-quote">引用して投稿</button>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  setTimeout(() => document.getElementById('quote-ta')?.focus(), 50);
-}
-
-function updQuoteCC() {
-  const n = document.getElementById('quote-ta')?.value.length || 0;
-  const el = document.getElementById('quote-cct');
-  if (el) { el.textContent = `${n} / 300`; el.className = 'cc' + (n > 260 ? ' w' : '') + (n > 300 ? ' over' : ''); }
-  const btn = document.getElementById('quote-sndb');
-  if (btn) btn.disabled = n > 300;
-}
-
-async function doQuotePost() {
-  if (!state.b || !quoteTarget) return;
-  const text = document.getElementById('quote-ta')?.value.trim() || '';
-  const btn = document.getElementById('quote-sndb');
-  if (btn) { btn.disabled = true; btn.textContent = '投稿中…'; }
-  try {
-    const rawFacets = buildFacets(text);
-    const resolvedFacets = text ? await resolveMentionDids(rawFacets) : [];
-    const record = {
-      $type: 'app.bsky.feed.post',
-      text,
-      createdAt: new Date().toISOString(),
-      embed: { $type: 'app.bsky.embed.record', record: { uri: quoteTarget.uri, cid: quoteTarget.cid } }
-    };
-    if (resolvedFacets.length) record.facets = resolvedFacets;
-    await authenticatedBskyAdapter.createPostRecord({ record });
-    document.getElementById('quote-modal-ov')?.remove();
-    quoteTarget = null;
-    toast('Quote posted');
-    setTimeout(() => {
-      document.querySelectorAll('.col').forEach(col => {
-        if (col.dataset.type === 'timeline') {
-          const cid2 = col.id?.replace('col-', '');
-          if (cid2) silentRefreshBsky(cid2, 'timeline', null);
-        }
-      });
-    }, 1000);
-  } catch(e) {
-    toast(`エラー: ${e.message}`);
-    if (btn) { btn.disabled = false; btn.textContent = '引用して投稿'; }
-  }
-}
-
 let replyTarget = null; // { uri, cid, rootUri, rootCid }
 
 async function openReply(uri, cid, handle) {
@@ -1221,16 +1157,16 @@ function showPostMenu({ handle, x, y }) {
   document.getElementById('post-ctx-menu')?.remove();
   const menu = document.createElement('div');
   menu.id = 'post-ctx-menu';
-  menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)`;
+  menu.className = 'ctx-menu';
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
   menu.innerHTML = `
-    <div data-action="add-ng-user" data-handle="${esc(handle)}" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+    <div data-action="add-ng-user" data-handle="${esc(handle)}" class="ctx-item hover-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
       @${esc(handle)} をミュート
     </div>
-    <div data-action="copy-handle" data-handle="${esc(handle)}" style="padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px"
-      onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background=''">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    <div data-action="copy-handle" data-handle="${esc(handle)}" class="ctx-item hover-row">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       ハンドルをコピー
     </div>
   `;
@@ -1584,12 +1520,9 @@ function createUiActionHandlers() {
     'remove-ng-rule': ({ dataset }) => settingsModals.removeNgRule(dataset.ruleKind, integer(dataset.ruleIndex)),
     'add-ng-rule': ({ dataset }) => settingsModals.addNgRule(dataset.ruleKind),
     'remove-element': ({ dataset }) => removeElement(dataset.targetId),
-    'close-quote': () => {
-      removeElement('quote-modal-ov');
-      quoteTarget = null;
-    },
-    'update-quote-count': () => updQuoteCC(),
-    'submit-quote': () => doQuotePost(),
+    'close-quote': () => composeQuote.close(),
+    'update-quote-count': () => composeQuote.updateCharacterCount(),
+    'submit-quote': () => composeQuote.submit(),
     'add-column': ({ dataset }) => columnPicker.addColumn(
       dataset.definitionId,
       dataset.network,
@@ -1652,8 +1585,7 @@ document.addEventListener('keydown', e => {
       if (o.id === 'xPostMod' || o.id === 'compMod') closeOv(o.id);
       else o.classList.remove('on');
     });
-    document.getElementById('quote-modal-ov')?.remove();
-    quoteTarget = null;
+    composeQuote.close();
   }
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'n') { e.preventDefault(); columnPicker.open(); }
@@ -1665,7 +1597,7 @@ document.addEventListener('keydown', e => {
       const qMod = document.getElementById('quote-modal-ov');
       if (qMod) {
         const btn = document.getElementById('quote-sndb');
-        if (btn && !btn.disabled) doQuotePost();
+        if (btn && !btn.disabled) composeQuote.submit();
       } else if (xMod?.classList.contains('on')) {
         const btn = document.getElementById('x-sndb');
         if (btn && !btn.disabled) composeSubmission.submit('x');
