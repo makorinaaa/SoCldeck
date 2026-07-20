@@ -338,6 +338,45 @@ test('DOM view loops the selected trim range and jumps to its edges', () => {
   assert.deepEqual(events, []);
 });
 
+test('DOM view skips rebuilding unchanged account chips and a closed preview', () => {
+  const elements = Object.fromEntries(
+    ['xPostMod', 'compMod', 'x-acc-select', 'x-compose-preview'].map(id => [id, createElement()]),
+  );
+  const documentRef = { activeElement: null, getElementById: id => elements[id] || null };
+  const view = loadRuntime().createComposeModalDomView({ documentRef });
+  const snapshot = {
+    networkId: 'x',
+    xAccounts: [
+      { username: 'main', initials: 'MA', bg: '#111' },
+      { username: 'sub', initials: 'SU', bg: '#222' },
+    ],
+    blueskyAccount: null, selectedAccount: { username: 'main', initials: 'MA' },
+    selectedXAccountIndex: 0, text: '', crossPost: false, crossPostAvailable: false,
+    media: { images: [], video: null }, reply: null, busy: false, locked: false,
+    actionLabel: 'ポスト', characterCount: 0, characterLimit: 280, canSubmit: false,
+    previewOpen: false, targets: ['X'],
+  };
+
+  view.render(snapshot);
+  assert.equal(elements['x-compose-preview'].innerHTML, '', 'closed preview must not be built');
+  assert.match(elements['x-acc-select'].innerHTML, /select-x-account/);
+
+  // 本文入力だけのrenderではチップもプレビューも再構築しない
+  elements['x-acc-select'].innerHTML = 'SENTINEL';
+  view.render({ ...snapshot, text: 'typing…', characterCount: 7 });
+  assert.equal(elements['x-acc-select'].innerHTML, 'SENTINEL');
+  assert.equal(elements['x-compose-preview'].innerHTML, '');
+
+  // アカウント選択が変わればチップを作り直す
+  view.render({ ...snapshot, selectedXAccountIndex: 1 });
+  assert.match(elements['x-acc-select'].innerHTML, /data-compose-account-index="1"/);
+
+  // プレビューを開いたときに初めて構築する
+  view.render({ ...snapshot, previewOpen: true });
+  assert.equal(elements['x-compose-preview'].classList.contains('on'), true);
+  assert.match(elements['x-compose-preview'].innerHTML, /compose-preview-head/);
+});
+
 test('DOM view renders an X Compose snapshot without inline handlers', () => {
   const ids = [
     'xPostMod', 'compMod', 'x-acc-select', 'x-cross-post-controls', 'x-cross-post-b',

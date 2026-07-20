@@ -39,6 +39,19 @@ test('renders a post with escaped metadata and a relative-time source', () => {
   assert.match(html, /class="pa lk " data-bsky-action="like"><svg id="heart"\/> <span>3<\/span>/);
 });
 
+test('renders timeline videos without preloading media data', () => {
+  const view = loadPostView().createBlueskyPostView({ ui: { relTime: () => '' } });
+
+  const html = view.renderPost({ post: {
+    ...POST,
+    embed: { playlist: 'https://video/playlist.m3u8', thumbnail: 'https://video/thumb.jpg' },
+  } });
+
+  assert.match(html, /<video class="p-video"[^>]*preload="none"/);
+  assert.match(html, /poster="https:\/\/video\/thumb\.jpg"/);
+  assert.doesNotMatch(html, /preload="metadata"/);
+});
+
 test('overlays pending reactions onto server counts and disables their buttons', () => {
   const view = loadPostView().createBlueskyPostView({
     ui: { relTime: () => '' },

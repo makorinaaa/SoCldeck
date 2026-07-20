@@ -47,7 +47,7 @@
         ? post.embed
         : post.embed?.media?.playlist ? post.embed.media : null;
       const videoHtml = video
-        ? `<video class="p-video" controls playsinline preload="metadata" src="${escapeHtml(video.playlist)}"${video.thumbnail ? ` poster="${escapeHtml(video.thumbnail)}"` : ''} aria-label="${escapeHtml(video.alt || 'Video')}"></video>`
+        ? `<video class="p-video" controls playsinline preload="none" src="${escapeHtml(video.playlist)}"${video.thumbnail ? ` poster="${escapeHtml(video.thumbnail)}"` : ''} aria-label="${escapeHtml(video.alt || 'Video')}"></video>`
         : '';
       const repostLabel = reposter
         ? `<div class="repost-label">${icons.repost || ''} ${escapeHtml(reposter.displayName || reposter.handle || '')} reposted</div>`

@@ -551,6 +551,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   });
   await page.locator('#x-alt-0').fill('X image description');
   assert.equal(await page.locator('#x-sndb').isEnabled(), true);
+  await page.locator('#xPostMod [data-compose-action="toggle-preview"]').click();
   assert.match(await page.locator('#x-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
   await page.evaluate(() => closeOv('xPostMod'));
   assert.equal(await page.locator('#x-img-preview').textContent(), '');
@@ -563,6 +564,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   });
   await page.locator('#b-alt-0').fill('Bluesky image description');
   assert.equal(await page.locator('#sndb').isEnabled(), true);
+  await page.locator('#compMod [data-compose-action="toggle-preview"]').click();
   assert.match(await page.locator('#b-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
   await page.locator('#sndb').click();
   await page.locator('#compMod').waitFor({ state: 'hidden' });
