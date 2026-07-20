@@ -6,11 +6,18 @@ const vm = require('node:vm');
 
 function loadRuntime(windowOverrides = {}) {
   const context = { window: { ...windowOverrides } };
-  const source = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'renderer', 'bsky-columns-runtime.js'),
-    'utf8',
-  );
-  vm.runInNewContext(source, context);
+  for (const file of [
+    'bsky-post-view.js',
+    'bsky-reactions.js',
+    'bsky-profile-card.js',
+    'bsky-columns-runtime.js',
+  ]) {
+    const source = fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'renderer', file),
+      'utf8',
+    );
+    vm.runInNewContext(source, context);
+  }
   return context.window.SocialDeckBlueskyColumnsRuntime;
 }
 
