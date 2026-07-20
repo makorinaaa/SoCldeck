@@ -492,6 +492,11 @@ test('strict CSP boots with delegated shell actions and no production DevTools',
   await page.locator('#app').waitFor({ state: 'visible' });
 
   assert.equal(await page.locator('.dev-only').count(), 0);
+  const fontLoaded = await page.evaluate(async () => {
+    await document.fonts.load('12px "Noto Sans JP"');
+    return document.fonts.check('12px "Noto Sans JP"');
+  });
+  assert.equal(fontLoaded, true, 'the bundled Noto Sans JP font must load under strict CSP');
   await page.locator('button[data-action="open-add-column"]:visible').first().click();
   await page.locator('#addMod.on').waitFor();
   await page.locator('#addMod [data-action="close-overlay"]').evaluate(element => element.click());
