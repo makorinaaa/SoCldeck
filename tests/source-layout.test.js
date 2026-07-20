@@ -313,6 +313,21 @@ test('keeps mention suggestions, the Column picker, and widget mode behind their
   assert.doesNotMatch(renderer, /mention-suggest|opt-grid|widget-bar/);
 });
 
+test('keeps quote posting behind Compose Quote', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+  const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');
+  const quoteIndex = index.indexOf('<script src="renderer/compose-quote.js"></script>');
+  const rendererIndex = index.indexOf('<script src="renderer.js"></script>');
+
+  assert.notEqual(quoteIndex, -1);
+  assert.ok(quoteIndex < rendererIndex);
+  assert.match(renderer, /SocialDeckComposeQuote\.createComposeQuote\(\{/);
+  assert.doesNotMatch(
+    renderer,
+    /function (?:openQuoteModal|doQuotePost|updQuoteCC)\b|quoteTarget|app\.bsky\.embed\.record/,
+  );
+});
+
 test('keeps Compose submission orchestration behind Compose Submission', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');

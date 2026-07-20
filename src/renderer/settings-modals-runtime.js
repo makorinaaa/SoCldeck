@@ -36,10 +36,10 @@
     // ── NGワード / ミュート ──
     function ngRuleList(rules, kind, format) {
       return rules.map((value, index) =>
-        `<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
-          <span style="flex:1;font-size:12px;color:var(--text1)">${format(value)}</span>
-          <button data-action="remove-ng-rule" data-rule-kind="${kind}" data-rule-index="${index}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
-        </div>`).join('') || '<div style="font-size:12px;color:var(--text3);padding:6px 0">なし</div>';
+        `<div class="ng-row">
+          <span>${format(value)}</span>
+          <button class="ng-del" data-action="remove-ng-rule" data-rule-kind="${kind}" data-rule-index="${index}">削除</button>
+        </div>`).join('') || '<div class="ng-empty">なし</div>';
     }
 
     function openNgSettings() {
@@ -49,19 +49,19 @@
       openOverlay('ng-modal-ov', `<div class="modal" style="width:380px;max-height:80vh;overflow-y:auto">
         <h2 style="margin-bottom:16px">NGワード / ミュート設定</h2>
         <div style="margin-bottom:18px">
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">NGワード（投稿本文）</div>
+          <div class="ng-section-title">NGワード（投稿本文）</div>
           ${wordsList}
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <input id="ng-word-input" type="text" placeholder="キーワードを追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-            <button data-action="add-ng-rule" data-rule-kind="word" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
+          <div class="ng-add-row">
+            <input id="ng-word-input" class="ng-input" type="text" placeholder="キーワードを追加…">
+            <button class="ng-add" data-action="add-ng-rule" data-rule-kind="word">追加</button>
           </div>
         </div>
         <div style="margin-bottom:18px">
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px">ミュートユーザー</div>
+          <div class="ng-section-title">ミュートユーザー</div>
           ${usersList}
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <input id="ng-user-input" type="text" placeholder="@handle を追加…" style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none">
-            <button data-action="add-ng-rule" data-rule-kind="user" style="padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit">追加</button>
+          <div class="ng-add-row">
+            <input id="ng-user-input" class="ng-input" type="text" placeholder="@handle を追加…">
+            <button class="ng-add" data-action="add-ng-rule" data-rule-kind="user">追加</button>
           </div>
         </div>
         <button data-action="remove-element" data-target-id="ng-modal-ov" class="btn-cancel">閉じる</button>
@@ -89,8 +89,7 @@
     function optionButton(action, dataAttributes, active, label) {
       const data = Object.entries(dataAttributes)
         .map(([name, value]) => `data-${name}="${escape(value)}"`).join(' ');
-      return `<button data-action="${action}" ${data}
-        style="padding:5px 11px;border-radius:6px;border:1px solid ${active ? 'var(--accent)' : 'var(--border2)'};background:${active ? 'var(--accent-dim)' : 'transparent'};color:${active ? 'var(--accent)' : 'var(--text2)'};cursor:pointer;font-size:12px;font-family:inherit">
+      return `<button class="chip-btn${active ? ' on' : ''}" data-action="${action}" ${data}>
         ${label}</button>`;
     }
 
@@ -99,8 +98,8 @@
       const currentFontSize = parseInt(storage.getItem(`col_fs_${id}`)) || 13;
       openOverlay('col-settings-ov', `<div class="modal" style="width:300px">
         <h2 style="margin-bottom:14px">Column settings</h2>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Auto refresh interval</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+        <div class="modal-label">Auto refresh interval</div>
+        <div class="chip-row">
           ${[15, 30, 60, 120, 300, 0].map(seconds => optionButton(
             'apply-column-interval',
             { 'column-id': id, 'interval-ms': seconds * 1000 },
@@ -108,8 +107,8 @@
             seconds === 0 ? 'OFF' : seconds < 60 ? seconds + ' sec' : seconds / 60 + ' min',
           )).join('')}
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">Font size</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+        <div class="modal-label">Font size</div>
+        <div class="chip-row">
           ${[11, 12, 13, 14, 15, 16].map(fontSize => optionButton(
             'apply-column-font-size',
             { 'column-id': id, 'column-type': colType, 'font-size': fontSize },
@@ -153,17 +152,17 @@
       }
       const groups = host.groups || {};
       target.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
-          <strong style="font-size:18px;color:var(--text1)">${formatMemoryMb(host.totalKb)}</strong>
-          <span style="color:var(--text3)">${host.processCount || 0}プロセス</span>
+        <div class="mem-total-row">
+          <strong class="mem-total">${formatMemoryMb(host.totalKb)}</strong>
+          <span>${host.processCount || 0}プロセス</span>
         </div>
-        <div style="display:grid;grid-template-columns:1fr auto;gap:5px 12px;color:var(--text2)">
+        <div class="mem-grid">
           <span>メイン</span><span>${formatMemoryMb(groups.browser)}</span>
           <span>画面・WebView</span><span>${formatMemoryMb(groups.renderer)}</span>
           <span>GPU</span><span>${formatMemoryMb(groups.gpu)}</span>
           <span>その他</span><span>${formatMemoryMb((groups.utility || 0) + (groups.other || 0))}</span>
         </div>
-        <div style="border-top:1px solid var(--border);margin-top:9px;padding-top:8px;color:var(--text3)">
+        <div class="mem-runtime">
           Bluesky ${runtime.blueskyItems || 0}件 / ${runtime.blueskyColumns || 0}カラム<br>
           X WebView ${runtime.xColumnWebViews || 0}個 / 通知Reader ${runtime.xNotificationReaders || 0}個
         </div>`;
@@ -205,9 +204,9 @@
         <div class="modal" style="width:340px">
           <h2 style="margin-bottom:6px">メモリ管理</h2>
           <p style="font-size:12px;color:var(--text2);margin-bottom:10px">長時間利用時の描画データを定期的に整理します。</p>
-          <div id="memory-metrics" style="font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:11px;margin-bottom:12px">計測中…</div>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:7px">自動整理の間隔</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+          <div id="memory-metrics" class="mem-metrics">計測中…</div>
+          <div class="modal-label">自動整理の間隔</div>
+          <div class="chip-row">
             ${[[15 * 60000, '15分'], [30 * 60000, '30分'], [60 * 60000, '1時間'], [120 * 60000, '2時間'], [0, 'OFF']].map(([ms, label]) => optionButton(
               'apply-memory-interval',
               { 'interval-ms': ms },
@@ -215,8 +214,7 @@
               label,
             )).join('')}
           </div>
-          <button data-action="clear-memory-now"
-            style="width:100%;padding:8px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;margin-bottom:8px">
+          <button class="mem-clear-btn" data-action="clear-memory-now">
             今すぐ整理（キャッシュを含む）
           </button>
           <div style="display:flex;gap:7px">

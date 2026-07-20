@@ -363,18 +363,16 @@
         || renderedMedia.x.video !== (video?.file || null);
       if (preview && mediaChanged) {
         preview.innerHTML = video
-          ? `<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2);width:100%">
-              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escape(video.file?.name || '動画')}</span>
-              <button data-compose-action="remove-video" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px">削除</button>
+          ? `<div class="compose-file-row">
+              <span class="compose-file-name">${escape(video.file?.name || '動画')}</span>
+              <button class="compose-file-remove" data-compose-action="remove-video">削除</button>
             </div>`
           : images.map((image, imageIndex) => `
-            <div style="display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3)">
-              <img src="${escape(objectUrl(image.file))}" style="width:52px;height:52px;object-fit:cover;display:block;border-radius:4px;flex-shrink:0">
-              <input id="x-alt-${imageIndex}" type="text" placeholder="画像の説明（Bluesky同時投稿に使用）" maxlength="1000"
-                value="${escape(image.altText || '')}" data-compose-alt-network="x" data-compose-image-index="${imageIndex}"
-                style="flex:1;min-width:0;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:11px;outline:none">
-              <button data-compose-action="remove-image" data-compose-network="x" data-compose-image-index="${imageIndex}"
-                style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:11px;line-height:1;padding:0">x</button>
+            <div class="compose-img-row">
+              <img class="compose-img-thumb" src="${escape(objectUrl(image.file))}">
+              <input id="x-alt-${imageIndex}" class="compose-alt-input" type="text" placeholder="画像の説明（Bluesky同時投稿に使用）" maxlength="1000"
+                value="${escape(image.altText || '')}" data-compose-alt-network="x" data-compose-image-index="${imageIndex}">
+              <button class="compose-img-remove" data-compose-action="remove-image" data-compose-network="x" data-compose-image-index="${imageIndex}">x</button>
             </div>`).join('');
       }
       syncAltInputs(preview, images);
@@ -443,20 +441,16 @@
         || renderedMedia.b.video !== (video?.file || null);
       if (elements['b-img-preview'] && mediaChanged) {
         elements['b-img-preview'].innerHTML = video
-          ? `<div style="display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2);width:100%">
-              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escape(video.file?.name || '動画')}</span>
-              <button data-compose-action="remove-video" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px">削除</button>
+          ? `<div class="compose-file-row">
+              <span class="compose-file-name">${escape(video.file?.name || '動画')}</span>
+              <button class="compose-file-remove" data-compose-action="remove-video">削除</button>
             </div>`
           : images.map((image, imageIndex) => `
-          <div style="position:relative;width:100%;border-radius:6px;overflow:hidden;flex-shrink:0;background:var(--bg3);margin-bottom:5px;border:1px solid var(--border)">
-            <div style="display:flex;align-items:center;gap:8px;padding:5px 8px">
-              <img src="${escape(objectUrl(image.file))}" style="width:52px;height:52px;object-fit:cover;border-radius:4px;flex-shrink:0">
-              <input id="b-alt-${imageIndex}" type="text" placeholder="Alt テキスト（画像の説明）" maxlength="1000"
-                value="${escape(image.altText || '')}" data-compose-alt-network="b" data-compose-image-index="${imageIndex}"
-                style="flex:1;background:transparent;border:none;color:var(--text2);font-size:11px;font-family:inherit;outline:none;min-width:0">
-              <button data-compose-action="remove-image" data-compose-network="b" data-compose-image-index="${imageIndex}"
-                style="width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:10px;padding:0">x</button>
-            </div>
+          <div class="compose-img-row">
+            <img class="compose-img-thumb" src="${escape(objectUrl(image.file))}">
+            <input id="b-alt-${imageIndex}" class="compose-alt-input" type="text" placeholder="Alt テキスト（画像の説明）" maxlength="1000"
+              value="${escape(image.altText || '')}" data-compose-alt-network="b" data-compose-image-index="${imageIndex}">
+            <button class="compose-img-remove" data-compose-action="remove-image" data-compose-network="b" data-compose-image-index="${imageIndex}">x</button>
           </div>`).join('');
       }
       syncAltInputs(elements['b-img-preview'], images);

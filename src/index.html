@@ -365,6 +365,44 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .btn-cancel:hover{background:var(--bg3);color:var(--text1)}
 /* CSPでインラインon*属性は無効のため、動的メニュー行のホバーはこのクラスで */
 .hover-row:hover{background:var(--bg3)}
+/* ── 動的生成UIの共通クラス ── */
+.chip-btn{padding:5px 11px;border-radius:6px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-size:12px;font-family:inherit}
+.chip-btn.on{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+.chip-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.modal-label{font-size:11px;color:var(--text3);margin-bottom:6px}
+.ng-section-title{font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px}
+.ng-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)}
+.ng-row span{flex:1;font-size:12px;color:var(--text1)}
+.ng-empty{font-size:12px;color:var(--text3);padding:6px 0}
+.ng-del{padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit}
+.ng-add-row{display:flex;gap:6px;margin-top:8px}
+.ng-input{flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text1);font-family:inherit;outline:none}
+.ng-add{padding:6px 12px;border-radius:6px;background:var(--accent);border:none;color:#fff;cursor:pointer;font-size:12px;font-family:inherit}
+.mem-metrics{font-size:11px;background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:11px;margin-bottom:12px}
+.mem-total-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.mem-total-row span{color:var(--text3)}
+.mem-total{font-size:18px;color:var(--text1)}
+.mem-grid{display:grid;grid-template-columns:1fr auto;gap:5px 12px;color:var(--text2)}
+.mem-runtime{border-top:1px solid var(--border);margin-top:9px;padding-top:8px;color:var(--text3)}
+.mem-clear-btn{width:100%;padding:8px;border-radius:7px;background:var(--bg3);border:1px solid var(--border);color:var(--text2);font-family:inherit;font-size:12px;cursor:pointer;margin-bottom:8px}
+.ctx-menu{position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:500;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.ctx-item{padding:7px 12px;font-size:12px;cursor:pointer;border-radius:5px;color:var(--text1);display:flex;align-items:center;gap:8px}
+.ctx-item svg{width:13px;height:13px}
+.mention-suggest-box{position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;z-index:600;min-width:220px;max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,.5);max-height:220px;overflow-y:auto}
+.mention-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;transition:background .1s}
+.mention-av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;flex-shrink:0;overflow:hidden}
+.mention-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.mention-name{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mention-handle{font-size:10px;color:var(--text3)}
+.bsky-hover-card{position:fixed;z-index:1000;width:260px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-size:12px;color:var(--text1)}
+.compose-file-row{display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--bg3);border-radius:6px;font-size:11px;color:var(--text2);width:100%}
+.compose-file-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.compose-file-remove{padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px}
+.compose-img-row{display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg3)}
+.compose-img-row+.compose-img-row{margin-top:5px}
+.compose-img-thumb{width:52px;height:52px;object-fit:cover;display:block;border-radius:4px;flex-shrink:0}
+.compose-alt-input{flex:1;min-width:0;background:transparent;border:none;color:var(--text2);font-family:inherit;font-size:11px;outline:none}
+.compose-img-remove{width:18px;height:18px;border-radius:50%;border:none;background:rgba(255,255,255,.15);color:#fff;cursor:pointer;font-size:11px;line-height:1;padding:0}
 
 /* Compose Modal */
 .cmodal{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:20px;width:500px;max-width:calc(100vw - 32px);max-height:calc(100vh - 24px);overflow-y:auto}
@@ -406,6 +444,13 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .comp-foot{display:flex;align-items:center;padding-top:10px;border-top:1px solid var(--border)}
 .cc{font-size:11px;color:var(--text3)}
 .cc.w{color:var(--yellow)}.cc.over{color:var(--red)}
+/* ── 引用リポストモーダル ── */
+.quote-title{display:flex;align-items:center;gap:8px}
+.quote-title svg{color:#0085ff}
+.quote-close{background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:18px;padding:2px 6px}
+.quote-src{border:1px solid var(--border2);border-radius:8px;padding:9px 11px;margin-bottom:12px;font-size:12px;color:var(--text2)}
+.quote-src-handle{font-weight:700;color:var(--text2);margin-bottom:3px}
+.quote-src-uri{color:var(--text3);font-size:11px}
 .send-btn{margin-left:auto;padding:7px 18px;border-radius:20px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .12s}
 .send-btn:hover{opacity:.85}
 .send-btn:disabled{opacity:.35;cursor:not-allowed}
@@ -1024,6 +1069,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <script src="renderer/compose-request.js"></script>
 <script src="renderer/compose-cross-post-plan.js"></script>
 <script src="renderer/compose-submission.js"></script>
+<script src="renderer/compose-quote.js"></script>
 <script src="renderer/compose-attempt.js"></script>
 <script src="renderer/cross-post-runtime.js"></script>
 <script src="renderer/compose-completion.js"></script>

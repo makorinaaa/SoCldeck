@@ -88,7 +88,7 @@
       removeCard();
       const card = documentRef.createElement('div');
       card.id = 'bsky-hover-card';
-      card.style.cssText = 'position:fixed;z-index:1000;width:260px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.5);font-size:12px;color:var(--text1)';
+      card.className = 'bsky-hover-card';
       card.textContent = 'Loading...';
       cardOwnerId = ownerId;
       documentRef.body.appendChild(card);
