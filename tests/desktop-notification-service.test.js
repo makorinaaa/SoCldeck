@@ -46,6 +46,11 @@ test('sanitizes bounded desktop notification payloads', () => {
   });
   assert.equal(sanitizeDesktopNotification({ key: '', title: 'Title' }), null);
   assert.equal(sanitizeDesktopNotification({ key: 'bad key', title: 'Title' }), null);
+  // encodeURIComponentが残す ~ を含むキーは破棄しない
+  assert.deepEqual(
+    sanitizeDesktopNotification({ key: 'x:0:https%3A%2F%2Fx.com%2F~user', title: 'T', body: 'B' }),
+    { key: 'x:0:https%3A%2F%2Fx.com%2F~user', title: 'T', body: 'B' },
+  );
   assert.equal(sanitizeDesktopNotification({ key: 'b:1', title: '' }), null);
 });
 

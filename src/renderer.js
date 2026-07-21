@@ -1723,12 +1723,17 @@ if (state.x && !(state.xs && state.xs.length > 0)) {
 webviewPreloadReady = initWvPreloadPath();
 const blueskySessionReady = initializeBlueskySession();
 const accountSessionReady = blueskySessionReady.then(() => accountSessionRuntime.start());
-accountSessionReady.then(() => desktopNotificationRuntime.start()).catch(() => {});
+// Xのログイン状態を確定させてから通知ポーリングを開始する
+// (未確定のままだとX通知リーダーが作られず初回取得が空になるため)
+const xLoginStatesReady = accountSessionReady
+  .then(() => initializeXLoginStates())
+  .catch(() => {});
+xLoginStatesReady.then(() => desktopNotificationRuntime.start()).catch(() => {});
 initDnD();
 
 const hasStoredAccounts = (state.xs && state.xs.length > 0) || state.b;
 if (hasStoredAccounts) {
-  Promise.all([accountSessionReady, webviewPreloadReady, initializeXLoginStates()]).finally(() => {
+  Promise.all([accountSessionReady, webviewPreloadReady, xLoginStatesReady]).finally(() => {
     if ((state.xs && state.xs.length > 0) || state.b) enterApp();
     if (state.b) {
       setTimeout(() => fetchBskyUnreadCount(), 3000);

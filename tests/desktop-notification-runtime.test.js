@@ -378,6 +378,49 @@ test('reports polling failures without losing the existing baseline', async () =
   assert.deepEqual(storage.read('socialdeck_desktop_notification_rules').knownIds, ['b:old']);
 });
 
+test('rebaseline before start keeps the persisted rules intact', async () => {
+  const storage = createStorage({
+    rules: { enabled: true, onlyWhenUnfocused: false },
+    knownIds: ['b:n1'],
+    baselined: true,
+    knownIdsVersion: 2,
+  });
+  const runtime = loadModule().createDesktopNotificationRuntime({
+    storage,
+    fetchItems: async () => [notification({ id: 'n1' })],
+  });
+
+  // start()より先に呼ばれても(起動中のアカウント変更など)設定を初期値で潰さない
+  await runtime.rebaseline();
+  assert.equal(storage.read('socialdeck_desktop_notification_rules').rules.enabled, true);
+
+  const snapshot = await runtime.start();
+  assert.equal(snapshot.rules.enabled, true);
+});
+
+test('reports last check time and per-network item counts', async () => {
+  const storage = createStorage({
+    rules: { enabled: true, onlyWhenUnfocused: false },
+    knownIds: ['b:known'],
+    baselined: true,
+    knownIdsVersion: 2,
+  });
+  const runtime = loadModule().createDesktopNotificationRuntime({
+    storage,
+    fetchItems: async () => [
+      notification({ id: 'known' }),
+      notification({ id: 'x-1', networkId: 'x' }),
+      notification({ id: 'x-2', networkId: 'x' }),
+    ],
+    now: () => new Date('2026-07-20T12:34:00.000Z'),
+  });
+
+  await runtime.start();
+  const snapshot = runtime.getSnapshot();
+  assert.equal(snapshot.lastCheckedAt, '2026-07-20T12:34:00.000Z');
+  assert.deepEqual(plain(snapshot.lastItemCounts), { x: 2, b: 1 });
+});
+
 test('rebaselines legacy notification identities without replaying existing items', async () => {
   const shown = [];
   const storage = createStorage({
