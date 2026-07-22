@@ -164,9 +164,15 @@
           input.checked = Boolean(rules.reasons[input.dataset.desktopNotificationReason]);
         });
         if (status) {
+          const counts = snapshot.lastItemCounts;
+          const checkedLabel = snapshot.lastCheckedAt && counts
+            ? `（最終確認 ${new Date(snapshot.lastCheckedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })} · X ${counts.x}件 / Bluesky ${counts.b}件）`
+            : '';
           status.textContent = snapshot.error
             ? `取得エラー: ${snapshot.error}`
-            : rules.enabled ? 'デスクトップ通知は有効です' : 'デスクトップ通知は無効です';
+            : rules.enabled
+              ? `デスクトップ通知は有効です${checkedLabel}`
+              : 'デスクトップ通知は無効です';
         }
       },
       setOpen(open) { modal?.classList.toggle('on', open); },
@@ -192,6 +198,7 @@
     let busy = false;
     let error = null;
     let lastCheckedAt = null;
+    let lastItemCounts = null;
     let timer = null;
     let disposed = false;
     let started = false;
@@ -205,6 +212,7 @@
         busy,
         error,
         lastCheckedAt,
+        lastItemCounts: lastItemCounts ? { ...lastItemCounts } : null,
       };
     }
 
@@ -272,6 +280,10 @@
       render();
       try {
         const items = await fetchItems() || [];
+        lastItemCounts = {
+          x: items.filter(item => item?.networkId === 'x').length,
+          b: items.filter(item => item?.networkId === 'b').length,
+        };
         const currentKeys = items.map(itemKey);
         items.forEach(item => itemsByKey.set(itemKey(item), item));
         if (!baselined) {
@@ -350,6 +362,8 @@
 
     async function rebaseline() {
       if (disposed) return { status: 'ignored', detail: 'disposed', emitted: 0 };
+      // start()前に呼ばれても保存済みルールを初期値で上書きしない
+      if (!started) load();
       baselined = false;
       knownIds = [];
       itemsByKey.clear();

@@ -94,6 +94,8 @@
     const renderedVideoFile = { x: null, b: null };
     const renderedThumbnailFile = { x: null, b: null };
     const renderedTrim = { x: null, b: null };
+    // 毎キー入力のrenderで変化しない部分は署名比較で再構築を省く
+    const renderedSignatures = { xAccountSelect: null, crossPostAccounts: null };
     const trimPreviewActive = { x: false, b: false };
     const thumbnailGeneration = { x: 0, b: 0 };
 
@@ -285,12 +287,13 @@
       const avatar = snapshot.networkId === 'b' && account.avatar
         ? `<img src="${escape(account.avatar)}" alt="">`
         : escape(initials);
+      preview.classList.toggle('on', snapshot.previewOpen);
+      if (!snapshot.previewOpen) return;
       const imageCount = snapshot.media.images.length;
       const altCount = snapshot.media.images.filter(image => image.altText).length;
       const attachmentText = snapshot.media.video
         ? '動画 1本'
         : imageCount > 0 ? `画像 ${imageCount}枚 / ALT入力 ${altCount}枚` : '添付なし';
-      preview.classList.toggle('on', snapshot.previewOpen);
       preview.innerHTML = `
         <div class="compose-preview-head">
           <div class="compose-preview-avatar" style="background:${escape(account.bg || 'var(--bg3)')}">${avatar}</div>
@@ -308,16 +311,23 @@
       const accountSelect = elements['x-acc-select'];
       if (accountSelect) {
         accountSelect.style.display = snapshot.xAccounts.length > 1 ? 'flex' : 'none';
-        accountSelect.innerHTML = snapshot.xAccounts.length > 1
-          ? snapshot.xAccounts.map((account, accountIndex) => {
-              const active = accountIndex === snapshot.selectedXAccountIndex;
-              return `<button data-compose-action="select-x-account" data-compose-account-index="${accountIndex}"
-                style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;border:2px solid ${active ? 'var(--accent)' : 'var(--border2)'};background:${active ? 'var(--accent-dim)' : 'transparent'};color:${active ? 'var(--accent)' : 'var(--text2)'};cursor:pointer;font-family:inherit;font-size:12px;font-weight:600">
-                <span style="width:20px;height:20px;border-radius:50%;background:${escape(account.bg || 'var(--bg3)')};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000">${escape(account.initials || 'X')}</span>
-                ${escape(account.username || '')}
-              </button>`;
-            }).join('')
+        const signature = snapshot.xAccounts.length > 1
+          ? snapshot.xAccounts.map(account => `${account.username}|${account.initials}|${account.bg}`).join(',')
+            + `#${snapshot.selectedXAccountIndex}`
           : '';
+        if (renderedSignatures.xAccountSelect !== signature) {
+          renderedSignatures.xAccountSelect = signature;
+          accountSelect.innerHTML = snapshot.xAccounts.length > 1
+            ? snapshot.xAccounts.map((account, accountIndex) => {
+                const active = accountIndex === snapshot.selectedXAccountIndex;
+                return `<button data-compose-action="select-x-account" data-compose-account-index="${accountIndex}"
+                  style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;border:2px solid ${active ? 'var(--accent)' : 'var(--border2)'};background:${active ? 'var(--accent-dim)' : 'transparent'};color:${active ? 'var(--accent)' : 'var(--text2)'};cursor:pointer;font-family:inherit;font-size:12px;font-weight:600">
+                  <span style="width:20px;height:20px;border-radius:50%;background:${escape(account.bg || 'var(--bg3)')};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000">${escape(account.initials || 'X')}</span>
+                  ${escape(account.username || '')}
+                </button>`;
+              }).join('')
+            : '';
+        }
         accountSelect.style.pointerEvents = snapshot.busy || snapshot.locked ? 'none' : '';
       }
       if (elements['x-cross-post-controls']) {
@@ -397,9 +407,13 @@
         elements['cross-post-x'].disabled = snapshot.busy || snapshot.locked;
       }
       if (elements['cross-post-x-account']) {
-        elements['cross-post-x-account'].innerHTML = snapshot.xAccounts.map((account, accountIndex) =>
-          `<option value="${accountIndex}">${escape(account.username || '')}</option>`
-        ).join('');
+        const signature = snapshot.xAccounts.map(account => account.username || '').join(',');
+        if (renderedSignatures.crossPostAccounts !== signature) {
+          renderedSignatures.crossPostAccounts = signature;
+          elements['cross-post-x-account'].innerHTML = snapshot.xAccounts.map((account, accountIndex) =>
+            `<option value="${accountIndex}">${escape(account.username || '')}</option>`
+          ).join('');
+        }
         elements['cross-post-x-account'].value = String(snapshot.crossPostXAccountIndex || 0);
         elements['cross-post-x-account'].style.display = snapshot.crossPost ? 'block' : 'none';
         elements['cross-post-x-account'].disabled = snapshot.busy || snapshot.locked;

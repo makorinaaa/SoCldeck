@@ -7,7 +7,8 @@ function sanitizeDesktopNotification(payload) {
   const key = boundedText(payload.key, 300);
   const title = boundedText(payload.title, 120);
   const body = boundedText(payload.body, 240);
-  if (!key || !title || !/^[A-Za-z0-9:._/@?=&%+-]+$/.test(key)) return null;
+  // encodeURIComponent は ~ をエスケープしないため許可リストに含める
+  if (!key || !title || !/^[A-Za-z0-9:._/@?=&%~+-]+$/.test(key)) return null;
   return { key, title, body };
 }
 

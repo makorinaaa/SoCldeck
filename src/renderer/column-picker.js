@@ -39,38 +39,39 @@
 
     function buildOptionGrid() {
       const grid = documentRef.getElementById('opt-grid');
-      grid.innerHTML = '';
       const accounts = getAccounts();
       const xAccounts = accounts.x || [];
+      const parts = [];
 
       // X: アカウントごとにセクションを分けて表示
       if (xAccounts.length > 0) {
         const xDefinitions = getColumnDefinitions('x');
         xAccounts.forEach((account, accountIndex) => {
-          grid.innerHTML += sectionHeading(`
+          parts.push(sectionHeading(`
             <span style="display:inline-flex;align-items:center;gap:5px">
               <span style="width:14px;height:14px;border-radius:50%;background:${account.bg};display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${account.initials}</span>
               X · ${escape(account.username)}
-            </span>`, accountIndex === 0);
+            </span>`, accountIndex === 0));
           xDefinitions.forEach(definition => {
-            grid.innerHTML += xOption(definition, accountIndex);
+            parts.push(xOption(definition, accountIndex));
           });
         });
       }
 
       if (accounts.b) {
         if (xAccounts.length > 0) {
-          grid.innerHTML += sectionHeading(`Bluesky · @${accounts.b.handle}`);
+          parts.push(sectionHeading(`Bluesky · @${accounts.b.handle}`));
         }
         getColumnDefinitions('b').filter(definition => definition.picker !== false).forEach(definition => {
-          grid.innerHTML += option(definition, 'b');
+          parts.push(option(definition, 'b'));
         });
       }
 
-      grid.innerHTML += sectionHeading('情報');
+      parts.push(sectionHeading('情報'));
       getColumnDefinitions('anime').filter(definition => definition.picker !== false).forEach(definition => {
-        grid.innerHTML += option(definition, 'anime');
+        parts.push(option(definition, 'anime'));
       });
+      grid.innerHTML = parts.join('');
     }
 
     function open() {

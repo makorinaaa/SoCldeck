@@ -19,6 +19,18 @@ test('enforces a renderer CSP without executable inline code or wildcard connect
   assert.doesNotMatch(policy, /connect-src[^;]*\*/);
 });
 
+test('serves the application font locally instead of Google Fonts', () => {
+  const index = read('src/index.html');
+  const policy = index.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] || '';
+
+  assert.match(index, /<link href="fonts\/noto-sans-jp\.css" rel="stylesheet">/);
+  assert.doesNotMatch(index, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+  assert.doesNotMatch(policy, /font-src[^;]*https:/);
+  assert.equal(fs.existsSync(path.join(root, 'src', 'fonts', 'noto-sans-jp.css')), true);
+  const fontCss = read('src/fonts/noto-sans-jp.css');
+  assert.doesNotMatch(fontCss, /https?:\/\//, 'font css must not reference external hosts');
+});
+
 test('keeps executable event attributes out of application markup and templates', () => {
   const sources = [
     read('src/index.html'),

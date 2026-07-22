@@ -492,6 +492,11 @@ test('strict CSP boots with delegated shell actions and no production DevTools',
   await page.locator('#app').waitFor({ state: 'visible' });
 
   assert.equal(await page.locator('.dev-only').count(), 0);
+  const fontLoaded = await page.evaluate(async () => {
+    await document.fonts.load('12px "Noto Sans JP"');
+    return document.fonts.check('12px "Noto Sans JP"');
+  });
+  assert.equal(fontLoaded, true, 'the bundled Noto Sans JP font must load under strict CSP');
   await page.locator('button[data-action="open-add-column"]:visible').first().click();
   await page.locator('#addMod.on').waitFor();
   await page.locator('#addMod [data-action="close-overlay"]').evaluate(element => element.click());
@@ -551,6 +556,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   });
   await page.locator('#x-alt-0').fill('X image description');
   assert.equal(await page.locator('#x-sndb').isEnabled(), true);
+  await page.locator('#xPostMod [data-compose-action="toggle-preview"]').click();
   assert.match(await page.locator('#x-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
   await page.evaluate(() => closeOv('xPostMod'));
   assert.equal(await page.locator('#x-img-preview').textContent(), '');
@@ -563,6 +569,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   });
   await page.locator('#b-alt-0').fill('Bluesky image description');
   assert.equal(await page.locator('#sndb').isEnabled(), true);
+  await page.locator('#compMod [data-compose-action="toggle-preview"]').click();
   assert.match(await page.locator('#b-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
   await page.locator('#sndb').click();
   await page.locator('#compMod').waitFor({ state: 'hidden' });
