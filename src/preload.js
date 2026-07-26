@@ -25,7 +25,7 @@ const BLUESKY_OPERATIONS = new Set([
   'markNotificationsSeen', 'getProfile', 'follow', 'unfollow',
   'getThread', 'like', 'unlike', 'repost', 'unrepost',
   'getUnreadCount', 'searchActors', 'resolveHandle',
-  'createPostRecord', 'uploadBlob',
+  'createPostRecord', 'uploadBlob', 'uploadVideo',
 ]);
 
 function invokeBluesky(operation, payload = {}) {
