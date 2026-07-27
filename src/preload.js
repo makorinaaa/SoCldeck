@@ -103,11 +103,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPathForFile: file => webUtils.getPathForFile(file),
 
   // 動画トリミング（メインプロセスのffmpegで実行）
-  trimVideo: (filePath, startSec, endSec) =>
+  trimVideo: (filePath, startSec, endSec, durationSec) =>
     ipcRenderer.invoke('trim-video', {
       filePath,
       startSec: toFiniteNumber(startSec),
       endSec: toFiniteNumber(endSec),
+      durationSec: toFiniteNumber(durationSec),
     }),
 
   // 一時ファイル削除

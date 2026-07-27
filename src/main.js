@@ -12,7 +12,12 @@ const {
   createDesktopNotificationService,
   resolveWindowsNotificationIdentity,
 } = require('./main/desktop-notification-service');
-const { resolveFfmpegPath, runFfmpegTrim } = require('./main/ffmpeg-runtime');
+const {
+  MAX_TRIM_OUTPUT_BYTES,
+  planTrimEncoding,
+  resolveFfmpegPath,
+  runFfmpegTrim,
+} = require('./main/ffmpeg-runtime');
 const { denyWebviewPermissions } = require('./main/webview-permission-policy');
 const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
 const { createAtprotoClient } = require('./main/bluesky-atproto-client');
@@ -415,7 +420,7 @@ handleTrustedIpc('clear-memory', async () => {
 });
 
 // ── 動画トリミング（検証済みFFmpeg / メインプロセスで実行）──
-handleTrustedIpc('trim-video', async (_, { filePath, startSec, endSec }) => {
+handleTrustedIpc('trim-video', async (_, { filePath, startSec, endSec, durationSec }) => {
   if (typeof filePath !== 'string') throw new Error('Invalid video file');
   const inputPath = path.resolve(filePath);
   const ext = path.extname(inputPath).toLowerCase() || '.mp4';
@@ -433,14 +438,30 @@ handleTrustedIpc('trim-video', async (_, { filePath, startSec, endSec }) => {
 
   const outPath = path.join(os.tmpdir(), `socialdeck_trim_${randomUUID()}${ext}`);
 
+  // 高ビットレート素材はコピーすると数百MBになり投稿経路が破綻するため再エンコードする
+  const { size: sourceBytes } = await fs.promises.stat(inputPath);
+  const { videoBitrateBps } = planTrimEncoding({
+    sourceBytes,
+    sourceDurationSeconds: durationSec,
+    trimDurationSeconds: duration,
+  });
+
   const ffmpegPath = resolveFfmpegPath({ isPackaged: app.isPackaged });
-  return runFfmpegTrim({
+  await runFfmpegTrim({
     ffmpegPath,
     inputPath,
     outputPath: outPath,
     startSeconds: start,
     durationSeconds: duration,
+    videoBitrateBps,
   });
+
+  const { size: trimmedBytes } = await fs.promises.stat(outPath);
+  if (trimmedBytes > MAX_TRIM_OUTPUT_BYTES * 2) {
+    await fs.promises.rm(outPath, { force: true }).catch(() => {});
+    throw new Error('トリム後の動画が大きすぎます。範囲を短くしてください');
+  }
+  return outPath;
 });
 
 handleTrustedIpc('get-memory-metrics', () => memoryMetricsService.snapshot());
@@ -452,13 +473,18 @@ handleTrustedIpc('delete-temp-file', (_, filePath) => {
   } catch (e) { return false; }
 });
 
-handleTrustedIpc('read-file-base64', (_, filePath) => {
+handleTrustedIpc('read-file-base64', async (_, filePath) => {
   try {
     if (!isSocialDeckTempFile(filePath)) throw new Error('Invalid temp file');
     const resolved = path.resolve(filePath);
     const ext = path.extname(resolved).slice(1).toLowerCase() || 'mp4';
     if (!VIDEO_EXTENSIONS.has(`.${ext}`)) throw new Error('Unsupported video format');
-    const data = fs.readFileSync(resolved);
+    // 同期読み込みはメインプロセスを止めてアプリ全体を固まらせるため非同期にする
+    const { size } = await fs.promises.stat(resolved);
+    if (size > MAX_TRIM_OUTPUT_BYTES * 2) {
+      throw new Error('動画が大きすぎます。トリム範囲を短くしてください');
+    }
+    const data = await fs.promises.readFile(resolved);
     const mime = ext === 'mp4' ? 'video/mp4' : `video/${ext}`;
     return `data:${mime};base64,${data.toString('base64')}`;
   } catch (e) {

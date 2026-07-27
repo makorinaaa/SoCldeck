@@ -3,7 +3,12 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const DEFAULT_TIMEOUT_MS = 2 * 60 * 1000;
+const REENCODE_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_ERROR_LENGTH = 8_000;
+// 画面録画は50Mbps級になることがあり、そのまま切り出すと数百MBになって
+// 投稿経路がメモリを使い果たす。収まらない見込みのときだけ再エンコードする。
+const MAX_TRIM_OUTPUT_BYTES = 60_000_000;
+const MAX_TRIM_BITRATE_BPS = 8_000_000;
 
 function resolveFfmpegPath({
   isPackaged = false,
@@ -24,7 +29,41 @@ function formatSeconds(value) {
   return String(Math.round(Number(value) * 1000) / 1000);
 }
 
-function buildTrimArguments({ inputPath, outputPath, startSeconds, durationSeconds }) {
+// コピーしたときの推定サイズが予算を超える場合だけ、予算に収まるビットレートを返す
+function planTrimEncoding({
+  sourceBytes,
+  sourceDurationSeconds,
+  trimDurationSeconds,
+  maxOutputBytes = MAX_TRIM_OUTPUT_BYTES,
+  maxBitrateBps = MAX_TRIM_BITRATE_BPS,
+} = {}) {
+  const bytes = Number(sourceBytes);
+  const sourceDuration = Number(sourceDurationSeconds);
+  const trimDuration = Number(trimDurationSeconds);
+  const measurable = [bytes, sourceDuration, trimDuration].every(Number.isFinite)
+    && bytes > 0 && sourceDuration > 0 && trimDuration > 0;
+  // 推定できないときは従来どおりコピーし、出力サイズの検査に委ねる
+  if (!measurable) return { videoBitrateBps: null, estimatedBytes: null };
+
+  const estimatedBytes = bytes * Math.min(1, trimDuration / sourceDuration);
+  if (estimatedBytes <= maxOutputBytes) return { videoBitrateBps: null, estimatedBytes };
+
+  const budgetBps = (maxOutputBytes * 8) / trimDuration;
+  return {
+    videoBitrateBps: Math.max(1, Math.floor(Math.min(maxBitrateBps, budgetBps))),
+    estimatedBytes,
+  };
+}
+
+function buildTrimArguments({
+  inputPath,
+  outputPath,
+  startSeconds,
+  durationSeconds,
+  videoBitrateBps = null,
+}) {
+  const bitrate = Number(videoBitrateBps);
+  const reencode = Number.isFinite(bitrate) && bitrate > 0;
   return [
     '-hide_banner',
     '-nostdin',
@@ -33,8 +72,18 @@ function buildTrimArguments({ inputPath, outputPath, startSeconds, durationSecon
     '-i', inputPath,
     '-t', formatSeconds(durationSeconds),
     '-map_metadata', '-1',
-    '-c', 'copy',
-    '-avoid_negative_ts', 'make_zero',
+    ...(reencode
+      ? [
+          '-c:v', 'libx264',
+          '-preset', 'veryfast',
+          '-crf', '23',
+          '-maxrate', String(bitrate),
+          '-bufsize', String(bitrate * 2),
+          '-pix_fmt', 'yuv420p',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+        ]
+      : ['-c', 'copy', '-avoid_negative_ts', 'make_zero']),
     '-movflags', '+faststart',
     '-y', outputPath,
   ];
@@ -52,10 +101,21 @@ function runFfmpegTrim({
   outputPath,
   startSeconds,
   durationSeconds,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  videoBitrateBps = null,
+  timeoutMs = null,
   spawnImpl = spawn,
 } = {}) {
-  const args = buildTrimArguments({ inputPath, outputPath, startSeconds, durationSeconds });
+  const args = buildTrimArguments({
+    inputPath,
+    outputPath,
+    startSeconds,
+    durationSeconds,
+    videoBitrateBps,
+  });
+  // 再エンコードはコピーより時間がかかるため待ち時間を広げる
+  const limitMs = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+    ? Number(timeoutMs)
+    : videoBitrateBps ? REENCODE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     let child;
     let settled = false;
@@ -89,7 +149,7 @@ function runFfmpegTrim({
     timer = setTimeout(() => {
       child.kill?.();
       finish(new Error('FFmpeg timed out'));
-    }, timeoutMs);
+    }, limitMs);
 
     child.stderr?.on?.('data', chunk => {
       stderr = (stderr + String(chunk)).slice(-MAX_ERROR_LENGTH);
@@ -104,7 +164,11 @@ function runFfmpegTrim({
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
+  MAX_TRIM_BITRATE_BPS,
+  MAX_TRIM_OUTPUT_BYTES,
+  REENCODE_TIMEOUT_MS,
   buildTrimArguments,
+  planTrimEncoding,
   resolveFfmpegPath,
   runFfmpegTrim,
 };

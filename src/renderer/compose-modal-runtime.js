@@ -30,7 +30,8 @@
     canvas.width = 112;
     canvas.height = 63;
     probe.muted = true;
-    probe.preload = 'auto';
+    // 大きな録画で全体をバッファしないよう、必要な範囲だけ取りに行かせる
+    probe.preload = 'metadata';
     const loaded = waitForMediaEvent(probe, 'loadedmetadata');
     probe.src = sourceUrl;
     probe.load?.();

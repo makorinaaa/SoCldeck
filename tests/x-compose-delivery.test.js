@@ -88,7 +88,8 @@ test('owns X video trimming and temporary file cleanup', async () => {
 
   assert.deepEqual(calls, [
     ['status', 'トリミング中…'],
-    ['trim', 'clip.mp4', 2, 12],
+    // 再エンコード要否を判断するため元動画の長さも渡す
+    ['trim', 'clip.mp4', 2, 12, 20],
     ['status', '読み込み中…'],
     ['read', 'trimmed.mp4'],
     ['delete', 'trimmed.mp4'],
@@ -128,7 +129,7 @@ test('preserves sub-second trim edges for X delivery', async () => {
     videoDuration: 20,
   });
 
-  assert.deepEqual(trimCalls, [['clip.mp4', 0.1, 19.9]]);
+  assert.deepEqual(trimCalls, [['clip.mp4', 0.1, 19.9, 20]]);
 });
 
 test('stops X delivery when the WebView composer is not ready', async () => {

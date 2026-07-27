@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { resolveFfmpegPath, runFfmpegTrim } = require('./ffmpeg-runtime');
+const { planTrimEncoding, resolveFfmpegPath, runFfmpegTrim } = require('./ffmpeg-runtime');
 
 const MAX_VIDEO_BYTES = 100_000_000;
 const MAX_VIDEO_SECONDS = 180;
@@ -40,12 +40,20 @@ function createBlueskyVideoFileService({
     const outputPath = shouldTrim ? makeTempPath() : inputPath;
     try {
       if (shouldTrim) {
+        // 高ビットレート素材はコピーだと100MB制限を超えるため再エンコードする
+        const { videoBitrateBps } = planTrimEncoding({
+          sourceBytes: await getSize(inputPath),
+          sourceDurationSeconds: durationSeconds,
+          trimDurationSeconds: trimDuration,
+          maxOutputBytes: MAX_VIDEO_BYTES,
+        });
         await runTrim({
           ffmpegPath: resolveFfmpeg({ isPackaged }),
           inputPath,
           outputPath,
           startSeconds,
           durationSeconds: trimDuration,
+          videoBitrateBps,
         });
       }
       const size = await getSize(outputPath);
