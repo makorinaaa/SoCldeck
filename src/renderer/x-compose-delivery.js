@@ -158,7 +158,7 @@
         let videoDataUrl;
         if (needsTrim) {
           setStatus('トリミング中…');
-          const trimmedPath = await trimVideo(videoPath, trimStart, trimEnd);
+          const trimmedPath = await trimVideo(videoPath, trimStart, trimEnd, videoDuration);
           setStatus('読み込み中…');
           videoDataUrl = await readFileBase64(trimmedPath);
           await Promise.resolve(deleteTempFile(trimmedPath)).catch(() => {});
