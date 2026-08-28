@@ -159,3 +159,21 @@ test('captures an anime schedule Column without network account state', () => {
     collapsed: false,
   }]);
 });
+
+test('keeps a saved Bluesky Column out of the active layout without a Bluesky session', () => {
+  const runtime = createRuntime();
+  const layout = [
+    { id: 'x-home', kind: 'wv', network: 'x' },
+    { id: 'b-home', kind: 'bsky', network: 'b' },
+    { id: 'anime-today', kind: 'schedule', network: 'anime' },
+  ];
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(runtime.filterLayoutForAccounts(layout, { bluesky: false }))),
+    [layout[0], layout[2]],
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(runtime.filterLayoutForAccounts(layout, { bluesky: true }))),
+    layout,
+  );
+});

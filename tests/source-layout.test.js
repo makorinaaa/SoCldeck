@@ -206,6 +206,14 @@ test('keeps Notification Center state and rendering behind its Runtime', () => {
   );
 });
 
+test('keeps Bluesky unread polling behind Notification Runtime', () => {
+  const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
+
+  assert.match(renderer, /notificationRuntime\.startPoll\(fetchBskyUnread\)/);
+  assert.doesNotMatch(renderer, /function fetchBskyUnreadCount\b/);
+  assert.doesNotMatch(renderer, /setInterval\([^)]*fetchBskyUnread/);
+});
+
 test('keeps desktop notification rules and settings behind their Runtime', () => {
   const renderer = fs.readFileSync(path.join(projectRoot, 'src', 'renderer.js'), 'utf8');
   const index = fs.readFileSync(path.join(projectRoot, 'src', 'index.html'), 'utf8');

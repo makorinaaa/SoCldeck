@@ -3,6 +3,8 @@ const { AtprotoError } = require('./bluesky-gateway');
 const DEFAULT_SERVICE = 'https://bsky.social/xrpc';
 const VIDEO_SERVICE = 'https://video.bsky.app/xrpc';
 const PDS_DID = 'did:web:bsky.social';
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_VIDEO_UPLOAD_TIMEOUT_MS = 5 * 60_000;
 
 async function parseResponse(response, endpoint) {
   const text = await response.text();
@@ -25,16 +27,40 @@ function createAtprotoClient({
   sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
   nowSeconds = () => Math.floor(Date.now() / 1000),
   maxVideoPolls = 180,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  videoUploadTimeoutMs = DEFAULT_VIDEO_UPLOAD_TIMEOUT_MS,
+  setTimeoutImpl = global.setTimeout,
+  clearTimeoutImpl = global.clearTimeout,
+  AbortControllerImpl = global.AbortController,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('AT Protocol client requires fetch');
   if (service !== DEFAULT_SERVICE) throw new Error('Unsupported AT Protocol service');
+  if (typeof AbortControllerImpl !== 'function') throw new Error('AT Protocol client requires AbortController');
+
+  async function request(url, options, endpoint, timeoutMs = requestTimeoutMs) {
+    const controller = new AbortControllerImpl();
+    const timer = setTimeoutImpl(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchImpl(url, { ...options, signal: controller.signal });
+      return await parseResponse(response, endpoint);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new AtprotoError(`${endpoint} request timed out`, {
+          status: 0,
+          code: 'RequestTimeout',
+        });
+      }
+      throw error;
+    } finally {
+      clearTimeoutImpl(timer);
+    }
+  }
 
   async function get(endpoint, params, token) {
     const query = new URLSearchParams(params).toString();
-    const response = await fetchImpl(`${service}/${endpoint}${query ? `?${query}` : ''}`, {
+    return request(`${service}/${endpoint}${query ? `?${query}` : ''}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    return parseResponse(response, endpoint);
+    }, endpoint);
   }
 
   async function post(endpoint, body, token) {
@@ -48,8 +74,7 @@ function createAtprotoClient({
       headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(body);
     }
-    const response = await fetchImpl(`${service}/${endpoint}`, options);
-    return parseResponse(response, endpoint);
+    return request(`${service}/${endpoint}`, options, endpoint);
   }
 
   function deleteRecord(token, did, collection, uri) {
@@ -62,11 +87,12 @@ function createAtprotoClient({
   }
 
   async function requestVideoJob(jobId) {
-    const response = await fetchImpl(
+    const body = await request(
       `${VIDEO_SERVICE}/app.bsky.video.getJobStatus?${new URLSearchParams({ jobId })}`,
       { headers: {} },
+      'app.bsky.video.getJobStatus',
     );
-    return normalizeJobStatus(await parseResponse(response, 'app.bsky.video.getJobStatus'));
+    return normalizeJobStatus(body);
   }
 
   async function waitForVideoBlob(initialStatus) {
@@ -159,15 +185,14 @@ function createAtprotoClient({
       record,
     }, jwt),
     async uploadBlob(jwt, mimeType, bytes) {
-      const response = await fetchImpl(`${service}/com.atproto.repo.uploadBlob`, {
+      return request(`${service}/com.atproto.repo.uploadBlob`, {
         method: 'POST',
         headers: {
           'Content-Type': mimeType,
           Authorization: `Bearer ${jwt}`,
         },
         body: bytes,
-      });
-      return parseResponse(response, 'com.atproto.repo.uploadBlob');
+      }, 'com.atproto.repo.uploadBlob');
     },
     async uploadVideo(jwt, did, name, bytes) {
       const auth = await get('com.atproto.server.getServiceAuth', {
@@ -176,21 +201,22 @@ function createAtprotoClient({
         exp: nowSeconds() + (30 * 60),
       }, jwt);
       const query = new URLSearchParams({ did, name }).toString();
-      const response = await fetchImpl(`${VIDEO_SERVICE}/app.bsky.video.uploadVideo?${query}`, {
+      const status = await request(`${VIDEO_SERVICE}/app.bsky.video.uploadVideo?${query}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'video/mp4',
           Authorization: `Bearer ${auth.token}`,
         },
         body: bytes,
-      });
-      const status = await parseResponse(response, 'app.bsky.video.uploadVideo');
+      }, 'app.bsky.video.uploadVideo', videoUploadTimeoutMs);
       return waitForVideoBlob(status);
     },
   };
 }
 
 module.exports = {
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_VIDEO_UPLOAD_TIMEOUT_MS,
   DEFAULT_SERVICE,
   createAtprotoClient,
 };

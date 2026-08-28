@@ -53,6 +53,7 @@ function createAppUpdater({
   let updateDownloaded = false;
   let manualCheck = false;
   let promptedVersion = null;
+  let checkInFlight = null;
 
   function send(status, details = {}) {
     const window = getWindow();
@@ -89,13 +90,21 @@ function createAppUpdater({
 
     if (manual) manualCheck = true;
     if (manual) send('checking');
-    try {
-      await autoUpdater.checkForUpdates();
-      return true;
-    } catch (error) {
-      reportError(error);
-      return false;
-    }
+    if (checkInFlight) return checkInFlight;
+
+    let checkTask;
+    checkTask = Promise.resolve()
+      .then(() => autoUpdater.checkForUpdates())
+      .then(() => true)
+      .catch(error => {
+        reportError(error);
+        return false;
+      })
+      .finally(() => {
+        if (checkInFlight === checkTask) checkInFlight = null;
+      });
+    checkInFlight = checkTask;
+    return checkTask;
   }
 
   function start() {

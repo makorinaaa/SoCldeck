@@ -63,6 +63,37 @@ test('normalizes AT Protocol errors for Gateway refresh decisions', async () => 
   );
 });
 
+test('aborts an AT Protocol request that exceeds its deadline', async () => {
+  let fireTimeout;
+  let clearedTimer = null;
+  const client = createAtprotoClient({
+    fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+      options.signal?.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }),
+    requestTimeoutMs: 30_000,
+    setTimeoutImpl: callback => {
+      fireTimeout = callback;
+      return 42;
+    },
+    clearTimeoutImpl: timer => { clearedTimer = timer; },
+  });
+
+  const pending = client.timeline('access-token', 20);
+  await Promise.resolve();
+  assert.equal(typeof fireTimeout, 'function');
+  fireTimeout();
+
+  await assert.rejects(
+    pending,
+    error => error.status === 0 && error.code === 'RequestTimeout' && /timed out/i.test(error.message),
+  );
+  assert.equal(clearedTimer, 42);
+});
+
 test('paginates Bluesky notifications with the supplied cursor', async () => {
   const calls = [];
   const client = createAtprotoClient({

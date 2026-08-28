@@ -7,6 +7,7 @@
   } = {}) {
     let unreadCount = 0;
     let pollTimer = null;
+    let polling = null;
 
     function setUnreadCount(count) {
       unreadCount = count || 0;
@@ -27,9 +28,13 @@
 
     function startPoll(fetchCount) {
       if (pollTimer) return;
-      const tick = async () => {
-        const count = await fetchCount();
-        setUnreadCount(count);
+      const tick = () => {
+        if (polling) return polling;
+        polling = Promise.resolve()
+          .then(fetchCount)
+          .then(setUnreadCount)
+          .finally(() => { polling = null; });
+        return polling;
       };
       tick().catch(() => {});
       pollTimer = setIntervalImpl(() => tick().catch(() => {}), intervalMs);

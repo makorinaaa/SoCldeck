@@ -203,10 +203,13 @@ function insertColumnRestoreError(col, error) {
 
 function restoreColLayout() {
   const layout = loadColLayout();
-  if (!layout.length) return false;
+  const activeLayout = columnRuntime.filterLayoutForAccounts(layout, {
+    bluesky: Boolean(state.b),
+  });
+  if (!activeLayout.length) return false;
 
-  columnLifecycle.restore(layout, {
-    persistNormalized: columnRuntime.isWidgetMode()
+  columnLifecycle.restore(activeLayout, {
+    persistNormalized: columnRuntime.isWidgetMode() || activeLayout.length !== layout.length
       ? undefined
       : normalized => columnRuntime.writeStoredLayout(normalized),
   });
@@ -471,7 +474,7 @@ async function initializeBlueskySession() {
   try {
     const result = await blueskySessionRuntime.initialize(state.b);
     state = { ...state, b: result.account };
-    if (['migrated', 'missing', 'mismatch'].includes(result.status)) saveState();
+    if (['migrated', 'recovered', 'missing', 'mismatch'].includes(result.status)) saveState();
     return result;
   } catch (error) {
     console.error('Bluesky Session Vault initialization failed:', error);
@@ -1356,14 +1359,6 @@ function goToNotifCol(plat, xIdx) {
   return targetCol;
 }
 
-// Bluesky未読通知数を取得してバッジ更新
-async function fetchBskyUnreadCount() {
-  if (!state.b) return;
-  try {
-    notificationRuntime.setUnreadCount(await fetchBskyUnread());
-  } catch {}
-}
-
 // ─── MEMORY MANAGEMENT ──────────────────────────
 
 function startMemoryCleaner() {
@@ -1735,10 +1730,6 @@ const hasStoredAccounts = (state.xs && state.xs.length > 0) || state.b;
 if (hasStoredAccounts) {
   Promise.all([accountSessionReady, webviewPreloadReady, xLoginStatesReady]).finally(() => {
     if ((state.xs && state.xs.length > 0) || state.b) enterApp();
-    if (state.b) {
-      setTimeout(() => fetchBskyUnreadCount(), 3000);
-      setInterval(() => fetchBskyUnreadCount(), 5 * 60 * 1000);
-    }
   });
 }
 
@@ -1768,4 +1759,3 @@ const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 if (IS_WIDGET) {
   widgetMode.init();
 }
-

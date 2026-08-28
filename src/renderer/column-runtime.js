@@ -28,6 +28,11 @@
     });
   }
 
+  function filterLayoutForAccounts(layout, { bluesky = false } = {}) {
+    if (!Array.isArray(layout) || bluesky) return Array.isArray(layout) ? layout : [];
+    return layout.filter(column => column?.kind !== 'bsky' && column?.network !== 'b');
+  }
+
   function createColumnRuntime({
     storage = global.localStorage,
     locationLike = global.location,
@@ -122,6 +127,7 @@
       isWidgetMode: () => isWidgetLocation(locationLike),
       normalizeXUrl,
       captureLayout,
+      filterLayoutForAccounts,
       readStoredLayout,
       writeStoredLayout,
       getLayoutForCurrentMode,
@@ -135,6 +141,7 @@
     COLUMN_LAYOUT_KEY,
     WIDGET_COLUMN_KEY,
     createColumnRuntime,
+    filterLayoutForAccounts,
     normalizeXUrl,
   };
 })(window);
