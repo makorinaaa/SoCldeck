@@ -65,6 +65,28 @@ test('restores only public identity for the matching Network Account', async () 
   assert.equal(JSON.stringify(result).includes('Jwt'), false);
 });
 
+test('recovers public identity from the Vault when Workspace State is unavailable', async () => {
+  const api = loadRuntime();
+  let cleared = 0;
+  const runtime = api.createBlueskySessionRuntime({
+    vault: {
+      store: async () => true,
+      load: async () => CREDENTIALS,
+      clear: async () => { cleared += 1; return true; },
+    },
+  });
+
+  const result = await runtime.initialize(null);
+
+  assert.equal(result.status, 'recovered');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.account)), {
+    handle: CREDENTIALS.handle,
+    did: CREDENTIALS.did,
+  });
+  assert.equal(cleared, 0);
+  assert.equal(JSON.stringify(result).includes('Jwt'), false);
+});
+
 test('fails closed when a Vault session belongs to another account', async () => {
   const api = loadRuntime();
   let cleared = 0;

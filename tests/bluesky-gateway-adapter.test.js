@@ -36,6 +36,33 @@ test('maps Bluesky reads to the host Gateway without credentials', async () => {
   assert.equal(JSON.stringify(calls).includes('Jwt'), false);
 });
 
+test('unwraps a successful host operation envelope', async () => {
+  const adapter = loadModule().createBlueskyGatewayAdapter({
+    invoke: async () => ({ ok: true, data: { feed: [{ post: { uri: 'at://post/1' } }] } }),
+  });
+
+  assert.deepEqual(
+    plain(await adapter.getTimeline({ limit: 40 })),
+    { feed: [{ post: { uri: 'at://post/1' } }] },
+  );
+});
+
+test('turns a failed host operation envelope into a renderer error', async () => {
+  const adapter = loadModule().createBlueskyGatewayAdapter({
+    invoke: async () => ({
+      ok: false,
+      error: { name: 'AtprotoError', message: 'Post not found', status: 400, code: 'NotFound' },
+    }),
+  });
+
+  await assert.rejects(adapter.getThread({ uri: 'at://post/1' }), error => (
+    error.message === 'Post not found'
+      && error.name === 'AtprotoError'
+      && error.status === 400
+      && error.code === 'NotFound'
+  ));
+});
+
 test('maps writes while leaving Network Account identity inside the host', async () => {
   const calls = [];
   const adapter = loadModule().createBlueskyGatewayAdapter({

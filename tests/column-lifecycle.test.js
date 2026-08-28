@@ -160,6 +160,75 @@ test('reports refresh progress and completion when its schedule fires', async ()
   assert.equal(refreshStates[1][1].lastUpdatedAt.toISOString(), '2026-07-12T03:04:05.000Z');
 });
 
+test('coalesces overlapping refreshes for the same Column', async () => {
+  let releaseRefresh;
+  let executeCount = 0;
+  const refreshGate = new Promise(resolve => { releaseRefresh = resolve; });
+  const lifecycle = loadFactory()({
+    createPlan: request => ({
+      kind: 'bsky',
+      refresh: { kind: 'bsky' },
+      config: { id: request.id, network: 'bsky', definitionId: request.definitionId },
+    }),
+    insertPlan: () => true,
+    executeRefresh: async () => {
+      executeCount += 1;
+      await refreshGate;
+      return { status: 'succeeded' };
+    },
+  });
+  lifecycle.create({ networkId: 'bsky', definitionId: 'timeline', id: 'timeline' });
+
+  const first = lifecycle.refreshNow('timeline');
+  const second = lifecycle.refreshNow('timeline');
+  await Promise.resolve();
+  const countWhilePending = executeCount;
+  releaseRefresh();
+  const results = await Promise.all([first, second]);
+
+  assert.equal(countWhilePending, 1);
+  assert.equal(executeCount, 1);
+  assert.deepEqual(results.map(result => result.status), ['succeeded', 'succeeded']);
+});
+
+test('ignores a refresh that completes after its Column was replaced', async () => {
+  const releases = new Map();
+  let generation = 0;
+  const lifecycle = loadFactory()({
+    createPlan: request => {
+      generation += 1;
+      return {
+        kind: 'bsky',
+        refresh: { kind: 'bsky', generation },
+        config: { id: request.id, network: 'bsky', definitionId: request.definitionId },
+      };
+    },
+    insertPlan: () => true,
+    removeElement: () => true,
+    executeRefresh: (_id, plan) => new Promise(resolve => {
+      releases.set(plan.generation, () => resolve({
+        status: 'succeeded',
+        detail: `generation-${plan.generation}`,
+      }));
+    }),
+  });
+
+  lifecycle.create({ networkId: 'bsky', definitionId: 'timeline', id: 'timeline' });
+  const oldRefresh = lifecycle.refreshNow('timeline');
+  await Promise.resolve();
+  lifecycle.remove('timeline');
+  lifecycle.create({ networkId: 'bsky', definitionId: 'timeline', id: 'timeline' });
+  const newRefresh = lifecycle.refreshNow('timeline');
+  await Promise.resolve();
+
+  releases.get(2)();
+  await newRefresh;
+  releases.get(1)();
+  await oldRefresh;
+
+  assert.equal(lifecycle.getRefreshState('timeline').detail, 'generation-2');
+});
+
 test('reports a deferred refresh without changing the last successful time', async () => {
   const states = [];
   const lifecycle = loadFactory()({

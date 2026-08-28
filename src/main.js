@@ -22,6 +22,7 @@ const { denyWebviewPermissions } = require('./main/webview-permission-policy');
 const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
 const { createAtprotoClient } = require('./main/bluesky-atproto-client');
 const { createBlueskyGateway } = require('./main/bluesky-gateway');
+const { executeBlueskyOperation } = require('./main/bluesky-operation-result');
 const { createBlueskyVideoFileService } = require('./main/bluesky-video-file');
 const { createMemoryMetricsService } = require('./main/memory-metrics');
 const {
@@ -315,7 +316,7 @@ handleTrustedIpc('store-bluesky-session', (_, credentials) => blueskyGateway.mig
 handleTrustedIpc('clear-bluesky-session', () => blueskyGateway.clear());
 handleTrustedIpc('bluesky-login', (_, credentials) => blueskyGateway.login(credentials));
 handleTrustedIpc('bluesky-operation', (_, operation, payload) =>
-  blueskyGateway.execute(operation, payload)
+  executeBlueskyOperation(blueskyGateway, operation, payload)
 );
 handleTrustedIpc('show-desktop-notification', (_, payload) =>
   desktopNotificationService.show(payload)

@@ -18,6 +18,7 @@
     const refreshPlans = new Map();
     const refreshIntervals = {};
     const refreshStates = new Map();
+    const refreshInFlight = new Map();
     const materializedColumnIds = new Set();
 
     function setRefreshState(id, status, details = {}) {
@@ -28,23 +29,45 @@
       return state;
     }
 
-    async function refreshNow(id, context = {}) {
+    function refreshNow(id, context = {}) {
+      const current = refreshInFlight.get(id);
+      if (current) return current;
+
       const plan = refreshPlans.get(id);
-      if (!plan) return { status: 'failed', error: new Error('Column refresh plan is unavailable') };
+      if (!plan) {
+        return Promise.resolve({
+          status: 'failed',
+          error: new Error('Column refresh plan is unavailable'),
+        });
+      }
 
       setRefreshState(id, 'refreshing', { error: null });
-      try {
-        const outcome = await executeRefresh(id, plan, context);
-        const status = outcome?.status || 'succeeded';
-        const details = status === 'succeeded'
-          ? { lastUpdatedAt: now(), detail: outcome?.detail || null }
-          : { detail: outcome?.detail || null };
-        setRefreshState(id, status, details);
-        return { ...outcome, status };
-      } catch (error) {
-        setRefreshState(id, 'failed', { error });
-        return { status: 'failed', error };
-      }
+      let refreshTask;
+      refreshTask = Promise.resolve()
+        .then(() => executeRefresh(id, plan, context))
+        .then(outcome => {
+          if (refreshPlans.get(id) !== plan) {
+            return { status: 'deferred', detail: 'column-replaced' };
+          }
+          const status = outcome?.status || 'succeeded';
+          const details = status === 'succeeded'
+            ? { lastUpdatedAt: now(), detail: outcome?.detail || null }
+            : { detail: outcome?.detail || null };
+          setRefreshState(id, status, details);
+          return { ...outcome, status };
+        })
+        .catch(error => {
+          if (refreshPlans.get(id) !== plan) {
+            return { status: 'deferred', detail: 'column-replaced' };
+          }
+          setRefreshState(id, 'failed', { error });
+          return { status: 'failed', error };
+        })
+        .finally(() => {
+          if (refreshInFlight.get(id) === refreshTask) refreshInFlight.delete(id);
+        });
+      refreshInFlight.set(id, refreshTask);
+      return refreshTask;
     }
 
     async function refreshAll(context = {}) {
@@ -67,6 +90,7 @@
       delete refreshIntervals[id];
       refreshPlans.delete(id);
       refreshStates.delete(id);
+      refreshInFlight.delete(id);
       materializedColumnIds.delete(id);
     }
 
@@ -152,6 +176,7 @@
       const ids = new Set([
         ...materializedColumnIds,
         ...refreshPlans.keys(),
+        ...refreshInFlight.keys(),
         ...Object.keys(refreshIntervals),
         ...refreshStates.keys(),
         ...(removeElements ? listElementIds() : []),

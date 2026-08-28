@@ -24,8 +24,16 @@
 
     async function initialize(workspaceAccount) {
       if (!workspaceAccount) {
-        await vault.clear();
-        return { status: 'empty', account: null, workspaceAccount: null };
+        const storedCredentials = await vault.load();
+        if (!storedCredentials) {
+          return { status: 'empty', account: null, workspaceAccount: null };
+        }
+        const publicAccount = toWorkspaceAccount(storedCredentials);
+        return {
+          status: 'recovered',
+          account: publicAccount,
+          workspaceAccount: publicAccount,
+        };
       }
 
       const legacyCredentials = credentialsFrom(workspaceAccount);

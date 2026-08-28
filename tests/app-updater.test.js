@@ -112,3 +112,25 @@ test('shows errors for manual checks but keeps automatic failures quiet', async 
   assert.equal(sent[0].value.status, 'checking');
   assert.equal(sent[1].value.status, 'error');
 });
+
+test('coalesces update checks while the previous check is pending', async () => {
+  const { updater, controller } = setup();
+  let releaseCheck;
+  let checkCount = 0;
+  const checkGate = new Promise(resolve => { releaseCheck = resolve; });
+  updater.checkForUpdates = async () => {
+    checkCount += 1;
+    return checkGate;
+  };
+
+  const first = controller.check();
+  const second = controller.check();
+  await Promise.resolve();
+  const countWhilePending = checkCount;
+  releaseCheck();
+  const results = await Promise.all([first, second]);
+
+  assert.equal(countWhilePending, 1);
+  assert.equal(checkCount, 1);
+  assert.deepEqual(results, [true, true]);
+});
