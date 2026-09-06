@@ -38,11 +38,11 @@ test('normalizes and persists appearance settings', () => {
   });
   const state = stateStore.load();
 
-  assert.deepEqual({ ...state.appearance }, { theme: 'dark', accent: '#4e9af0' });
-  state.appearance = { theme: 'light', accent: '#e05c7a' };
+  assert.deepEqual({ ...state.appearance }, { theme: 'dark', accent: '#4e9af0', density: 'standard' });
+  state.appearance = { theme: 'light', accent: '#e05c7a', density: 'standard' };
   stateStore.save(state);
 
-  assert.deepEqual(readSaved().appearance, { theme: 'light', accent: '#e05c7a' });
+  assert.deepEqual(readSaved().appearance, { theme: 'light', accent: '#e05c7a', density: 'standard' });
 });
 
 test('persists cross-post preferences across app restarts', () => {

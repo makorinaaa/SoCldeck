@@ -1,5 +1,5 @@
 (function (global) {
-  const DEFAULT_APPEARANCE = Object.freeze({ theme: 'dark', accent: '#4e9af0' });
+  const DEFAULT_APPEARANCE = Object.freeze({ theme: 'dark', accent: '#4e9af0', density: 'standard' });
   const ACCENT_PRESETS = Object.freeze([
     '#4e9af0', '#3dc98a', '#e05c7a', '#9a5cf0', '#f08c46', '#26a7a1',
   ]);
@@ -9,7 +9,8 @@
     const accent = /^#[0-9a-f]{6}$/i.test(String(value?.accent || ''))
       ? String(value.accent).toLowerCase()
       : DEFAULT_APPEARANCE.accent;
-    return { theme, accent };
+    const density = ['compact', 'standard', 'comfortable'].includes(value?.density) ? value.density : 'standard';
+    return { theme, accent, density };
   }
 
   function accentDim(hex) {
@@ -30,6 +31,7 @@
     function applyRoot(value) {
       const appearance = normalizeAppearance(value);
       root.dataset.theme = appearance.theme;
+      root.dataset.density = appearance.density;
       root.style.setProperty('--accent', appearance.accent);
       root.style.setProperty('--accent-dim', accentDim(appearance.accent));
       return appearance;

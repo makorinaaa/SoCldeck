@@ -14,6 +14,34 @@ function createRuntime() {
   return context.window.SocialDeckCrossPostRuntime.createCrossPostRuntime();
 }
 
+test('restored successes are never resent and unknown outcomes need confirmation', async () => {
+  const runtime = createRuntime();
+  const calls = [];
+  runtime.restore([{ id: 'x', status: 'succeeded' }, { id: 'b', status: 'sending' }]);
+  const entries = ['x', 'b'].map(id => ({ id, request: { text: 'hello' }, deliver: async () => calls.push(id) }));
+  const unknown = await runtime.submit(entries);
+  assert.equal(unknown.status, 'unknown');
+  assert.deepEqual(calls, []);
+  assert.equal((await runtime.submit(entries, { retryUnknown: true })).status, 'succeeded');
+  assert.deepEqual(calls, ['b']);
+});
+
+test('reports each completed target before the other target finishes', async () => {
+  const runtime = createRuntime();
+  let finishBluesky;
+  const pending = new Promise(resolve => { finishBluesky = resolve; });
+  const progress = [];
+  const submission = runtime.submit([
+    { id: 'x', deliver: async () => {} },
+    { id: 'b', deliver: () => pending },
+  ], { onProgress: () => progress.push(runtime.getSnapshot().targets.map(target => target.status).join(',')) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(progress, ['succeeded,sending']);
+  finishBluesky();
+  await submission;
+  assert.equal(progress.at(-1), 'succeeded,succeeded');
+});
+
 test('posts to both targets', async () => {
   const calls = [];
   const runtime = createRuntime();

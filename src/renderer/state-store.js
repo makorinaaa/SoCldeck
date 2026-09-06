@@ -14,6 +14,7 @@
       appearance: {
         theme: 'dark',
         accent: '#4e9af0',
+        density: 'standard',
       },
     };
   }
@@ -23,7 +24,8 @@
     const accent = /^#[0-9a-f]{6}$/i.test(String(value?.accent || ''))
       ? String(value.accent).toLowerCase()
       : '#4e9af0';
-    return { theme, accent };
+    const density = ['compact', 'standard', 'comfortable'].includes(value?.density) ? value.density : 'standard';
+    return { theme, accent, density };
   }
 
   function withoutCredentials(account) {

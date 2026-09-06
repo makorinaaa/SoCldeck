@@ -18,6 +18,119 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+test('autosaves text and reply across close and restart, and explicitly discards', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [], b: { did: 'did:plc:me' } }),
+    view: { connect: value => { handlers = value; } },
+  });
+  const first = make();
+  const reply = { uri: 'at://parent', cid: 'cid', handle: 'alice.test' };
+  first.open('b', { reply });
+  handlers.textChanged('b', '再起動しても残る文章');
+  first.close('b');
+  assert.equal(first.open('b').text, '再起動しても残る文章');
+  const second = make();
+  const restored = second.open('b');
+  assert.equal(restored.text, '再起動しても残る文章');
+  assert.deepEqual(plain(restored.reply), reply);
+  second.close('b', { discard: true });
+  assert.equal(make().open('b').text, '');
+});
+
+test('switches X drafts without overwriting either account text or attachments', () => {
+  let handlers;
+  const runtime = loadRuntime().createComposeModalRuntime({
+    getAccounts: () => ({ x: [{ partition: 'first' }, { partition: 'second' }] }),
+    mediaDrafts: { x: createMutableImageDraft() },
+    view: { connect: value => { handlers = value; } },
+  });
+  runtime.open('x');
+  handlers.textChanged('x', 'first draft');
+  handlers.filesAdded('x', [{ name: 'first.png' }]);
+  handlers.selectXAccount(1);
+  assert.equal(runtime.getSnapshot('x').text, '');
+  handlers.textChanged('x', 'second draft');
+  handlers.selectXAccount(0);
+  assert.equal(runtime.getSnapshot('x').text, 'first draft');
+  assert.equal(runtime.getSnapshot('x').media.images[0].file.name, 'first.png');
+  handlers.selectXAccount(1);
+  assert.equal(runtime.getSnapshot('x').text, 'second draft');
+  assert.equal(runtime.getSnapshot('x').media.images.length, 0);
+});
+
+test('persists retrying targets as unknown while retaining confirmed successes', () => {
+  const values = new Map();
+  let handlers;
+  const targets = [{ id: 'x', status: 'succeeded' }, { id: 'b', status: 'failed' }];
+  const runtime = loadRuntime().createComposeModalRuntime({
+    storage: { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) },
+    getAccounts: () => ({ x: [{ partition: 'first' }], b: { did: 'did:plc:me' } }),
+    getPreferences: () => ({ crossPostFromX: true }),
+    coordinator: { getStatus: () => ({ crossPost: { targets } }) },
+    view: { connect: value => { handlers = value; } },
+  });
+  runtime.open('x');
+  handlers.textChanged('x', 'hello');
+  runtime.setBusy('x', true);
+  runtime.setBusy('x', false, 'retry', { locked: true });
+  runtime.setBusy('x', true);
+  const saved = JSON.parse(values.get('socialdeck_draft_v1_x_first'));
+  assert.deepEqual(saved.results.map(target => target.status), ['succeeded', 'unknown']);
+  assert.deepEqual(saved.deliveryAccounts, { x: 'first', b: 'did:plc:me' });
+});
+
+test('storage failures leave composing usable and report failed draft persistence', () => {
+  let handlers;
+  const runtime = loadRuntime().createComposeModalRuntime({
+    storage: { getItem() { throw new Error('denied'); }, setItem() { throw new Error('quota'); } },
+    getAccounts: () => ({ x: [{ username: '@first' }] }),
+    view: { connect: value => { handlers = value; } },
+  });
+  runtime.open('x');
+  handlers.textChanged('x', 'unsaved');
+  assert.equal(runtime.getSnapshot('x').draftError, true);
+  assert.equal(runtime.getSnapshot('x').text, 'unsaved');
+});
+
+test('restored cross-post keeps its original account after reorder and blocks another Bluesky identity', () => {
+  let bAccount = { did: 'original-b' };
+  const stored = JSON.stringify({ text: 'retry', crossPost: true, crossPostXAccountIndex: 0,
+    deliveryAccounts: { x: 'original-x', b: 'original-b' },
+    results: [{ id: 'x', status: 'succeeded' }, { id: 'b', status: 'failed' }] });
+  const runtime = loadRuntime().createComposeModalRuntime({
+    storage: { getItem: () => stored, setItem() {} },
+    getAccounts: () => ({ x: [{ partition: 'another-x' }, { partition: 'original-x' }], b: bAccount }),
+    coordinator: { restoreCrossPost() {} },
+  });
+  const snapshot = runtime.open('b');
+  assert.equal(snapshot.crossPostXAccountIndex, 1);
+  assert.equal(snapshot.canSubmit, true);
+  assert.equal(runtime.open('b', { reply: { uri: 'at://another', cid: 'cid' } }).status, 'blocked');
+  assert.equal(runtime.getSnapshot('b').reply, null);
+  bAccount = { did: 'different-b' };
+  assert.equal(runtime.getSnapshot('b').accountMismatch, true);
+  assert.equal(runtime.getSnapshot('b').canSubmit, false);
+});
+
+test('missing attachments stay blocked across account switches until reattached', () => {
+  let handlers;
+  const runtime = loadRuntime().createComposeModalRuntime({
+    storage: { getItem: key => key.endsWith('first') ? JSON.stringify({ text: 'with image', hasMedia: true }) : null, setItem() {} },
+    getAccounts: () => ({ x: [{ partition: 'first' }, { partition: 'second' }] }),
+    mediaDrafts: { x: createMutableImageDraft() },
+    view: { connect: value => { handlers = value; } },
+  });
+  assert.equal(runtime.open('x').canSubmit, false);
+  handlers.selectXAccount(1);
+  handlers.selectXAccount(0);
+  assert.equal(runtime.getSnapshot('x').canSubmit, false);
+  handlers.filesAdded('x', [{ name: 'reattached.png' }]);
+  assert.equal(runtime.getSnapshot('x').canSubmit, true);
+});
+
 function createMediaDraft(snapshot = { images: [], video: null }) {
   return {
     clear() {},
@@ -594,7 +707,7 @@ test('opens a Bluesky reply without offering cross-post delivery', () => {
   assert.deepEqual(plain(snapshot.reply), reply);
 });
 
-test('refuses to close while sending and clears Compose Runtime State afterward', () => {
+test('refuses to close while sending and clears Compose Runtime State on explicit discard', () => {
   const events = [];
   let sending = true;
   const bMedia = createMediaDraft();
@@ -621,7 +734,7 @@ test('refuses to close while sending and clears Compose Runtime State afterward'
   assert.equal(events.includes('clear-media'), false);
 
   sending = false;
-  const outcome = runtime.close('b');
+  const outcome = runtime.close('b', { discard: true });
 
   assert.equal(outcome.status, 'closed');
   assert.equal(outcome.snapshot.open, false);
@@ -685,7 +798,7 @@ test('owns text, account selection, and cross-post preference changes from the v
   handlers.crossPostChanged('x', false);
   const snapshot = runtime.getSnapshot('x');
 
-  assert.equal(snapshot.text, 'hello SocialDeck');
+  assert.equal(snapshot.text, '');
   assert.equal(snapshot.selectedXAccountIndex, 1);
   assert.equal(snapshot.selectedAccount.username, '@second');
   assert.equal(snapshot.crossPost, false);

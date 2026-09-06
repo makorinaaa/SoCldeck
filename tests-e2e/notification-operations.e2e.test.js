@@ -464,6 +464,7 @@ test('desktop notification rules persist through the settings modal', async t =>
   const { page } = await launchApp(t, BLUESKY_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
+  await page.locator('[data-action="open-settings"]').click();
   await page.locator('#desktop-notif-settings-btn').click();
   await page.locator('#desktopNotifSettingsMod.on').waitFor();
   await page.locator('#desktop-notif-enabled').check();
@@ -513,6 +514,7 @@ test('memory management reports process usage and performs a manual cleanup', as
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
+  await page.locator('[data-action="open-settings"]').click();
   await page.locator('[data-action="open-memory-settings"]').click();
   await page.locator('#mem-settings-ov.on').waitFor();
   await page.locator('#memory-metrics strong').waitFor();
@@ -559,7 +561,9 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   await page.locator('#xPostMod [data-compose-action="toggle-preview"]').click();
   assert.match(await page.locator('#x-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
   await page.evaluate(() => closeOv('xPostMod'));
-  assert.equal(await page.locator('#x-img-preview').textContent(), '');
+  await page.evaluate(() => openXPost());
+  assert.equal(await page.locator('#x-alt-0').inputValue(), 'X image description');
+  await page.evaluate(() => closeOv('xPostMod'));
 
   await page.evaluate(() => openComp());
   await page.locator('#b-img-file').setInputFiles({
@@ -574,6 +578,47 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   await page.locator('#sndb').click();
   await page.locator('#compMod').waitFor({ state: 'hidden' });
   assert.equal(await page.locator('#b-img-preview').textContent(), '');
+});
+
+test('polish journey restores drafts, previews density and opens column actions', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#sb-post-b').click();
+  await page.locator('#cta').fill('自動保存の確認です。');
+  await page.locator('#compMod [data-compose-action="close"]').click();
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#sb-post-b').click();
+  assert.equal(await page.locator('#cta').inputValue(), '自動保存の確認です。');
+  await page.locator('#compMod [data-compose-action="close"]').click();
+
+  await page.locator('[data-action="open-settings"]').click();
+  await page.locator('#settingsMod [data-action="open-appearance-settings"]').click();
+  await page.locator('[data-density="comfortable"]').click();
+  assert.equal(await page.locator('html').getAttribute('data-density'), 'comfortable');
+  await page.locator('[data-action="save-appearance"]').click();
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_v4')).appearance.density), 'comfortable');
+  await page.locator('#desktop-notif-settings-btn').click();
+  assert.equal(await page.locator('.desktop-notif-label').first().evaluate(element => getComputedStyle(element).fontSize), '15px');
+  await page.locator('[data-desktop-notification-action="close"]').click();
+  if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'settings.png') });
+  await page.locator('#settingsMod [data-action="close-overlay"]').click();
+
+  const column = await addXHomeColumn(page);
+  assert.equal(await column.locator('[data-shell-action="settings"]').isVisible(), false);
+  await column.locator('[data-shell-action="more"]').click();
+  assert.equal(await column.locator('[data-shell-action="settings"]').isVisible(), true);
+  if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'column-menu.png') });
+  await column.locator('[data-shell-action="settings"]').click();
+  await page.locator('#col-settings-ov.on').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('#sb-post-b').click();
+  if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'compose.png') });
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('#compMod [data-compose-action="discard"]').click();
+  await page.reload();
+  await page.locator('#sb-post-b').click();
+  assert.equal(await page.locator('#cta').inputValue(), '');
 });
 
 test('video Compose exposes precise trim controls and MP4 cross-posting', async t => {

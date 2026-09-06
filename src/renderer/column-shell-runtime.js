@@ -14,7 +14,7 @@
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>',
     },
     settings: {
-      title: '自動更新設定',
+      title: 'カラム設定',
       icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>',
     },
     remove: {
@@ -78,6 +78,18 @@
       const record = columns.get(id);
       if (!record) return;
       const type = target.dataset.shellAction;
+      if (type === 'more') {
+        const isOpen = record.menu.hidden;
+        columns.forEach(column => {
+          column.menu.hidden = true;
+          column.moreButton.setAttribute('aria-expanded', 'false');
+        });
+        record.menu.hidden = !isOpen;
+        record.moreButton.setAttribute('aria-expanded', String(isOpen));
+        return;
+      }
+      record.menu.hidden = true;
+      record.moreButton.setAttribute('aria-expanded', 'false');
       if (type === 'collapse') {
         setCollapsed(id, !record.collapsed, { notify: true });
         return;
@@ -102,6 +114,17 @@
     };
     container.addEventListener?.('click', clickListener);
     container.addEventListener?.('dblclick', dblclickListener);
+    const dismissMenus = event => {
+      if (event.type !== 'keydown' && event.target?.closest?.('.column-menu, [data-shell-action="more"]')) return;
+      if (event.type === 'keydown' && event.key !== 'Escape') return;
+      columns.forEach(record => {
+        if (!record.menu.hidden && event.type === 'keydown') record.moreButton.focus?.();
+        record.menu.hidden = true;
+        record.moreButton.setAttribute('aria-expanded', 'false');
+      });
+    };
+    documentRef.addEventListener?.('click', dismissMenus);
+    documentRef.addEventListener?.('keydown', dismissMenus);
 
     function mount(config) {
       if (!config?.id) throw new Error('Column shell id is required');
@@ -162,21 +185,43 @@
         id: `refresh-state-${config.id}`,
       }));
       const actionButtons = new Map();
+      const moreButton = append(actions, createElement(documentRef, 'button', { className: 'cbtn', text: '⋯' }));
+      moreButton.type = 'button';
+      moreButton.title = 'その他のカラム操作';
+      moreButton.dataset.shellAction = 'more';
+      moreButton.dataset.columnId = config.id;
+      moreButton.setAttribute('aria-label', 'その他のカラム操作');
+      moreButton.setAttribute('aria-expanded', 'false');
+      moreButton.setAttribute('aria-controls', `column-menu-${config.id}`);
+      const menu = append(head, createElement(documentRef, 'div', { className: 'column-menu', id: `column-menu-${config.id}` }));
+      menu.hidden = true;
       (config.actions || []).map(normalizeAction).forEach(action => {
         const spec = ACTION_SPECS[action.type];
         if (!spec) throw new Error(`Unsupported Column shell action: ${action.type}`);
-        const button = append(actions, createElement(documentRef, 'button', {
+        const secondary = ['settings', 'remove'].includes(action.type);
+        const button = append(secondary ? menu : actions, createElement(documentRef, 'button', {
           className: `cbtn ${spec.className || ''}`.trim(),
           id: action.type === 'refresh' ? `rfr-${config.id}` : '',
         }));
         button.type = 'button';
         button.title = spec.title;
+        button.setAttribute('aria-label', spec.title);
         button.dataset.shellAction = action.type;
         button.dataset.columnId = config.id;
         if (action.type === 'settings') button.dataset.columnType = action.columnType || config.kind || '';
         button.innerHTML = spec.icon;
+        if (secondary) append(button, createElement(documentRef, 'span', { text: spec.title }));
         actionButtons.set(action.type, button);
       });
+      actions.appendChild(moreButton);
+      moreButton.hidden = !menu.children.length;
+      const refreshError = append(root, createElement(documentRef, 'div', { className: 'column-refresh-error' }));
+      refreshError.hidden = true;
+      refreshError.setAttribute('role', 'status');
+      const refreshErrorText = append(refreshError, createElement(documentRef, 'span'));
+      const retry = append(refreshError, createElement(documentRef, 'button', { text: '再試行' }));
+      retry.dataset.shellAction = 'refresh';
+      retry.dataset.columnId = config.id;
 
       const hosts = {};
       (config.hosts || []).forEach(hostConfig => {
@@ -230,6 +275,10 @@
         refreshState,
         info,
         actionButtons,
+        menu,
+        moreButton,
+        refreshError,
+        refreshErrorText,
         resizeHandle,
         resizeMouseDown,
         get resizeMove() { return resizeMove; },
@@ -260,8 +309,12 @@
     }
 
     function setRefreshState(id, state = {}) {
-      const element = columns.get(id)?.refreshState;
+      const record = columns.get(id);
+      const element = record?.refreshState;
       if (!element) return false;
+      record.refreshError.hidden = state.status !== 'failed';
+      record.refreshErrorText.textContent = state.status === 'failed'
+        ? `更新できませんでした: ${state.error?.message || '接続を確認して再試行してください'}` : '';
       element.className = `col-refresh-state ${state.status || ''}`.trim();
       if (state.status === 'succeeded' && state.lastUpdatedAt) {
         const updatedAt = new Date(state.lastUpdatedAt);
@@ -361,6 +414,8 @@
       [...columns.keys()].forEach(remove);
       container.removeEventListener?.('click', clickListener);
       container.removeEventListener?.('dblclick', dblclickListener);
+      documentRef.removeEventListener?.('click', dismissMenus);
+      documentRef.removeEventListener?.('keydown', dismissMenus);
     }
 
     return {

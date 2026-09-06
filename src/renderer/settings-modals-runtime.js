@@ -234,6 +234,10 @@
 
     // ── 外観設定 ──
     function syncAppearanceSettings(current) {
+      documentRef.querySelectorAll('.appearance-density').forEach(button => {
+        button.classList.toggle('primary', button.dataset.density === current.density);
+        button.setAttribute('aria-pressed', String(button.dataset.density === current.density));
+      });
       documentRef.querySelectorAll('.appearance-theme').forEach(button => {
         button.classList.toggle('primary', button.dataset.theme === current.theme);
       });
@@ -262,7 +266,7 @@
     function saveAppearance() {
       syncAppearanceSettings(appearance.commit());
       documentRef.getElementById('appearanceMod')?.classList.remove('on');
-      toast('テーマ設定を保存しました');
+      toast('外観設定を保存しました');
     }
 
     return {
