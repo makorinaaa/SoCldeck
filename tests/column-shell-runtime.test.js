@@ -35,6 +35,7 @@ class FakeClassList {
 }
 
 class FakeElement {
+  setAttribute(name, value) { this[name] = String(value); }
   constructor(tagName) {
     this.tagName = tagName.toUpperCase();
     this.children = [];
@@ -51,6 +52,7 @@ class FakeElement {
   }
 
   appendChild(child) {
+    if (child.parentNode) child.remove();
     child.parentNode = this;
     this.children.push(child);
     return child;
@@ -163,7 +165,7 @@ test('mounts a capability-driven Column shell before the add button', () => {
   assert.equal(findByClass(result.root, 'cbadge').style.display, 'none');
   assert.deepEqual(
     descendants(result.root).filter(element => element.tagName === 'BUTTON').map(button => button.dataset.shellAction),
-    ['refresh', 'collapse', 'settings', 'remove'],
+    ['refresh', 'collapse', 'more', 'settings', 'remove', 'refresh'],
   );
 });
 

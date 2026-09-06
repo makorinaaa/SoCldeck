@@ -237,7 +237,7 @@ test('synchronizes appearance controls through the Appearance Runtime', () => {
   runtime.saveAppearance();
   assert.equal(calls.appearance.at(-1), 'commit');
   assert.equal(modal.classList.contains('on'), false);
-  assert.equal(calls.toasts.at(-1), 'テーマ設定を保存しました');
+  assert.equal(calls.toasts.at(-1), '外観設定を保存しました');
 
   runtime.openAppearanceSettings();
   runtime.cancelAppearance();

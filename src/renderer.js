@@ -386,6 +386,7 @@ const composeModalView = window.SocialDeckComposeModalRuntime.createComposeModal
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
 });
 composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRuntime({
+  storage: localStorage,
   getAccounts: () => ({ x: state.xs || [], b: state.b }),
   getPreferences: () => state.composePreferences || {},
   mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
@@ -393,6 +394,7 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
   view: composeModalView,
   intents: {
     submit: networkId => composeSubmission.submit(networkId),
+    confirm: message => confirm(message),
     closed: networkId => {
       if (networkId === 'b') replyTarget = null;
     },
@@ -408,7 +410,7 @@ const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmis
   modalRuntime: {
     getSnapshot: networkId => composeModalRuntime.getSnapshot(networkId),
     setBusy: (networkId, busy, label, options) => composeModalRuntime.setBusy(networkId, busy, label, options),
-    close: networkId => composeModalRuntime.close(networkId),
+    close: networkId => composeModalRuntime.close(networkId, { discard: true }),
   },
   coordinator: composeCoordinator,
   createRequest: composeRequests.createComposeRequest,
@@ -417,7 +419,7 @@ const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmis
   mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
   executeXDelivery: (delivery, context) => executeXComposeDelivery(delivery, context),
   getBlueskyAccount: () => state.b,
-  getReplyTarget: () => replyTarget,
+  getReplyTarget: () => composeModalRuntime.getSnapshot('b').reply,
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
   formatSeconds: fmtSec,
   ui: {
@@ -1499,7 +1501,13 @@ function createUiActionHandlers() {
     'open-b-post': () => openComp(),
     'open-ng-settings': () => settingsModals.openNgSettings(),
     'open-memory-settings': () => settingsModals.openMemorySettings(),
+    'open-settings': () => document.getElementById('settingsMod').classList.add('on'),
+    'settings-accounts': () => {
+      document.getElementById('settingsMod').classList.remove('on');
+      openLoginScreen();
+    },
     'open-appearance-settings': () => settingsModals.openAppearanceSettings(),
+    'preview-appearance-density': ({ dataset }) => settingsModals.previewAppearance({ density: dataset.density }),
     'preview-appearance-theme': ({ dataset }) => settingsModals.previewAppearance({ theme: dataset.theme }),
     'preview-appearance-accent': ({ dataset }) => settingsModals.previewAppearance({ accent: dataset.accent }),
     'preview-appearance-custom': ({ value }) => settingsModals.previewAppearance({ accent: value }),

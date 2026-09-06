@@ -529,6 +529,44 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 /* ── TOAST ── */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(52px);background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--text1);transition:transform .25s cubic-bezier(.34,1.56,.64,1);z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4)}
 .toast.sh{transform:translateX(-50%) translateY(0)}
+
+/* Display density applies to the app's own UI; embedded X retains its own layout. */
+:root{--ui-font:13px;--post-pad:12px;--post-line:1.65;--control-size:30px}
+:root[data-density="compact"]{--ui-font:12px;--post-pad:8px;--post-line:1.5;--control-size:26px}
+:root[data-density="comfortable"]{--ui-font:15px;--post-pad:16px;--post-line:1.8;--control-size:36px}
+.feed{font-size:var(--ui-font)}
+.feed .post{padding:var(--post-pad)}
+.feed .p-body{font-size:1em;line-height:var(--post-line)}
+.feed .p-name{font-size:.95em}
+.feed .p-handle,.feed .p-time{font-size:.85em}
+.feed .pa{min-height:var(--control-size)}
+.col-head{position:relative;padding:calc(var(--post-pad) * .75) 10px}
+.col-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbtn{min-width:var(--control-size);min-height:var(--control-size)}
+.column-menu{position:absolute;right:8px;top:calc(100% - 2px);z-index:30;min-width:160px;padding:6px;background:var(--bg2);border:1px solid var(--border2);border-radius:9px;box-shadow:0 8px 24px #0004}
+.column-menu[hidden],.column-refresh-error[hidden]{display:none}
+.column-menu .cbtn{display:flex;align-items:center;gap:9px;width:100%;padding:8px;font-size:var(--ui-font);height:auto;justify-content:flex-start}
+.column-menu [data-shell-action="remove"]{color:var(--red)}
+.column-refresh-error{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border);font-size:12px;color:var(--red)}
+.column-refresh-error span{flex:1;overflow-wrap:anywhere}
+.column-refresh-error button{flex-shrink:0;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;color:var(--text1);padding:6px;cursor:pointer}
+.modal,.cmodal{max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow-y:auto}
+.modal{font-size:var(--ui-font);line-height:var(--post-line)}
+.modal .ptb,.modal .btn-cancel,.modal .chip-btn{font-size:var(--ui-font);min-height:var(--control-size)}
+.modal .desktop-notif-label,.modal .desktop-notif-checks label,.modal .desktop-notif-field,.modal .mem-metrics,.modal .mem-runtime,.modal .modal-label,.modal .ng-row,.modal .ng-input,.modal .ng-section-title{font-size:var(--ui-font);line-height:var(--post-line)}
+.modal .desktop-notif-checks{gap:calc(var(--post-pad) * .75)}
+.modal .desktop-notif-field,.modal .ng-input{min-height:var(--control-size);padding:calc(var(--post-pad) * .6)}
+#appearanceMod .modal>div[style],#appearanceMod .modal>p{font-size:var(--ui-font)!important}
+.settings-list{display:grid;gap:8px;margin:18px 0}
+.settings-link{display:flex;flex-direction:column;gap:3px;text-align:left;padding:var(--post-pad);background:var(--bg2);border:1px solid var(--border);border-radius:9px;color:var(--text1);font:inherit;cursor:pointer}
+.settings-link:hover{border-color:var(--accent);background:var(--bg3)}
+.settings-link small{color:var(--text2);font-size:.9em}
+.compose-draft-tools{display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap}
+.compose-draft-tools small{flex:1;min-width:180px;color:var(--text2);font-size:11px}
+.compose-draft-tools button{background:transparent;border:1px solid var(--border);border-radius:6px;padding:6px 9px;color:var(--text2);font:inherit;cursor:pointer}
+.compose-status{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;background:var(--bg2);border-radius:7px;padding:10px;margin-top:10px}
+button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 </style>
 </head>
 <body>
@@ -677,10 +715,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
       <div id="sb-notif-icons"></div>
       <div class="ssep"></div>
       <button class="si" title="すべて更新" data-action="refresh-all"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-      <button class="si" id="desktop-notif-settings-btn" title="デスクトップ通知設定" data-desktop-notification-action="open"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><circle cx="18" cy="6" r="3" fill="var(--bg1)"/><path d="M18 4.8v2.4M16.8 6h2.4"/></svg></button>
-      <button class="si" title="NGワード・ミュート" data-action="open-ng-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></button>
-      <button class="si" title="メモリ自動クリア設定" data-action="open-memory-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
-      <button class="si" title="アカウント設定" data-action="open-login"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
+      <button class="si" title="設定" aria-label="設定" data-action="open-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg></button>
       <div class="ssep"></div>
       <div style="position:relative">
         <div id="sb-avs"></div>
@@ -741,6 +776,21 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <div class="notif-center-x-readers" id="notif-center-x-readers" aria-hidden="true"></div>
 
 <!-- DESKTOP NOTIFICATION SETTINGS -->
+
+<div class="ov" id="settingsMod" data-action="close-overlay" data-overlay-id="settingsMod">
+  <div class="modal" style="width:420px" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 id="settings-title">設定</h2>
+    <div class="settings-list">
+      <button class="settings-link" data-action="open-appearance-settings"><strong>外観・表示密度</strong><small>配色、文字の大きさ、行間と余白</small></button>
+      <button class="settings-link" id="desktop-notif-settings-btn" data-desktop-notification-action="open"><strong>デスクトップ通知</strong><small>通知する種類・ユーザー・キーワード</small></button>
+      <button class="settings-link" data-action="open-ng-settings"><strong>ミュート</strong><small>表示しないキーワードとユーザー</small></button>
+      <button class="settings-link" data-action="open-memory-settings"><strong>メモリ管理</strong><small>使用量の確認と自動整理</small></button>
+      <button class="settings-link" data-action="settings-accounts"><strong>アカウント</strong><small>X・Blueskyの追加とログアウト</small></button>
+    </div>
+    <button class="btn-cancel" data-action="close-overlay" data-overlay-id="settingsMod">閉じる</button>
+  </div>
+</div>
+
 <div class="ov" id="desktopNotifSettingsMod">
   <div class="modal desktop-notif-modal">
     <h2 style="margin-bottom:16px">デスクトップ通知設定</h2>
@@ -790,8 +840,16 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 <!-- APPEARANCE SETTINGS -->
 <div class="ov" id="appearanceMod" data-action="cancel-appearance">
   <div class="modal" style="width:380px">
-    <h2 style="margin-bottom:6px">テーマ設定</h2>
+    <h2 style="margin-bottom:6px">外観・表示密度</h2>
     <p style="font-size:11px;color:var(--text2);margin-bottom:16px">アプリの配色を変更します</p>
+
+    <div style="margin-bottom:7px">表示密度</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="ptb appearance-density" data-action="preview-appearance-density" data-density="compact">コンパクト</button>
+      <button class="ptb appearance-density" data-action="preview-appearance-density" data-density="standard">標準</button>
+      <button class="ptb appearance-density" data-action="preview-appearance-density" data-density="comfortable">ゆったり</button>
+    </div>
+    <p style="color:var(--text2);margin-bottom:18px">選択するとプレビューします。Xの本文表示はカラム設定で調整できます。</p>
     <div style="font-size:11px;color:var(--text3);margin-bottom:7px">表示モード</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:18px">
       <button class="ptb appearance-theme" data-action="preview-appearance-theme" data-theme="dark">ダーク</button>
@@ -915,6 +973,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     </div>
     <button class="compose-preview-toggle" data-compose-action="toggle-preview"><span>投稿プレビュー</span><span>表示／非表示</span></button>
     <div class="compose-preview" id="x-compose-preview"></div>
+    <div id="x-compose-status" class="compose-status" role="status" hidden></div>
+    <div class="compose-draft-tools">
+      <small id="x-draft-status"></small>
+      <button data-compose-action="discard">下書きを削除</button>
+      <button data-compose-action="close">閉じる</button>
+    </div>
     <div class="comp-foot">
       <span class="compose-shortcut">Ctrl+Enterで投稿</span>
       <span class="cc" id="x-cct">0 / 280</span>
@@ -1015,6 +1079,12 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
     </div>
     <button class="compose-preview-toggle" data-compose-action="toggle-preview"><span>投稿プレビュー</span><span>表示／非表示</span></button>
     <div class="compose-preview" id="b-compose-preview"></div>
+    <div id="b-compose-status" class="compose-status" role="status" hidden></div>
+    <div class="compose-draft-tools">
+      <small id="b-draft-status"></small>
+      <button data-compose-action="discard">下書きを削除</button>
+      <button data-compose-action="close">閉じる</button>
+    </div>
     <div class="comp-foot">
       <span class="compose-shortcut">Ctrl+Enterで投稿</span>
       <span class="cc" id="cct">0 / 300</span>

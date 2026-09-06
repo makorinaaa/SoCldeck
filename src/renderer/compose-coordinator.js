@@ -39,12 +39,12 @@
       return result;
     }
 
-    async function submitCrossPost(entries, { retryUnknown = false } = {}) {
+    async function submitCrossPost(entries, { retryUnknown = false, onProgress = () => {} } = {}) {
       const result = await crossPost.submit(entries.map(entry => ({
         id: entry.id,
         request: entry.request,
         deliver: entry.deliver,
-      })), { retryUnknown });
+      })), { retryUnknown, onProgress });
       if (result.status === 'succeeded' && !crossPostCompleted) {
         crossPostCompleted = true;
         entries.forEach(entry => complete(entry.completionPlan));
@@ -64,6 +64,7 @@
     }
 
     return {
+      restoreCrossPost: results => crossPost.restore(results),
       getStatus,
       reset,
       resetCrossPost,

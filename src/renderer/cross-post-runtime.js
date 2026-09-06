@@ -2,14 +2,15 @@
   function createCrossPostRuntime() {
     const targets = new Map();
 
-    async function submit(entries, { retryUnknown = false } = {}) {
+    async function submit(entries, { retryUnknown = false, onProgress = () => {} } = {}) {
       entries.forEach(entry => {
-        if (!targets.has(entry.id)) {
+        if (!targets.has(entry.id) || !targets.get(entry.id).deliver) {
+          const restored = targets.get(entry.id);
           targets.set(entry.id, {
             id: entry.id,
             request: entry.request,
             deliver: entry.deliver,
-            status: 'pending',
+            status: restored?.status || 'pending',
             error: null,
           });
         }
@@ -32,6 +33,7 @@
           target.status = 'failed';
           target.error = error;
         }
+        onProgress();
       }));
 
       const results = Array.from(targets.values()).map(target => ({
@@ -57,6 +59,13 @@
     }
 
     return {
+      restore(results) {
+        targets.clear();
+        (results || []).filter(target => ['x', 'b'].includes(target.id)).forEach(target => {
+          targets.set(target.id, { id: target.id, status: target.status === 'succeeded' ? 'succeeded'
+            : target.status === 'failed' ? 'failed' : 'unknown', error: target.error || null });
+        });
+      },
       getSnapshot: () => ({
         targets: Array.from(targets.values()).map(target => ({
           id: target.id,

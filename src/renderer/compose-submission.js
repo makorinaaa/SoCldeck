@@ -87,8 +87,8 @@
           deliver: () => adapters.executeComposeDelivery(plan.bluesky.delivery),
           completionPlan: plan.bluesky.completionPlan,
         },
-      ], { retryUnknown });
-      modalRuntime.setBusy(ownerNetworkId, false, null);
+      ], { retryUnknown, onProgress: () => modalRuntime.setBusy(ownerNetworkId, true, 'X + Blueskyへ送信中...') });
+      modalRuntime.setBusy(ownerNetworkId, false, null, { locked: result.status !== 'succeeded' });
 
       if (result.status === 'succeeded') {
         modalRuntime.close(ownerNetworkId);
