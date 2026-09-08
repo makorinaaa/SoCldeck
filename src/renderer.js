@@ -556,6 +556,20 @@ xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
   allowDevTools: window.electronAPI?.devToolsEnabled === true,
   openImage: openImg,
 });
+function openUnreadReplies() {
+  notificationCenterRuntime.open();
+  notificationCenterRuntime.setNetwork('x');
+  notificationCenterRuntime.setFilters({ reason: 'reply', unreadOnly: true });
+}
+const replyNotificationView = window.SocialDeckReplyNotifications.createReplyNotificationDomView({
+  documentRef: document,
+  activate: item => replyNotificationRuntime.activate(item),
+  openUnread: openUnreadReplies,
+});
+const replyNotificationRuntime = window.SocialDeckReplyNotifications.createReplyNotificationRuntime({
+  storage: localStorage, view: replyNotificationView,
+  openItem: item => openXNotificationCenterItem(item),
+});
 const notificationCenterView = window.SocialDeckNotificationCenterRuntime.createNotificationCenterDomView({
   documentRef: document,
   ui: {
@@ -591,6 +605,7 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
         host: document.getElementById('notif-center-x-readers'),
         script: notificationCenter.buildXNotificationExtractionScript(40),
         retainReader: desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
+        refreshReader: true,
       });
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
@@ -599,7 +614,21 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
   intents: {
     close: () => closeOv('notifCenterMod'),
     openXAccountNotifications: ({ accountIndex }) => goToNotifCol('x', accountIndex),
-    openXNotification: item => openXNotificationCenterItem(item),
+    observeX: (items, accounts, errors) => {
+      replyNotificationRuntime.syncAccounts(accounts);
+      accounts.forEach((account, index) => {
+        if (!account.loginPending && !errors.some(error => error.accountIndex === index)) {
+          replyNotificationRuntime.observe(items.filter(item => item.accountIndex === index), account, index);
+        }
+      });
+      const retained = replyNotificationRuntime.unreadItems().filter(entry =>
+        !items.some(item => item.targetUrl === entry.targetUrl && item.account.partition === entry.account.partition));
+      return [...items, ...retained].map(item => ({ ...item,
+        accountIndex: accounts.findIndex(account => (account.partition || account.username) === (item.account.partition || item.account.username)),
+        isRead: item.reason === 'reply' ? replyNotificationRuntime.isRead(item) : null,
+      }));
+    },
+    openXNotification: item => replyNotificationRuntime.activate(item),
     openBlueskyPost: item => {
       const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
       return bskyColumnsRuntime.openPost({
@@ -633,7 +662,7 @@ desktopNotificationRuntime = window.SocialDeckDesktopNotificationRuntime.createD
         : 'デスクトップ通知を無効にしました');
     },
     activate: item => {
-      if (item.networkId === 'x') return openXNotificationCenterItem(item);
+      if (item.networkId === 'x') return replyNotificationRuntime.activate(item);
       if (item.targetUri) {
         const handle = ['like', 'repost'].includes(item.reason)
           ? state.b?.handle
@@ -1210,6 +1239,16 @@ function renderNotifIcons() {
   btn.onclick = () => notificationCenterRuntime.open();
   el.appendChild(btn);
 
+  if ((state.xs || []).length) {
+    const replies = document.createElement('button');
+    replies.className = 'si';
+    replies.id = 'x-reply-button';
+    replies.setAttribute('aria-label', 'Xの未読リプライを開く');
+    replies.innerHTML = '<span aria-hidden="true">↩</span><span id="x-reply-badge" class="x-reply-badge" hidden></span>';
+    replies.onclick = openUnreadReplies;
+    el.appendChild(replies);
+    replyNotificationRuntime.render();
+  }
   if (state.b) startNotifPoll();
 }
 
@@ -1260,11 +1299,13 @@ function renderUpdateStatus(update) {
 }
 
 async function openXNotificationCenterItem(item) {
-  const account = state.xs?.[item.accountIndex];
-  if (!account) return;
-  const targetCol = goToNotifCol('x', item.accountIndex);
+  const accountIndex = state.xs?.findIndex(account =>
+    (account.partition || account.username) === (item.account?.partition || item.account?.username));
+  const account = state.xs?.[accountIndex];
+  if (!account) return false;
+  const targetCol = goToNotifCol('x', accountIndex);
   const columnId = targetCol?.id?.replace(/^col-/, '');
-  if (!columnId) return;
+  if (!columnId) return false;
 
   try {
     const result = await xWebViewRuntime.openNotificationTarget({
@@ -1273,13 +1314,16 @@ async function openXNotificationCenterItem(item) {
       notificationUrl: 'https://x.com/notifications',
       activationScript: notificationCenter.buildXNotificationActivationScript(item.raw),
     });
-    if (result.status === 'not-found') {
+    if (result.status !== 'opened') {
       toast('対象のポストを通知ページで見つけられませんでした');
+      return false;
     }
   } catch (error) {
     console.warn('X notification target could not be opened:', error);
     toast('対象のポストを開けませんでした');
+    return false;
   }
+  return true;
 }
 
 // Bluesky未読通知数をポーリング
@@ -1767,3 +1811,12 @@ const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
 if (IS_WIDGET) {
   widgetMode.init();
 }
+
+xLoginStatesReady.then(() => {
+  const pollReplies = () => {
+    if ((state.xs || []).length && !desktopNotificationRuntime.getSnapshot().rules.enabled) notificationCenterRuntime.reload({ background: true }).catch(() => {});
+  };
+  pollReplies();
+  const timer = setInterval(pollReplies, 30000);
+  window.addEventListener('beforeunload', () => clearInterval(timer), { once: true });
+});

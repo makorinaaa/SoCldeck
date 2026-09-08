@@ -202,7 +202,7 @@
         hasBluesky: currentSession.bluesky,
         xErrors: [...xErrors],
         blueskyError,
-        unreadFilterEnabled: network !== 'x' && currentSession.bluesky,
+        unreadFilterEnabled: currentSession.bluesky || currentSession.xAccounts.length > 0,
         canMarkAllRead: network !== 'x' && currentSession.bluesky,
       };
     }
@@ -232,12 +232,11 @@
       };
     }
 
-    async function reload() {
+    async function reload({ background = false } = {}) {
       if (disposed) return { status: 'ignored', detail: 'disposed', snapshot: snapshot() };
       const requestRevision = ++revision;
       const currentSession = session();
-      loading = true;
-      render();
+      if (!background) { loading = true; render(); }
 
       const [blueskyResult, xResult] = await Promise.allSettled([
         loadBluesky(currentSession),
@@ -264,6 +263,7 @@
           message: xResult.reason?.message || '取得できませんでした',
         }));
       }
+      xItems = intents.observeX?.(xItems, currentSession.xAccounts, xErrors) || xItems;
       loading = false;
       const current = render();
       return { status: 'succeeded', snapshot: current };
@@ -280,14 +280,13 @@
 
     function setNetwork(nextNetwork) {
       network = ['all', 'x', 'b'].includes(nextNetwork) ? nextNetwork : 'all';
-      if (network === 'x') unreadOnly = false;
       return render();
     }
 
     function setFilters(filters = {}) {
       if (typeof filters.reason === 'string') reason = filters.reason;
       if (typeof filters.unreadOnly === 'boolean') {
-        unreadOnly = network === 'x' ? false : filters.unreadOnly;
+        unreadOnly = filters.unreadOnly;
       }
       return render();
     }
@@ -299,6 +298,8 @@
       intents.close?.();
       if (item.networkId === 'x') {
         await intents.openXNotification?.(item);
+        xItems = intents.observeX?.(xItems, session().xAccounts, xErrors) || xItems;
+        render();
       } else if (item.targetUri) {
         await intents.openBlueskyPost?.(item);
       } else if (item.author?.did) {

@@ -2,7 +2,7 @@
   const POST_REASONS = new Set(['like', 'repost', 'reply', 'mention', 'quote']);
   const X_REASON_PATTERNS = [
     ['quote', /quoted|引用/i],
-    ['reply', /replied|返信/i],
+    ['reply', /replied|replying to|返信/i],
     ['mention', /mentioned|mention|メンション/i],
     ['like', /liked|いいね/i],
     ['repost', /reposted|retweeted|リポスト|リツイート/i],

@@ -158,9 +158,9 @@ test('filters the loaded notifications without reloading their sources', async (
   assert.equal(snapshot.unreadFilterEnabled, true);
 
   const xSnapshot = runtime.setNetwork('x');
-  assert.equal(xSnapshot.unreadOnly, false);
+  assert.equal(xSnapshot.unreadOnly, true);
   assert.equal(xSnapshot.canMarkAllRead, false);
-  assert.deepEqual(plain(xSnapshot.items.map(item => item.id)), ['x:0:x-like']);
+  assert.deepEqual(plain(xSnapshot.items.map(item => item.id)), []);
   assert.deepEqual(plain(runtime.getAllItems().map(item => item.id)), [
     'x:0:x-like',
     'b:unread-like',

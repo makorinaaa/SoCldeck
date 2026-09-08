@@ -461,7 +461,7 @@
       return { columnWebViewCount, notificationReaderCount };
     }
 
-    async function listNotifications({ accountId, host, script, retainReader = false }) {
+    async function listNotifications({ accountId, host, script, retainReader = false, refreshReader = false }) {
       const account = findAccount(accountId);
       if (!account) return [];
       const webview = getNotificationReader(host, account);
@@ -469,6 +469,7 @@
       const hiddenReader = /^x-notif-reader-\d+$/.test(webview.id || '');
       try {
         await waitUntilReady(webview, 'X通知ページを読み込めませんでした');
+        if (hiddenReader && refreshReader) await webview.loadURL('https://x.com/notifications');
         return await webview.executeJavaScript(script) || [];
       } finally {
         if (hiddenReader && !retainReader) webview.remove();
@@ -482,6 +483,7 @@
       const needsActivation = ['like', 'repost', 'reply', 'mention', 'quote'].includes(item.reason)
         && !/\/status\/\d+/.test(targetUrl);
       if (!needsActivation) {
+        await waitUntilReady(webview, 'X通知カラムを読み込めませんでした');
         await webview.loadURL(targetUrl);
         return { status: 'opened' };
       }

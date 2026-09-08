@@ -682,3 +682,21 @@ test('anime schedule Column can be added and persisted from the picker', async t
     await page.screenshot({ path: process.env.SOCIALDECK_E2E_SCREENSHOT });
   }
 });
+
+test('X replies show a toast and remain unread until the conversation opens', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false, xNotifications: [] });
+  await page.evaluate(async () => {
+    await notificationCenterRuntime.reload();
+    replyNotificationRuntime.observe([notificationCenter.normalizeXNotification({ text: 'Alice replied: Hello!', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/socialdeck/status/123' }, { account: state.xs[0], accountIndex: 0 })], state.xs[0], 0);
+    await notificationCenterRuntime.reload();
+  });
+  await page.locator('#reply-toast').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('#x-reply-badge').textContent(), '1');
+  await page.locator('#reply-toast-close').click();
+  assert.equal(await page.locator('#x-reply-badge').textContent(), '1');
+  await page.locator('#x-reply-button').click();
+  const item = page.locator('.notif-center-item.unread').filter({ hasText: 'Alice' });
+  await item.waitFor({ state: 'visible', timeout: 5000 });
+  await item.click();
+  await page.locator('#x-reply-badge').waitFor({ state: 'hidden', timeout: 5000 }).catch(async error => { throw new Error(error.message + JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toast').textContent, warnings: window.__e2eWarnings, unread: replyNotificationRuntime.unreadItems() })))); });
+});
