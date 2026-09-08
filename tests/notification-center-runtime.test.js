@@ -228,3 +228,19 @@ test('marks Bluesky notifications read using one captured timestamp', async () =
     ['toast', 'Bluesky通知をすべて既読にしました'],
   ]);
 });
+
+test('overlapping reloads share one notification reader request', async () => {
+  let finish;
+  let reads = 0;
+  const runtime = loadRuntime().createNotificationCenterRuntime({
+    model: createModel(),
+    getSession: () => ({ xAccounts: [{ username: '@me' }] }),
+    sources: { listX: () => { reads++; return new Promise(resolve => { finish = resolve; }); } },
+  });
+  const background = runtime.reload({ background: true });
+  const foreground = runtime.reload();
+  assert.equal(background, foreground);
+  assert.equal(reads, 1);
+  finish([]);
+  await foreground;
+});

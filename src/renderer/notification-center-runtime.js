@@ -166,6 +166,7 @@
     let loading = false;
     let revision = 0;
     let disposed = false;
+    let reloading = null;
 
     function session() {
       const current = getSession() || {};
@@ -232,7 +233,7 @@
       };
     }
 
-    async function reload({ background = false } = {}) {
+    async function executeReload({ background = false } = {}) {
       if (disposed) return { status: 'ignored', detail: 'disposed', snapshot: snapshot() };
       const requestRevision = ++revision;
       const currentSession = session();
@@ -267,6 +268,12 @@
       loading = false;
       const current = render();
       return { status: 'succeeded', snapshot: current };
+    }
+
+    function reload(options) {
+      if (reloading) return reloading;
+      reloading = executeReload(options).finally(() => { reloading = null; });
+      return reloading;
     }
 
     async function open() {
