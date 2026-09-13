@@ -14,6 +14,30 @@ function setup(saved = {}, openItem = async () => true) {
 }
 const account = { partition: 'persist:x-0', username: '@me' };
 const reply = id => ({ reason: 'reply', targetUrl: `https://x.com/alice/status/${id}`, author: { handle: 'alice' }, account });
+test('new likes and replies both count as unread without opening the notification center', () => {
+  const { runtime, events } = setup();
+  runtime.observe([], account, 0);
+  runtime.observe([reply(1), { ...reply(1), reason: 'like' }], account, 0);
+  assert.equal(runtime.unreadItems().length, 2);
+  assert.equal(events.filter(Array.isArray).at(-1).length, 2);
+  runtime.markRead({ ...reply(1), reason: 'like' });
+  assert.equal(runtime.unreadItems().length, 1);
+  assert.equal(runtime.unreadItems()[0].reason, 'reply');
+});
+
+test('existing reply-only storage keeps unread replies and baselines historical likes once', () => {
+  const saved = { socialdeck_x_reply_notifications_v1: JSON.stringify({
+    [account.partition]: { seen: ['https://x.com/alice/status/1|alice'], unread: [reply(1)] },
+  }) };
+  const { runtime, events } = setup(saved);
+  const historicalLike = { ...reply(2), reason: 'like' };
+  runtime.observe([reply(1), historicalLike], account, 0);
+  assert.equal(runtime.unreadItems().length, 1);
+  assert.equal(events.filter(Array.isArray).length, 0);
+  const restored = setup(saved).runtime;
+  restored.observe([historicalLike, { ...reply(3), reason: 'like' }], account, 0);
+  assert.equal(restored.unreadItems().length, 2);
+});
 test('baselines per account, deduplicates replies and retains unread across restart', () => {
   const { runtime, events, saved } = setup();
   runtime.observe([reply(1)], account, 0);
@@ -42,6 +66,22 @@ test('only successful activation marks a reply read', async () => {
   runtime.observe([reply(2)], account, 0);
   assert.equal(runtime.unreadItems().length, 0);
 });
+
+test('manual read and read all persist without opening posts or notifying again', () => {
+  let opens = 0;
+  const { runtime, saved } = setup({}, async () => { opens++; });
+  runtime.observe([], account, 0);
+  runtime.observe([reply(1), reply(2)], account, 0);
+  runtime.markRead(reply(1));
+  assert.equal(runtime.unreadItems().length, 1);
+  let restored = setup(saved).runtime;
+  assert.equal(restored.isRead(reply(1)), true);
+  restored.markAllRead();
+  restored = setup(saved).runtime;
+  restored.observe([reply(1), reply(2)], account, 0);
+  assert.equal(restored.unreadItems().length, 0);
+  assert.equal(opens, 0);
+});
 test('additional replies do not restart dismissal while toast is hovered', () => {
   const elements = {};
   for (const id of ['reply-toast', 'reply-toast-content', 'reply-toast-close', 'reply-toast-title', 'reply-toast-body']) {
@@ -63,4 +103,21 @@ test('additional replies do not restart dismissal while toast is hovered', () =>
   assert.equal(timers.size, 1);
   [...timers.values()][0]();
   assert.equal(elements['reply-toast'].hidden, true);
+});
+
+test('unchanged polling and badge rendering do not rewrite stored unread state', () => {
+  let writes = 0;
+  const saved = new Proxy({}, { set(target, key, value) { writes++; target[key] = value; return true; } });
+  const { runtime } = setup(saved);
+  runtime.observe([], account, 0);
+  runtime.observe([reply(1)], account, 0);
+  const initialWrites = writes;
+  for (let index = 0; index < 10; index++) {
+    runtime.syncAccounts([account]);
+    runtime.observe([reply(1)], account, 0);
+    runtime.render();
+  }
+  assert.equal(writes, initialWrites);
+  runtime.markRead(reply(1));
+  assert.equal(writes, initialWrites + 1);
 });

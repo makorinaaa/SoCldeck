@@ -255,6 +255,7 @@ function createWindow() {
       webviewTag: true,
       preload: APP_PRELOAD_PATH,
       spellcheck: false,
+      backgroundThrottling: false,
     },
     frame: false,        // フレームレス化
     titleBarStyle: 'hidden',

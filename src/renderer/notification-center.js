@@ -29,7 +29,9 @@
 
   function filterNotifications(notifications, { reason = 'all', unreadOnly = false } = {}) {
     return notifications.filter(notification => {
-      if (reason !== 'all' && notification.reason !== reason) return false;
+      if (reason === 'conversation') {
+        if (!['reply', 'mention', 'quote'].includes(notification.reason)) return false;
+      } else if (reason !== 'all' && notification.reason !== reason) return false;
       return !unreadOnly || notification.isRead === false;
     });
   }

@@ -3,11 +3,32 @@
     const key = 'socialdeck_x_reply_notifications_v1';
     let accounts = {};
     try { accounts = JSON.parse(storage?.getItem(key) || '{}') || {}; } catch {}
+    if (typeof accounts !== 'object' || Array.isArray(accounts)) accounts = {};
+    Object.keys(accounts).forEach(id => {
+      const account = accounts[id];
+      if (!account || !Array.isArray(account.seen) || !Array.isArray(account.unread)) delete accounts[id];
+    });
+    let persistedState = JSON.stringify(accounts);
+    const unreadIndex = new Map();
     function accountKey(account) { return account.partition || account.username; }
-    function identity(item) { return item.targetUrl + '|' + (item.author?.handle || ''); }
+    function identity(item) {
+      const post = item.targetUrl + '|' + (item.author?.handle || '');
+      // Keep the existing reply identity so saved read state survives this upgrade.
+      return item.reason === 'like' ? `like|${post}|${item.indexedAt || ''}` : post;
+    }
     function unreadItems() { return Object.values(accounts).flatMap(account => account.unread || []); }
+    function getItemKey(item) { return `${accountKey(item.account || {})}|${identity(item)}`; }
+    function indexUnread() {
+      unreadIndex.clear();
+      Object.entries(accounts).forEach(([id, account]) => unreadIndex.set(id, new Set(account.unread.map(identity))));
+    }
+    indexUnread();
     function save() {
-      try { storage?.setItem(key, JSON.stringify(accounts)); } catch {}
+      indexUnread();
+      const next = JSON.stringify(accounts);
+      if (next !== persistedState) {
+        try { storage?.setItem(key, next); persistedState = next; } catch {}
+      }
       view.badge?.(unreadItems().length);
     }
     function syncAccounts(current) {
@@ -18,35 +39,44 @@
     function observe(items, account, accountIndex) {
       const id = accountKey(account);
       if (!id) return;
-      const replies = items.filter(item => item.reason === 'reply');
+      const replies = items.filter(item => ['reply', 'like'].includes(item.reason));
       const previous = accounts[id];
       const seen = new Set(previous?.seen || []);
       const fresh = [];
       for (const item of replies) {
         const itemId = identity(item);
-        if (previous && !seen.has(itemId)) fresh.push({ ...item, account, accountIndex });
+        const baselined = previous && (item.reason !== 'like' || previous.likesBaselined === true);
+        if (baselined && !seen.has(itemId)) fresh.push({ ...item, account, accountIndex });
         seen.add(itemId);
       }
       accounts[id] = {
         seen: [...seen].slice(-2000),
+        likesBaselined: true,
         unread: [...(previous?.unread || []), ...fresh],
       };
       save();
       if (fresh.length) view.notify?.(fresh);
     }
     function isRead(item) {
-      return !(accounts[accountKey(item.account || {})]?.unread || []).some(entry => identity(entry) === identity(item));
+      return !unreadIndex.get(accountKey(item.account || {}))?.has(identity(item));
     }
-    async function activate(item) {
-      if (await openItem(item) === false) return;
+    function markRead(item) {
       const account = accounts[accountKey(item.account || {})];
       if (account) account.unread = account.unread.filter(entry => identity(entry) !== identity(item));
       save();
     }
-    return { observe, syncAccounts, isRead, activate, unreadItems, render: save };
+    function markAllRead() {
+      Object.values(accounts).forEach(account => { account.unread = []; });
+      save();
+    }
+    async function activate(item) {
+      if (await openItem(item) === false) return;
+      markRead(item);
+    }
+    return { observe, syncAccounts, isRead, activate, markRead, markAllRead, unreadItems, getItemKey, render: save };
   }
 
-  function createReplyNotificationDomView({ documentRef = global.document, activate, openUnread } = {}) {
+  function createReplyNotificationDomView({ documentRef = global.document, activate, openUnread, onBadge = () => {} } = {}) {
     const panel = documentRef.getElementById('reply-toast');
     const content = documentRef.getElementById('reply-toast-content');
     let pending = [];
@@ -67,18 +97,16 @@
     });
     return {
       badge(count) {
-        const badge = documentRef.getElementById('x-reply-badge');
-        if (badge) { badge.textContent = count > 99 ? '99+' : String(count); badge.hidden = count === 0; }
-        const button = documentRef.getElementById('x-reply-button');
-        if (button) button.title = `Xの未読リプライ ${count}件`;
+        onBadge(count);
       },
       notify(items) {
         pending.push(...items);
         const item = pending[0];
+        const reasonLabel = item.reason === 'like' ? 'いいね' : 'リプライ';
         documentRef.getElementById('reply-toast-title').textContent = pending.length === 1
-          ? `${item.author.displayName || item.author.handle}さんからリプライ`
-          : `新しいリプライが${pending.length}件あります`;
-        documentRef.getElementById('reply-toast-body').textContent = pending.length === 1 ? item.text : 'クリックして未読リプライを確認';
+          ? `${item.author.displayName || item.author.handle}さんから${reasonLabel}`
+          : `新しい通知が${pending.length}件あります`;
+        documentRef.getElementById('reply-toast-body').textContent = pending.length === 1 ? item.text : 'クリックして未読通知を確認';
         panel.hidden = false;
         schedule();
       },

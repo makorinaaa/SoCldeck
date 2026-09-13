@@ -557,18 +557,23 @@ xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
   openImage: openImg,
 });
 function openUnreadReplies() {
-  notificationCenterRuntime.open();
-  notificationCenterRuntime.setNetwork('x');
-  notificationCenterRuntime.setFilters({ reason: 'reply', unreadOnly: true });
+  notificationReplyRuntime.back();
+  notificationCenterRuntime.open({ network: 'x', reason: 'all', unreadOnly: true });
 }
 const replyNotificationView = window.SocialDeckReplyNotifications.createReplyNotificationDomView({
   documentRef: document,
   activate: item => replyNotificationRuntime.activate(item),
   openUnread: openUnreadReplies,
+  onBadge: count => notificationRuntime.setXUnreadCount(count),
 });
 const replyNotificationRuntime = window.SocialDeckReplyNotifications.createReplyNotificationRuntime({
   storage: localStorage, view: replyNotificationView,
   openItem: item => openXNotificationCenterItem(item),
+});
+const notificationReplyRuntime = window.SocialDeckNotificationReply.createNotificationReplyRuntime({
+  documentRef: document,
+  getAccounts: () => state.xs || [],
+  getPreloadPath: () => wvPreloadPath,
 });
 const notificationCenterView = window.SocialDeckNotificationCenterRuntime.createNotificationCenterDomView({
   documentRef: document,
@@ -577,12 +582,14 @@ const notificationCenterView = window.SocialDeckNotificationCenterRuntime.create
     renderAvatar,
     relativeTime: relTime,
     avatarBackground: avBgFor,
+    canReply: item => Boolean(window.SocialDeckNotificationReply.replyUrl(item)),
   },
 });
 notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNotificationCenterRuntime({
   model: notificationCenter,
   getSession: () => ({
     bluesky: Boolean(state.b),
+    blueskyAccountId: state.b?.did,
     xAccounts: state.xs || [],
   }),
   sources: {
@@ -606,6 +613,7 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
         script: notificationCenter.buildXNotificationExtractionScript(40),
         retainReader: desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
         refreshReader: true,
+        forceHidden: true,
       });
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
@@ -614,21 +622,25 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
   intents: {
     close: () => closeOv('notifCenterMod'),
     openXAccountNotifications: ({ accountIndex }) => goToNotifCol('x', accountIndex),
-    observeX: (items, accounts, errors) => {
+    observeX: (items, accounts, errors, enabled = accounts.map(() => true)) => {
       replyNotificationRuntime.syncAccounts(accounts);
       accounts.forEach((account, index) => {
-        if (!account.loginPending && !errors.some(error => error.accountIndex === index)) {
+        if (enabled[index] && !account.loginPending && !errors.some(error => error.accountIndex === index)) {
           replyNotificationRuntime.observe(items.filter(item => item.accountIndex === index), account, index);
         }
       });
+      const currentKeys = new Set(items.map(replyNotificationRuntime.getItemKey));
       const retained = replyNotificationRuntime.unreadItems().filter(entry =>
-        !items.some(item => item.targetUrl === entry.targetUrl && item.account.partition === entry.account.partition));
+        !currentKeys.has(replyNotificationRuntime.getItemKey(entry)));
       return [...items, ...retained].map(item => ({ ...item,
         accountIndex: accounts.findIndex(account => (account.partition || account.username) === (item.account.partition || item.account.username)),
-        isRead: item.reason === 'reply' ? replyNotificationRuntime.isRead(item) : null,
+        isRead: ['reply', 'like'].includes(item.reason) ? replyNotificationRuntime.isRead(item) : null,
       }));
     },
     openXNotification: item => replyNotificationRuntime.activate(item),
+    markXRead: item => replyNotificationRuntime.markRead(item),
+    markAllXRead: () => replyNotificationRuntime.markAllRead(),
+    reply: item => notificationReplyRuntime.open(item),
     openBlueskyPost: item => {
       const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
       return bskyColumnsRuntime.openPost({
@@ -1236,19 +1248,14 @@ function renderNotifIcons() {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="17" height="17"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       <span id="bsky-notif-badge" style="position:absolute;top:-6px;right:-7px;min-width:14px;height:14px;border-radius:7px;background:var(--red);color:#fff;font-size:8px;font-weight:700;display:${unreadCount > 0 ? 'flex' : 'none'};align-items:center;justify-content:center;padding:0 2px;line-height:1">${unreadCount > 99 ? '99+' : unreadCount}</span>
     </span>`;
-  btn.onclick = () => notificationCenterRuntime.open();
+  btn.onclick = () => {
+    notificationReplyRuntime.back();
+    notificationCenterRuntime.open();
+  };
   el.appendChild(btn);
 
-  if ((state.xs || []).length) {
-    const replies = document.createElement('button');
-    replies.className = 'si';
-    replies.id = 'x-reply-button';
-    replies.setAttribute('aria-label', 'Xの未読リプライを開く');
-    replies.innerHTML = '<span aria-hidden="true">↩</span><span id="x-reply-badge" class="x-reply-badge" hidden></span>';
-    replies.onclick = openUnreadReplies;
-    el.appendChild(replies);
-    replyNotificationRuntime.render();
-  }
+  replyNotificationRuntime.render();
+  notificationRuntime.renderBadge();
   if (state.b) startNotifPoll();
 }
 
@@ -1812,7 +1819,7 @@ if (IS_WIDGET) {
   widgetMode.init();
 }
 
-xLoginStatesReady.then(() => {
+Promise.all([xLoginStatesReady, webviewPreloadReady]).then(() => {
   const pollReplies = () => {
     if ((state.xs || []).length && !desktopNotificationRuntime.getSnapshot().rules.enabled) notificationCenterRuntime.reload({ background: true }).catch(() => {});
   };

@@ -47,7 +47,7 @@ function createWebView({ id = '', partition = '', src = '' } = {}) {
   };
 }
 
-function createHarness({ loginPending = false, loginGate = null, allowDevTools = false } = {}) {
+function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false } = {}) {
   const elements = new Map();
   const webviews = [];
   const columns = [];
@@ -95,8 +95,8 @@ function createHarness({ loginPending = false, loginGate = null, allowDevTools =
     getCanonicalUrl: id => id.includes('notif') ? 'https://x.com/notifications' : null,
     getPreloadPath: () => 'file:///preload.js',
     allowDevTools,
-    setTimeoutFn: fn => { fn(); return 1; },
-    clearTimeoutFn() {},
+    setTimeoutFn: realTimers ? setTimeout : fn => { fn(); return 1; },
+    clearTimeoutFn: realTimers ? clearTimeout : () => {},
   });
   return { runtime, elements, webviews, columns };
 }
@@ -272,7 +272,7 @@ test('uses a hidden reader when the visible notification Column shows a post', a
   assert.equal(webviews.length, 1);
   assert.equal(webviews[0].id, 'x-notif-reader-0');
   assert.equal(webviews[0].preload, 'file:///preload.js');
-  assert.equal(webviews[0].webpreferences, 'backgroundThrottling=true');
+  assert.equal(webviews[0].webpreferences, 'backgroundThrottling=false');
   assert.equal(webviews[0].removed, undefined);
   assert.deepEqual(JSON.parse(JSON.stringify(items)), [{ script: 'extract-hidden' }]);
 });
@@ -300,6 +300,86 @@ test('disposes a transient hidden notification reader after extraction', async (
   });
 
   assert.deepEqual(JSON.parse(JSON.stringify(items)), [{ script: 'extract-once' }]);
+  assert.equal(webviews[0].removed, true);
+});
+
+test('background notification reads work without a Column and ignore a visible Column', async () => {
+  const { runtime, columns, webviews } = createHarness();
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  const options = {
+    accountId: '@alice', forceHidden: true, refreshReader: true, script: 'extract-background',
+    host: { appendChild(webview) { webview.executeJavaScript = async () => ['fresh']; } },
+  };
+  assert.deepEqual(JSON.parse(JSON.stringify(await runtime.listNotifications(options))), ['fresh']);
+  assert.equal(columns.length, 0);
+  assert.equal(webviews[0].removed, true);
+  const visible = createWebView({ partition: 'persist:x-0', src: 'https://x.com/notifications' });
+  visible.executeJavaScript = () => { throw new Error('Visible Column must not be used'); };
+  columns.push({ dataset: { definitionId: 'x-notif-new' }, querySelector: () => visible });
+  assert.deepEqual(JSON.parse(JSON.stringify(await runtime.listNotifications(options))), ['fresh']);
+  assert.equal(visible.removed, undefined);
+});
+
+test('fresh notification extraction does not abort its initial navigation with a second loadURL', async () => {
+  const { runtime } = createHarness();
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  const result = await runtime.listNotifications({
+    accountId: '@alice', forceHidden: true, refreshReader: true,
+    script: 'extract', host: { appendChild(webview) {
+      webview.loadURL = async () => { throw Object.assign(new Error("(-3) loading 'https://x.com/notifications'"), { errno: -3 }); };
+      webview.executeJavaScript = async () => [{ text: 'Alice replied' }];
+    } },
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [{ text: 'Alice replied' }]);
+});
+
+test('retained readers wait for redirected refresh readiness before extracting again', async () => {
+  const { runtime, elements, webviews } = createHarness({ realTimers: true });
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  let ready = true;
+  let reads = 0;
+  const options = {
+    accountId: '@alice', forceHidden: true, refreshReader: true, retainReader: true, script: 'extract',
+    host: { appendChild(webview) {
+      elements.set(webview.id, webview);
+      webview.loadURL = async () => { throw new Error('Must not start a competing navigation'); };
+      webview.reload = () => {
+        ready = false;
+        webview.emit('did-start-loading');
+        webview.emit('did-fail-load', { errorCode: -3 });
+        setTimeout(() => {
+          ready = true;
+          webview.dataset.ready = 'true';
+          webview.emit('dom-ready');
+        }, 5);
+      };
+      webview.executeJavaScript = async () => {
+        assert.equal(ready, true);
+        return [{ text: `reply-${++reads}` }];
+      };
+    } },
+  };
+  await runtime.listNotifications(options);
+  const result = await runtime.listNotifications(options);
+  assert.equal(webviews.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [{ text: 'reply-2' }]);
+});
+
+test('memory cleanup cannot remove a reader while notification extraction is in flight', async () => {
+  const { runtime, webviews } = createHarness();
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  let release;
+  const pending = runtime.listNotifications({
+    accountId: '@alice', forceHidden: true, refreshReader: true, script: 'extract',
+    host: { appendChild(webview) {
+      webview.executeJavaScript = () => new Promise(resolve => { release = resolve; });
+    } },
+  });
+  await Promise.resolve();
+  assert.equal(runtime.disposeNotificationReaders(), 0);
+  assert.equal(webviews[0].removed, undefined);
+  release([{ text: 'reply' }]);
+  await pending;
   assert.equal(webviews[0].removed, true);
 });
 
