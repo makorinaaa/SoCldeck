@@ -2,6 +2,18 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+
+test('conversation filter includes replies mentions and quotes across networks and respects unread', () => {
+  const center = loadModule();
+  const items = ['x', 'b'].flatMap(networkId =>
+    ['reply', 'mention', 'quote', 'like', 'repost', 'follow', 'other'].map((reason, index) =>
+      ({ networkId, reason, isRead: index === 1 })));
+  const conversations = center.filterNotifications(items, { reason: 'conversation' });
+  assert.equal(conversations.length, 6);
+  assert.deepEqual(Array.from(conversations, item => item.reason), ['reply', 'mention', 'quote', 'reply', 'mention', 'quote']);
+  assert.equal(center.filterNotifications(items, { reason: 'conversation', unreadOnly: true }).length, 4);
+  assert.equal(center.filterNotifications(items, { reason: 'like' }).length, 2);
+});
 const vm = require('node:vm');
 
 function loadModule() {

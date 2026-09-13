@@ -528,6 +528,50 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 
 /* ── TOAST ── */
 .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(52px);background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--text1);transition:transform .25s cubic-bezier(.34,1.56,.64,1);z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+.reply-toast{position:fixed;right:22px;bottom:22px;width:min(360px,calc(100vw - 44px));z-index:1000;background:var(--bg2);border:1px solid var(--accent);border-radius:10px;box-shadow:0 8px 28px #0006;display:flex}
+.reply-toast[hidden]{display:none}
+.reply-toast button{background:transparent;color:var(--text1);border:0;cursor:pointer;font:inherit;text-align:left;padding:14px}
+#reply-toast-content{min-width:0;flex:1;display:flex;flex-direction:column;gap:8px;font-size:12px}
+#reply-toast-body{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--text2)}
+.reply-toast-action{color:var(--accent)}
+#reply-toast-close{align-self:flex-start;font-size:18px}
+.notif-reply-button{display:block;margin:8px 0 0 auto;border:1px solid var(--border2);border-radius:6px;background:var(--bg2);color:var(--accent);padding:5px 10px;cursor:pointer;font:inherit}
+.notif-reply-button:hover{background:var(--bg3)}
+.notif-fetch-hint{width:100%;font-size:11px;color:var(--text2);padding:4px 0}
+.notif-fetch-account{width:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--border)}
+.notif-fetch-account label{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+.notif-fetch-status{flex:1;min-width:140px;font-size:10px;color:var(--text2);overflow-wrap:anywhere}
+.notif-fetch-retry{border:1px solid var(--border2);border-radius:5px;background:var(--bg2);color:var(--text1);padding:5px;cursor:pointer;font:inherit;font-size:11px}
+.notif-fetch-retry:disabled{opacity:.4;cursor:default}
+.notif-center-x{max-height:210px;overflow-y:auto;flex-shrink:0}
+.notif-center-modal{width:680px;border-radius:14px}
+.notif-center-search{display:flex;align-items:center;gap:12px;padding:10px 14px;flex-shrink:0}
+.notif-center-search input{min-width:0;flex:1;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text1);font:inherit;font-size:12px;padding:8px 10px}
+#notif-center-count{font-size:11px;color:var(--text3);white-space:nowrap}
+.notif-center-settings{flex-shrink:0;border-bottom:1px solid var(--border)}
+.notif-center-settings summary{cursor:pointer;padding:9px 14px;font-size:11px;color:var(--text2)}
+#notif-center-health{margin-left:8px;color:var(--text3)}
+#notif-center-health.needs-attention{color:var(--accent)}
+.notif-center-item{padding:14px;gap:12px}
+.notif-center-item .notif-handle{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:12px;line-height:1.6;margin-top:5px;color:var(--text2)}
+.notif-center-list{scrollbar-width:thin;scrollbar-color:var(--border2) var(--bg1)}
+.notif-center-item .notif-title{line-height:1.6}
+.notif-center-meta{font-size:10px;color:var(--text3);margin-top:7px}
+.notif-center-more{display:block;margin:16px auto;padding:8px 20px;border:1px solid var(--border2);border-radius:8px;background:var(--bg2);color:var(--text1);cursor:pointer}
+.notif-center-modal :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.notif-center-head button:disabled{opacity:.4;cursor:default}
+#notifCenterMod.replying .notif-center-search,#notifCenterMod.replying .notif-center-settings{display:none}
+.notif-center-tools .mark-x-read{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font:inherit;font-size:11px;padding:6px 9px;cursor:pointer}
+.notif-center-tools .mark-x-read:disabled{opacity:.45;cursor:default}
+#notifCenterMod.replying .notif-center-tabs,#notifCenterMod.replying .notif-center-tools,#notifCenterMod.replying .notif-center-x,#notifCenterMod.replying .notif-center-list{display:none}
+#notif-reply-panel{display:flex;flex-direction:column;flex:1;min-height:0}
+#notif-reply-panel[hidden]{display:none}
+.notif-reply-toolbar{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border);font-size:11px}
+.notif-reply-toolbar button{border:1px solid var(--border2);border-radius:6px;background:var(--bg2);color:var(--text1);padding:6px;cursor:pointer;white-space:nowrap;font:inherit}
+#notif-reply-title{flex:1;overflow-wrap:anywhere}
+#notif-reply-status{font-size:12px;color:var(--text2);padding:0 12px}
+#notif-reply-host{flex:1;min-height:0;display:flex}
+#notif-reply-host webview{flex:1;width:100%;height:100%}
 .toast.sh{transform:translateX(-50%) translateY(0)}
 
 /* Display density applies to the app's own UI; embedded X retains its own layout. */
@@ -757,8 +801,9 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
       <button class="notif-center-tab" data-network="b">Bluesky</button>
     </div>
     <div class="notif-center-tools">
-      <select id="notif-center-reason">
+      <select id="notif-center-reason" aria-label="通知の種類">
         <option value="all">すべての種類</option>
+        <option value="conversation">会話（返信・メンション・引用）</option>
         <option value="reply">返信</option>
         <option value="mention">メンション</option>
         <option value="like">いいね</option>
@@ -767,10 +812,21 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
         <option value="quote">引用</option>
       </select>
       <label><input type="checkbox" id="notif-center-unread">未読のみ</label>
+      <button class="mark-x-read" data-notification-action="mark-x-read">Xの通知をすべて既読</button>
       <button class="mark-read" data-notification-action="mark-read">Blueskyをすべて既読</button>
     </div>
-    <div class="notif-center-x" id="notif-center-x"></div>
+    <div class="notif-center-search"><input id="notif-center-search" type="search" placeholder="通知を検索" aria-label="取得済みの通知を検索"><span id="notif-center-count" role="status"></span></div>
+    <details class="notif-center-settings" id="notif-center-settings">
+      <summary>アカウント・取得状況 <span id="notif-center-health" role="status"></span></summary>
+      <div class="notif-center-x" id="notif-center-x"></div>
+      <div id="notif-center-b-status" class="notif-fetch-hint" role="status" hidden></div>
+    </details>
     <div class="notif-center-list" id="notif-center-list"><div class="notif-center-state">通知を読み込んでいます…</div></div>
+    <section id="notif-reply-panel" hidden>
+      <div class="notif-reply-toolbar"><button id="notif-reply-back">← 一覧に戻る</button><span id="notif-reply-title"></span><button id="notif-reply-reload">再読み込み</button></div>
+      <div id="notif-reply-status" role="status"></div>
+      <div id="notif-reply-host"></div>
+    </section>
   </div>
 </div>
 <div class="notif-center-x-readers" id="notif-center-x-readers" aria-hidden="true"></div>
@@ -1103,6 +1159,10 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
 </div>
 
 <div class="toast" id="toast"></div>
+<div id="reply-toast" class="reply-toast" role="status" aria-live="polite" hidden>
+  <button id="reply-toast-content"><strong id="reply-toast-title"></strong><span id="reply-toast-body"></span><span class="reply-toast-action">会話を開く →</span></button>
+  <button id="reply-toast-close" aria-label="通知を閉じる">×</button>
+</div>
 
 <script src="renderer/bluesky-gateway-adapter.js"></script>
 <script src="renderer/delegated-action-runtime.js"></script>
@@ -1132,7 +1192,9 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
 <script src="renderer/file-drag-shield.js"></script>
 <script src="renderer/notification-center.js"></script>
 <script src="renderer/notification-center-runtime.js"></script>
+<script src="renderer/notification-reply-runtime.js"></script>
 <script src="renderer/notification-runtime.js"></script>
+<script src="renderer/reply-notification-runtime.js"></script>
 <script src="renderer/desktop-notification-runtime.js"></script>
 <script src="renderer/anime-schedule-runtime.js"></script>
 <script src="renderer/network-adapters.js"></script>

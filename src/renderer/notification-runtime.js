@@ -6,20 +6,35 @@
     intervalMs = 60000,
   } = {}) {
     let unreadCount = 0;
+    let xUnreadCount = 0;
     let pollTimer = null;
     let polling = null;
 
     function setUnreadCount(count) {
       unreadCount = count || 0;
+      renderBadge();
+      return unreadCount;
+    }
+
+    function setXUnreadCount(count) {
+      xUnreadCount = count || 0;
+      renderBadge();
+    }
+
+    function renderBadge() {
+      const total = unreadCount + xUnreadCount;
       const badge = documentRef.getElementById('bsky-notif-badge');
       if (badge) {
-        badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
-        badge.style.display = unreadCount > 0 ? 'flex' : 'none';
+        badge.textContent = total > 99 ? '99+' : total;
+        badge.style.display = total > 0 ? 'flex' : 'none';
       }
 
       const btn = documentRef.getElementById('sb-notif-b');
-      if (btn) btn.style.color = unreadCount > 0 ? 'var(--red)' : '';
-      return unreadCount;
+      if (btn) {
+        btn.style.color = total > 0 ? 'var(--red)' : '';
+        btn.title = `通知センター・未読 ${total}件（X ${xUnreadCount}件 / Bluesky ${unreadCount}件）`;
+        btn.setAttribute?.('aria-label', btn.title);
+      }
     }
 
     function clearUnread() {
@@ -53,6 +68,8 @@
     return {
       getUnreadCount,
       setUnreadCount,
+      setXUnreadCount,
+      renderBadge,
       clearUnread,
       startPoll,
       stopPoll,

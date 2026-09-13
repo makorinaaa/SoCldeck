@@ -2,7 +2,7 @@
   const POST_REASONS = new Set(['like', 'repost', 'reply', 'mention', 'quote']);
   const X_REASON_PATTERNS = [
     ['quote', /quoted|引用/i],
-    ['reply', /replied|返信/i],
+    ['reply', /replied|replying to|返信/i],
     ['mention', /mentioned|mention|メンション/i],
     ['like', /liked|いいね/i],
     ['repost', /reposted|retweeted|リポスト|リツイート/i],
@@ -29,7 +29,9 @@
 
   function filterNotifications(notifications, { reason = 'all', unreadOnly = false } = {}) {
     return notifications.filter(notification => {
-      if (reason !== 'all' && notification.reason !== reason) return false;
+      if (reason === 'conversation') {
+        if (!['reply', 'mention', 'quote'].includes(notification.reason)) return false;
+      } else if (reason !== 'all' && notification.reason !== reason) return false;
       return !unreadOnly || notification.isRead === false;
     });
   }

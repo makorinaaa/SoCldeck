@@ -14,6 +14,22 @@ function loadFactory() {
   return context.window.SocialDeckNotificationRuntime.createNotificationRuntime;
 }
 
+test('one badge combines X replies and Bluesky without clearing the other network', () => {
+  const badge = { style: {} };
+  const button = { style: {}, setAttribute() {} };
+  const runtime = loadFactory()({ documentRef: {
+    getElementById: id => id === 'bsky-notif-badge' ? badge : button,
+  } });
+  runtime.setUnreadCount(3);
+  runtime.setXUnreadCount(2);
+  assert.equal(badge.textContent, 5);
+  runtime.clearUnread();
+  assert.equal(badge.textContent, 2);
+  assert.equal(badge.style.display, 'flex');
+  runtime.setXUnreadCount(0);
+  assert.equal(badge.style.display, 'none');
+});
+
 test('coalesces unread-count polls while the previous request is pending', async () => {
   let scheduledTick;
   let releaseFetch;

@@ -7,6 +7,25 @@ const { _electron: electron } = require('playwright-core');
 const { version: appVersion } = require('../package.json');
 
 const APP_ROOT = path.join(__dirname, '..');
+
+test('conversation filter combines replies mentions and quotes and survives restart', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: ['replied to you', 'mentioned you', 'quoted your post', 'liked your post'].map((action, index) => ({
+      accountIndex: 0, text: `Alice ${action}`, actorName: 'Alice', profileUrl: 'https://x.com/alice',
+      targetUrl: `https://x.com/alice/status/${9000 + index}`,
+    })),
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().waitFor({ state: 'visible' });
+  await page.locator('#notif-center-reason').selectOption('conversation');
+  assert.equal(await page.locator('.notif-center-item').count(), 3);
+  assert.doesNotMatch(await page.locator('#notif-center-list').textContent(), /liked your post/);
+  await page.reload();
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#notif-center-reason').inputValue(), 'conversation');
+  assert.equal(await page.locator('.notif-center-item').count(), 3);
+});
 const NOTIFICATIONS_URL = 'https://x.com/notifications';
 const LIKED_POST_URL = 'https://x.com/socialdeck/status/123';
 const X_AVATAR_URL = 'https://pbs.twimg.com/profile_images/alice.jpg';
@@ -199,11 +218,13 @@ async function launchApp(t, fixtures) {
           callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(body) });
           return;
         }
-        const notificationsHtml = partition === 'persist:x-1'
+        const notificationsHtml = global.__e2eNotificationHtml || (partition === 'persist:x-1'
           ? fixture.notificationsHtml
-          : fixture.notificationsHtml.replaceAll('Alice', 'Other');
+          : fixture.notificationsHtml.replaceAll('Alice', 'Other'));
         const body = network === 'x' && fixture.simulateXLogin && url.pathname !== '/i/flow/login'
           ? '<!doctype html><html><body><script>location.replace("https://x.com/i/flow/login")</script></body></html>'
+          : network === 'x' && fixture.redirectNotifications && url.pathname === '/notifications' && !url.searchParams.has('ready')
+            ? '<!doctype html><html><body><script>location.replace("https://x.com/notifications?ready=1")</script></body></html>'
           : network === 'x' && url.pathname === '/notifications'
             ? notificationsHtml
             : fixture.pageHtml.replaceAll('__PATH__', url.pathname);
@@ -243,9 +264,12 @@ async function launchApp(t, fixtures) {
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
     simulateXLogin: Boolean(fixtures.simulateXLogin),
+    redirectNotifications: Boolean(fixtures.redirectNotifications),
     avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   });
   const page = await electronApp.firstWindow();
+  await page.locator('script[src="renderer.js"]').waitFor({ state: 'attached', timeout: 10000 });
+  await page.waitForLoadState('domcontentloaded');
   await page.evaluate(() => {
     window.__e2eWarnings = [];
     const originalWarn = console.warn;
@@ -680,5 +704,226 @@ test('anime schedule Column can be added and persisted from the picker', async t
 
   if (process.env.SOCIALDECK_E2E_SCREENSHOT) {
     await page.screenshot({ path: process.env.SOCIALDECK_E2E_SCREENSHOT });
+  }
+});
+
+test('X replies show a toast and remain unread until the conversation opens', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false, xNotifications: [] });
+  await page.evaluate(async () => {
+    await notificationCenterRuntime.reload();
+    replyNotificationRuntime.observe([notificationCenter.normalizeXNotification({ text: 'Alice replied: Hello!', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/socialdeck/status/123' }, { account: state.xs[0], accountIndex: 0 })], state.xs[0], 0);
+    await notificationCenterRuntime.reload();
+  });
+  await page.locator('#reply-toast').waitFor({ state: 'visible', timeout: 5000 });
+  assert.equal(await page.locator('#bsky-notif-badge').textContent(), '1');
+  await page.locator('#reply-toast-close').click();
+  assert.equal(await page.locator('#bsky-notif-badge').textContent(), '1');
+  assert.equal(await page.locator('#sb-notif-icons > button').count(), 1);
+  await page.locator('#sb-notif-b').click();
+  const item = page.locator('.notif-center-item.unread').filter({ hasText: 'Alice' });
+  await item.waitFor({ state: 'visible', timeout: 5000 });
+  await item.click();
+  await page.locator('#bsky-notif-badge').waitFor({ state: 'hidden', timeout: 5000 }).catch(async error => { throw new Error(error.message + JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toast').textContent, warnings: window.__e2eWarnings, unread: replyNotificationRuntime.unreadItems() })))); });
+});
+
+test('notification center opens the correct account reply composer and preserves it on return', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, {
+    ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: [{ accountIndex: 1, text: 'Alice replied: Hello!', actorName: 'Alice',
+      profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/456' }],
+  });
+  await page.locator('#sb-notif-b').click();
+  const button = page.locator('[data-notification-reply]').first();
+  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.click();
+  await page.locator('#notif-reply-panel').waitFor({ state: 'visible', timeout: 5000 });
+  const composer = page.locator('#notif-reply-host webview');
+  assert.equal(await composer.getAttribute('partition'), 'persist:x-1');
+  assert.equal(await composer.getAttribute('src'), 'https://x.com/intent/tweet?in_reply_to=456');
+  assert.match(await page.locator('#notif-reply-title').textContent(), /@second/);
+  assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
+  await composer.evaluate(el => { el.dataset.retained = 'yes'; });
+  await page.locator('#notif-reply-back').click();
+  await button.click();
+  assert.equal(await composer.getAttribute('data-retained'), 'yes');
+  assert.equal(await page.locator('#sb-notif-icons > button').count(), 1);
+});
+
+test('X reply read buttons clear individual and all unread replies without navigation', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false, xNotifications: [] });
+  await page.evaluate(async () => {
+    await notificationCenterRuntime.reload();
+    const account = state.xs[0];
+    replyNotificationRuntime.observe([123, 456].map(id => notificationCenter.normalizeXNotification({
+      text: 'Alice replied: Hello!', actorName: 'Alice', profileUrl: 'https://x.com/alice',
+      targetUrl: `https://x.com/alice/status/${id}`,
+    }, { account, accountIndex: 0 })), account, 0);
+    await notificationCenterRuntime.reload();
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('[data-notification-read]').first().click();
+  assert.equal(await page.locator('#bsky-notif-badge').textContent(), '1');
+  assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
+  await page.locator('[data-notification-action="mark-x-read"]').click();
+  await page.locator('#bsky-notif-badge').waitFor({ state: 'hidden', timeout: 5000 });
+  await page.evaluate(() => notificationCenterRuntime.reload());
+  assert.equal(await page.locator('[data-notification-read]').count(), 0);
+  assert.equal(await page.evaluate(() => replyNotificationRuntime.unreadItems().length), 0);
+});
+
+test('fetches X notifications at startup with the notification center and Columns closed', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, X_FIXTURES);
+  const deadline = Date.now() + 10000;
+  let received = false;
+  while (Date.now() < deadline) {
+    received = await page.evaluate(() => notificationCenterRuntime.getAllItems().some(item => item.networkId === 'x'));
+    if (received) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(received, true);
+  assert.equal(await page.locator('.col[data-definition-id="x-notif-new"]').count(), 0);
+  assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), false);
+  assert.equal(await page.evaluate(() => desktopNotificationRuntime.getSnapshot().rules.enabled), false);
+});
+
+test('X notification extraction survives a client redirect without aborted navigation', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, redirectNotifications: true });
+  const result = await page.evaluate(async () => {
+    const outcome = await notificationCenterRuntime.reload();
+    return { errors: outcome.snapshot.xErrors, count: outcome.snapshot.items.filter(item => item.networkId === 'x').length };
+  });
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.count > 0);
+  const repeated = await page.evaluate(async () => {
+    await desktopNotificationRuntime.updateRules({ enabled: true });
+    const outcomes = [];
+    for (let count = 0; count < 2; count++) {
+      outcomes.push(await desktopNotificationRuntime.poll());
+    }
+    return { statuses: outcomes.map(outcome => outcome.status),
+      count: notificationCenterRuntime.getAllItems().filter(item => item.networkId === 'x').length };
+  });
+  assert.deepEqual(repeated.statuses, ['succeeded', 'succeeded']);
+  assert.ok(repeated.count > 0);
+});
+
+test('notification account choices are saved and restored after renderer restart', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false, xNotifications: [] });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('#notif-center-settings summary').click();
+  await page.locator('[data-fetch-account="0"]').uncheck();
+  assert.match(await page.locator('.notif-fetch-account').first().textContent(), /取得オフ/);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_notification_accounts_v1')));
+  assert.equal(saved['persist:x-0'], false);
+  await page.reload();
+  await page.locator('#sb-notif-b').click();
+  await page.locator('#notif-center-settings summary').click();
+  assert.equal(await page.locator('[data-fetch-account="0"]').isChecked(), false);
+  assert.equal(await page.locator('[data-fetch-account="1"]').isChecked(), true);
+  await page.locator('[data-fetch-account="0"]').check();
+  assert.equal(await page.locator('[data-fetch-account="0"]').isChecked(), true);
+});
+
+test('notification center shows account errors while keeping cached rows and supports retry', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, X_FIXTURES);
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().waitFor({ state: 'visible', timeout: 10000 });
+  const before = await page.locator('.notif-center-item').count();
+  await page.evaluate(async () => {
+    window.__savedNotificationReader = xWebViewRuntime.listNotifications;
+    xWebViewRuntime.listNotifications = async options => {
+      if (options.accountId === '@first') throw new Error('test account offline');
+      return window.__savedNotificationReader(options);
+    };
+    await notificationCenterRuntime.reload();
+  });
+  assert.equal(await page.locator('.notif-center-item').count(), before);
+  assert.match(await page.locator('.notif-fetch-account').first().textContent(), /取得失敗.*最終取得.*test account offline/);
+  await page.evaluate(() => { xWebViewRuntime.listNotifications = window.__savedNotificationReader; });
+  assert.match(await page.locator('#notif-center-health').textContent(), /1アカウントを確認/);
+  await page.locator('#notif-center-settings summary').click();
+  await page.locator('[data-fetch-retry="0"]').click();
+  await page.locator('.notif-fetch-account').first().filter({ hasText: '取得済み' }).waitFor({ state: 'visible', timeout: 10000 });
+  assert.doesNotMatch(await page.locator('.notif-fetch-account').first().textContent(), /test account offline/);
+});
+
+test('closed notification center receives replies and likes through the real background timer', { timeout: 45000 }, async t => {
+  const { page, electronApp } = await launchApp(t, { ...X_FIXTURES,
+    state: { ...X_FIXTURES.state, xs: [X_FIXTURES.state.xs[0]] },
+  });
+  const baselineDeadline = Date.now() + 10000;
+  while (Date.now() < baselineDeadline) {
+    if (await page.evaluate(() => notificationCenterRuntime.getAllItems().length > 0)) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(await page.evaluate(() => notificationCenterRuntime.getAllItems().length > 0));
+  await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
+  await electronApp.evaluate(() => {
+    global.__e2eNotificationHtml = `<!doctype html><html><body>
+      <div data-testid="cellInnerDiv"><a href="https://x.com/carol">Carol</a><a href="https://x.com/carol/status/501">Carol replied to you</a></div>
+      <div data-testid="cellInnerDiv"><a href="https://x.com/dave">Dave</a><a href="https://x.com/socialdeck/status/502">Dave liked your post</a></div>
+    </body></html>`;
+  });
+  await page.locator('#bsky-notif-badge').waitFor({ state: 'visible', timeout: 35000 });
+  assert.equal(await page.locator('#bsky-notif-badge').textContent(), '2');
+  assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), false);
+  assert.equal(await page.locator('.col[data-definition-id="x-notif-new"]').count(), 0);
+  await page.locator('#reply-toast').waitFor({ state: 'visible', timeout: 2000 });
+  await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].show());
+  await page.locator('#reply-toast-content').click();
+  await page.locator('#notifCenterMod.on').waitFor({ state: 'visible', timeout: 2000 });
+  assert.equal(await page.locator('.notif-center-item.unread').count(), 2);
+});
+
+test('unread filter survives closing and app reload and unchanged refresh keeps rows', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: [{ accountIndex: 0, text: 'Alice replied: hello', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/999' }],
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().waitFor({ state: 'visible', timeout: 5000 });
+  await page.locator('.notif-center-item').first().evaluate(element => { element.dataset.preserved = 'yes'; });
+  await page.evaluate(() => notificationCenterRuntime.reload());
+  assert.equal(await page.locator('.notif-center-item').first().getAttribute('data-preserved'), 'yes');
+  await page.locator('#notif-center-unread').check();
+  await page.locator('#notifCenterMod [data-notification-action="close"]').click();
+  await page.locator('#sb-notif-b').click();
+  assert.equal(await page.locator('#notif-center-unread').isChecked(), true);
+  await page.reload();
+  await page.locator('#sb-notif-b').click();
+  assert.equal(await page.locator('#notif-center-unread').isChecked(), true);
+  await page.locator('#notif-center-unread').uncheck();
+  await page.locator('#notifCenterMod [data-notification-action="close"]').click();
+  await page.locator('#sb-notif-b').click();
+  assert.equal(await page.locator('#notif-center-unread').isChecked(), false);
+});
+
+test('notification search and pagination keep actions bound to the matching account and post', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: Array.from({ length: 125 }, (_, index) => ({ accountIndex: index === 100 ? 1 : 0,
+      text: `Alice replied: message ${index}`, actorName: 'Alice', profileUrl: 'https://x.com/alice',
+      targetUrl: `https://x.com/alice/status/${1000 + index}` })),
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#notif-center-settings').evaluate(el => el.open), false);
+  assert.equal(await page.locator('.notif-center-item').count(), 60);
+  await page.locator('[data-notification-action="more"]').click();
+  assert.equal(await page.locator('.notif-center-item').count(), 120);
+  await page.locator('[data-notification-action="more"]').click();
+  assert.equal(await page.locator('.notif-center-item').count(), 125);
+  await page.locator('#notif-center-search').fill('ＭＥＳＳＡＧＥ 100 @second');
+  assert.equal(await page.locator('.notif-center-item').count(), 1);
+  assert.match(await page.locator('.notif-center-meta').textContent(), /@second/);
+  await page.locator('[data-notification-reply]').click();
+  assert.equal(await page.locator('#notif-reply-host webview').getAttribute('partition'), 'persist:x-1');
+  assert.match(await page.locator('#notif-reply-host webview').getAttribute('src'), /in_reply_to=1100/);
+  await page.locator('#notif-reply-back').click();
+  await page.locator('#notif-center-search').fill('nothing-matches-this');
+  assert.match(await page.locator('.notif-center-state').textContent(), /検索に一致/);
+  await page.evaluate(() => notificationCenterRuntime.open({ network: 'x' }));
+  assert.equal(await page.locator('#notif-center-search').inputValue(), '');
+  assert.equal(await page.locator('.notif-center-item').count(), 60);
+  if (process.env.SOCIALDECK_NOTIFICATION_PREVIEW) {
+    await page.locator('#notifCenterMod').screenshot({ path: process.env.SOCIALDECK_NOTIFICATION_PREVIEW });
   }
 });

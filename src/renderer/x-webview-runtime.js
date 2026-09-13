@@ -21,6 +21,8 @@
     let postingDepth = 0;
     const reloadQueue = new Set();
     const silentReloading = new Set();
+    const notificationReads = new Set();
+    const extractedReaders = new WeakSet();
 
     function syncAccounts(nextAccounts = []) {
       accounts = nextAccounts.map((account, index) => ({
@@ -410,9 +412,9 @@
       return null;
     }
 
-    function getNotificationReader(host, account) {
+    function getNotificationReader(host, account, forceHidden = false) {
       const id = `x-notif-reader-${account.index}`;
-      const visible = findVisibleNotificationWebView(account.partition);
+      const visible = forceHidden ? null : findVisibleNotificationWebView(account.partition);
       if (visible) {
         documentRef.getElementById(id)?.remove();
         return visible;
@@ -428,10 +430,11 @@
       webview = documentRef.createElement('webview');
       webview.id = id;
       webview.setAttribute('partition', account.partition);
-      webview.setAttribute('webpreferences', 'backgroundThrottling=true');
+      webview.setAttribute('webpreferences', 'backgroundThrottling=false');
       const preloadPath = getPreloadPath();
       if (preloadPath) webview.setAttribute('preload', preloadPath);
       webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
+      webview.addEventListener('did-start-loading', () => { webview.dataset.ready = 'false'; });
       webview.src = 'https://x.com/notifications';
       host.appendChild(webview);
       return webview;
@@ -441,6 +444,7 @@
       let disposed = 0;
       documentRef.querySelectorAll('webview').forEach(webview => {
         if (!/^x-notif-reader-\d+$/.test(webview.id || '')) return;
+        if (notificationReads.has(webview)) return;
         webview.remove();
         disposed += 1;
       });
@@ -461,16 +465,32 @@
       return { columnWebViewCount, notificationReaderCount };
     }
 
-    async function listNotifications({ accountId, host, script, retainReader = false }) {
+    async function listNotifications({ accountId, host, script, retainReader = false, refreshReader = false, forceHidden = false }) {
       const account = findAccount(accountId);
       if (!account) return [];
-      const webview = getNotificationReader(host, account);
+      const webview = getNotificationReader(host, account, forceHidden);
       if (!webview) return [];
       const hiddenReader = /^x-notif-reader-\d+$/.test(webview.id || '');
+      notificationReads.add(webview);
       try {
+        if (hiddenReader && refreshReader && extractedReaders.has(webview)) {
+          // A retained reader needs a refresh; a new reader is already navigating via src.
+          // reload() has no loadURL promise that can reject on X's client redirects.
+          webview.dataset.ready = 'false';
+          const ready = waitUntilReady(webview, 'X通知ページを読み込めませんでした');
+          webview.reload();
+          await ready;
+        }
         await waitUntilReady(webview, 'X通知ページを読み込めませんでした');
-        return await webview.executeJavaScript(script) || [];
+        const currentUrl = webview.getURL?.() || webview.src || '';
+        if (/\/i\/flow\/login|\/login(?:[/?#]|$)/.test(currentUrl)) {
+          throw Object.assign(new Error('Xへのログインが必要です'), { code: 'X_LOGIN_REQUIRED' });
+        }
+        const items = await webview.executeJavaScript(script) || [];
+        extractedReaders.add(webview);
+        return items;
       } finally {
+        notificationReads.delete(webview);
         if (hiddenReader && !retainReader) webview.remove();
       }
     }
@@ -482,6 +502,7 @@
       const needsActivation = ['like', 'repost', 'reply', 'mention', 'quote'].includes(item.reason)
         && !/\/status\/\d+/.test(targetUrl);
       if (!needsActivation) {
+        await waitUntilReady(webview, 'X通知カラムを読み込めませんでした');
         await webview.loadURL(targetUrl);
         return { status: 'opened' };
       }
