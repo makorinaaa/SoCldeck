@@ -82,6 +82,9 @@ jobs:
             exit $testExitCode
           }
 
+      - name: Run local security tests
+        run: npm.cmd run test:security
+
       - name: Upload test diagnostics
         if: always()
         uses: actions/upload-artifact@v6

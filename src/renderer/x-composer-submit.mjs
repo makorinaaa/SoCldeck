@@ -64,7 +64,9 @@ async function submitXComposer({ text, images = [], videoDataUrl = null, timeout
     const attached = videoDataUrl
       ? Boolean(scope.querySelector('[data-testid="attachments"] [data-testid="videoPlayer"], [data-testid="attachments"] video'))
       : scope.querySelectorAll('[data-testid="attachments"] [data-testid="tweetPhoto"]').length === images.length;
-    const busy = scope.querySelector('[role="progressbar"], [aria-busy="true"]');
+    // The toolbar's character counter is also a permanent progressbar.
+    // Only attachment progress blocks delivery; the post button gates other work.
+    const busy = scope.querySelector('[data-testid="attachments"] [role="progressbar"], [data-testid="attachments"] [aria-busy="true"]');
     const button = scope.querySelector(buttonSelector);
     return (!attachments.length || attached) && !busy && button
       && !button.disabled && button.getAttribute('aria-disabled') !== 'true';

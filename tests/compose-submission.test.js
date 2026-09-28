@@ -284,3 +284,14 @@ test('asks before retrying a cross-post with an unknown previous outcome', async
   assert.equal(calls.cross.length, 0);
   assert.deepEqual(plain(calls.busy), []);
 });
+
+test('Bluesky failure leaves the draft open and releases the sending state', async () => {
+  const { runtime, calls } = createHarness({
+    snapshots: { b: { text: '投稿テスト', crossPost: false, media: { images: [], video: null } } },
+    singleResult: { status: 'failed', error: new Error('Upload failed') },
+  });
+  await runtime.submit('b');
+  assert.deepEqual(calls.closed, []);
+  assert.deepEqual(calls.busy.at(-1), ['b', false, '再試行']);
+  assert.match(calls.toasts.at(-1), /Upload failed/);
+});

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const vm = require('node:vm');
 
-async function composer({ ticks = [], fileInput = true } = {}) {
+async function composer({ ticks = [], fileInput = true, characterCounter = false } = {}) {
   const state = { photos: 0, video: false, busy: false, disabled: false, clicks: 0, polls: 0, error: '', files: [] };
   const style = { setProperty() {}, removeProperty() {} };
   const button = { get disabled() { return state.disabled; }, getAttribute: () => null, click() { state.clicks++; } };
@@ -13,7 +13,7 @@ async function composer({ ticks = [], fileInput = true } = {}) {
       if (selector.includes('toolBar')) return {};
       if (selector.includes('fileInput')) return fileInput ? input : null;
       if (selector.includes('videoPlayer')) return state.video ? {} : null;
-      if (selector.includes('progressbar')) return state.busy ? {} : null;
+      if (selector.includes('progressbar')) return (state.busy || (characterCounter && !selector.includes('attachments'))) ? {} : null;
       if (selector.includes('tweetButton')) return button;
       if (selector.includes('alert')) return state.error ? { textContent: state.error } : null;
       return null;
@@ -96,4 +96,17 @@ test('supports image drop fallback and text-only submission', async () => {
   const plain = await composer();
   await plain.submit({ text: 'hello' });
   assert.equal(plain.state.clicks, 1);
+});
+
+test('posts with the persistent character-count progressbar present', async () => {
+  const { state, submit } = await composer({ characterCounter: true, ticks: [state => { state.photos = 1; }] });
+  await submit({ text: 'スピン募集', images: [photo] });
+  assert.equal(state.clicks, 1);
+});
+
+test('text-only X post ignores the character counter too', async () => {
+  const { state, submit } = await composer({ characterCounter: true });
+  await submit({ text: '本文のみ' });
+  assert.equal(state.clicks, 1);
+  assert.equal(state.polls, 0);
 });

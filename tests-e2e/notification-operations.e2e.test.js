@@ -13,7 +13,7 @@ test('X submission waits for composer attachments and ignores media in the timel
     <article data-testid="attachments"><div data-testid="tweetPhoto"></div><div data-testid="tweetPhoto"></div></article>
     <div role="dialog">
       <div contenteditable="true" data-testid="tweetTextarea_0"></div>
-      <div data-testid="toolBar"><input type="file" data-testid="fileInput" multiple></div>
+      <div data-testid="toolBar"><input type="file" data-testid="fileInput" multiple><div role="progressbar" aria-label="Character count" aria-valuenow="5" aria-valuemax="280"></div></div>
       <div data-testid="attachments" id="media"></div>
       <button data-testid="tweetButton">Post</button>
     </div>
@@ -27,15 +27,15 @@ test('X submission waits for composer attachments and ignores media in the timel
       document.querySelector('input').addEventListener('change', event => {
         const count = event.target.files.length;
         const progress = document.createElement('div'); progress.setAttribute('role', 'progressbar');
-        document.querySelector('[role="dialog"]').appendChild(progress);
+        document.getElementById('media').appendChild(progress);
         setTimeout(() => {
-          document.getElementById('media').innerHTML = '<div data-testid="tweetPhoto"></div>'.repeat(count);
+          document.getElementById('media').insertAdjacentHTML('beforeend', '<div data-testid="tweetPhoto"></div>'.repeat(count));
           setTimeout(() => progress.remove(), 250);
         }, 250);
       });
       document.querySelector('button').addEventListener('click', () => window.submissions.push({
         count: document.getElementById('media').children.length,
-        busy: Boolean(document.querySelector('[role="progressbar"]'))
+        busy: Boolean(document.querySelector('#media [role="progressbar"]'))
       }));
     </script>
   </body></html>` });
@@ -963,6 +963,8 @@ test('notification center shows account errors while keeping cached rows and sup
   await page.locator('.notif-center-item').first().waitFor({ state: 'visible', timeout: 10000 });
   const before = await page.locator('.notif-center-item').count();
   await page.evaluate(async () => {
+    // Drain startup/open refresh before replacing the reader; reload coalesces active work.
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
     window.__savedNotificationReader = (await import('./renderer.js')).xWebViewRuntime.listNotifications;
     (await import('./renderer.js')).xWebViewRuntime.listNotifications = async options => {
       if (options.accountId === '@first') throw new Error('test account offline');
