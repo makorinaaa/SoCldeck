@@ -47,7 +47,7 @@
           title: column.querySelector('.col-title')?.textContent || '',
           sub: column.querySelector('.col-sub')?.textContent?.trim() || '',
           icCls: column.querySelector('.col-ic')?.className?.replace('col-ic ', '') || defaultIconClass,
-          width: column.style.width || '',
+          width: (isCollapsed(id) ? column.dataset.savedWidth ?? column.style.width : column.style.width) || '',
           interval: getInterval(id),
           collapsed: isCollapsed(id),
         };

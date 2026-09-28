@@ -32,7 +32,7 @@ function createBlueskySessionVault({ filePath, safeStorage, fsImpl = fs } = {}) 
   if (!filePath || !safeStorage) throw new Error('Bluesky Session Vault requires secure storage');
 
   function assertEncryptionAvailable() {
-    if (!safeStorage.isEncryptionAvailable?.()) {
+    if (!safeStorage.isEncryptionAvailable?.() || safeStorage.getSelectedStorageBackend?.() === 'basic_text') {
       throw new Error('Bluesky session encryption is unavailable');
     }
   }

@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check for committed secrets
+        run: npm.cmd run security:check
+
       - name: Run unit tests
         shell: pwsh
         run: |

@@ -1,6 +1,6 @@
 {
   "name": "socialdeck",
-  "version": "2.4.14",
+  "version": "2.5.0",
   "description": "TweetDeck風マルチカラムクライアント (X + Bluesky)",
   "main": "src/main.js",
   "scripts": {
@@ -17,7 +17,8 @@
     "dev": "electron . --dev",
     "build-win": "npm run ffmpeg:install:win && electron-builder --win --publish never",
     "build-mac": "electron-builder --mac --publish never",
-    "build-linux": "electron-builder --linux --publish never"
+    "build-linux": "electron-builder --linux --publish never",
+    "security:check": "node scripts/check-secrets.cjs"
   },
   "build": {
     "appId": "com.socialdeck.app",
@@ -88,7 +89,7 @@
   "license": "ISC",
   "type": "commonjs",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@cliqz/adblocker-electron": "1.34.0",

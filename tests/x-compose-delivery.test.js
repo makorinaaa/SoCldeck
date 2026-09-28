@@ -26,6 +26,7 @@ test('executes an X image delivery through one WebView adapter', async () => {
     },
   };
   const delivery = createDelivery({
+    createSubmissionScript: input => JSON.stringify(input),
     createPreparationScript: () => 'prepare-script',
     createConfirmationScript: input => `confirm:${JSON.stringify(input)}`,
     readFileAsDataUrl: async file => `data:${file.name}`,
@@ -58,6 +59,7 @@ test('owns X video trimming and temporary file cleanup', async () => {
     },
   };
   const delivery = createDelivery({
+    createSubmissionScript: input => JSON.stringify(input),
     createPreparationScript: () => 'prepare',
     createConfirmationScript: () => 'confirm',
     readFileAsDataUrl: async () => 'untrimmed',
@@ -102,6 +104,7 @@ test('preserves sub-second trim edges for X delivery', async () => {
   const trimCalls = [];
   let execution = 0;
   const delivery = createDelivery({
+    createSubmissionScript: input => JSON.stringify(input),
     createPreparationScript: () => 'prepare',
     createConfirmationScript: () => 'confirm',
     trimVideo: async (...args) => { trimCalls.push(args); return 'trimmed.mp4'; },
@@ -135,6 +138,7 @@ test('preserves sub-second trim edges for X delivery', async () => {
 test('stops X delivery when the WebView composer is not ready', async () => {
   const createDelivery = loadFactory();
   const delivery = createDelivery({
+    createSubmissionScript: input => JSON.stringify(input),
     createPreparationScript: () => 'prepare',
     createConfirmationScript: () => 'confirm',
     readFileAsDataUrl: async () => '',

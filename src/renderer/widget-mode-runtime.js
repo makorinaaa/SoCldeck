@@ -1,4 +1,9 @@
 (function (global) {
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[character]);
+  }
   const WIDGET_STYLES = `
     body.widget-mode { background: transparent !important; }
     body.widget-mode .sidebar,
@@ -97,7 +102,7 @@
         const fullLayout = columnRuntime.readStoredLayout();
         const selectedId = columnRuntime.getWidgetColumnId() || fullLayout[0]?.id;
         columnOptions = fullLayout.map(column =>
-          `<option value="${column.id}" ${column.id === selectedId ? 'selected' : ''}>${(column.title || column.id)}${column.sub ? ' · ' + column.sub : ''}</option>`
+          `<option value="${escapeHtml(column.id)}" ${column.id === selectedId ? 'selected' : ''}>${escapeHtml(column.title || column.id)}${column.sub ? ' · ' + escapeHtml(column.sub) : ''}</option>`
         ).join('');
       } catch {}
 

@@ -46,7 +46,7 @@ function normalizeFilePath(value) {
 function isSameFile(first, second) {
   const left = normalizeFilePath(first);
   const right = normalizeFilePath(second);
-  return Boolean(left && right) && left.toLowerCase() === right.toLowerCase();
+  return Boolean(left && right) && (process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right);
 }
 
 function isTrustedRendererUrl(value, indexPath) {
@@ -77,9 +77,9 @@ function isTrustedIpcSender(event, indexPath) {
   return isMainFrame && isTrustedRendererUrl(frame.url, indexPath);
 }
 
-function registerTrustedIpcHandler({ ipcMain, indexPath, channel, handler }) {
+function registerTrustedIpcHandler({ ipcMain, indexPath, channel, handler, isAllowedContents = () => true }) {
   ipcMain.handle(channel, async (event, ...args) => {
-    if (!isTrustedIpcSender(event, indexPath)) {
+    if (!isTrustedIpcSender(event, indexPath) || !isAllowedContents(event.sender)) {
       throw new Error('Unauthorized IPC sender');
     }
     return handler(event, ...args);

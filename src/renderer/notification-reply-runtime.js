@@ -1,15 +1,37 @@
 (function (global) {
   function replyUrl(item) {
     if (item?.networkId !== 'x' || !['reply', 'mention', 'quote'].includes(item.reason)) return null;
+    return postUrl(item);
+  }
+
+  function postUrl(item) {
     try {
       const url = new URL(item.targetUrl);
       if (url.protocol !== 'https:' || !['x.com', 'twitter.com', 'www.x.com', 'www.twitter.com'].includes(url.hostname)) return null;
-      const id = url.pathname.match(/^\/[^/]+\/status\/(\d+)(?:\/|$)/)?.[1];
-      return id ? `https://x.com/intent/tweet?in_reply_to=${id}` : null;
+      const post = url.pathname.match(/^\/([a-zA-Z0-9_]+)\/status\/(\d+)(?:\/|$)/);
+      // Open the post itself so the surrounding conversation stays available while replying.
+      return post ? `https://x.com/${post[1]}/status/${post[2]}` : null;
     } catch { return null; }
   }
 
-  function createNotificationReplyRuntime({ documentRef = global.document, getAccounts, getPreloadPath } = {}) {
+  function notificationUrl(item) {
+    if (item?.networkId === 'x') {
+      const post = postUrl(item);
+      if (post) return post;
+      if (item.reason === 'follow' && /^[a-zA-Z0-9_]+$/.test(item.author?.handle || '')) {
+        return `https://x.com/${item.author.handle}`;
+      }
+      return 'https://x.com/notifications';
+    }
+    if (item?.networkId === 'b') {
+      const post = item.targetUri?.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
+      if (post) return `https://bsky.app/profile/${encodeURIComponent(post[1])}/post/${encodeURIComponent(post[2])}`;
+      if (item.author?.did) return `https://bsky.app/profile/${encodeURIComponent(item.author.did)}`;
+    }
+    return null;
+  }
+
+  function createNotificationReplyRuntime({ documentRef = global.document, getAccounts, getPreloadPath, getBlueskyAccount = () => null, getActivationScript } = {}) {
     const panel = documentRef.getElementById('notif-reply-panel');
     const host = documentRef.getElementById('notif-reply-host');
     const title = documentRef.getElementById('notif-reply-title');
@@ -24,33 +46,50 @@
     }
 
     function open(item) {
-      const url = replyUrl(item);
-      const account = getAccounts().find(entry => (entry.partition || entry.username)
-        === (item.account?.partition || item.account?.username));
-      if (!url || !account || account.loginPending || !getPreloadPath()) return false;
-      const key = `${account.partition}:${url}`;
+      const url = notificationUrl(item);
+      const isX = item?.networkId === 'x';
+      const account = isX ? getAccounts().find(entry => (entry.partition || entry.username)
+        === (item.account?.partition || item.account?.username)) : getBlueskyAccount();
+      if (!url || !account || account.loginPending || (isX && !getPreloadPath())) return false;
+      const partition = isX ? account.partition : 'persist:bsky';
+      const needsActivation = isX && url === 'https://x.com/notifications';
+      const key = `${partition}:${isX ? '' : account.did || account.handle}:${url}:${needsActivation ? item.id : ''}`;
       if (currentKey !== key) {
         const webview = documentRef.createElement('webview');
-        webview.setAttribute('partition', account.partition);
-        webview.setAttribute('preload', getPreloadPath());
+        webview.setAttribute('partition', partition);
+        if (isX) webview.setAttribute('preload', getPreloadPath());
         webview.setAttribute('webpreferences', 'backgroundThrottling=false');
-        webview.setAttribute('aria-label', 'Xの返信画面');
+        webview.setAttribute('aria-label', '通知の対象ページ');
         webview.src = url;
-        status.textContent = '返信画面を読み込んでいます…';
-        webview.addEventListener('did-finish-load', () => {
-          if (currentWebview === webview) status.textContent = '';
+        status.textContent = '投稿と会話を読み込んでいます…';
+        let activated = false;
+        webview.addEventListener('did-finish-load', async () => {
+          if (currentWebview !== webview) return;
+          status.textContent = '';
+          if (needsActivation && !activated) {
+            activated = true;
+            try {
+              const script = getActivationScript?.(item);
+              if (!script || !await webview.executeJavaScript(script)) {
+                if (currentWebview === webview) status.textContent = '対象を見つけられませんでした。表示中の通知ページから確認できます。';
+              }
+            } catch {
+              if (currentWebview === webview) status.textContent = '対象を開けませんでした。表示中の通知ページから確認できます。';
+            }
+          }
         });
         webview.addEventListener('did-fail-load', event => {
           if (currentWebview === webview && event.errorCode !== -3) {
-            status.textContent = '返信画面を読み込めませんでした。「再読み込み」を押してください。';
+            status.textContent = '投稿と会話を読み込めませんでした。「再読み込み」を押してください。';
           }
         });
         currentWebview = webview;
         currentKey = key;
         host.replaceChildren(webview);
       }
-      title.textContent = `${account.username} から ${item.author?.displayName || item.author?.handle || '相手'}さんへ返信`;
+      title.textContent = `${isX ? account.username : account.handle || 'Bluesky'} · ${item.reason === 'follow' ? 'プロフィール' : '投稿と会話'}`;
       panel.hidden = false;
+      modal.classList.add('on');
       modal.classList.add('replying');
       return true;
     }
@@ -62,5 +101,5 @@
     return { open, back };
   }
 
-  global.SocialDeckNotificationReply = { replyUrl, createNotificationReplyRuntime };
+  global.SocialDeckNotificationReply = { replyUrl, notificationUrl, createNotificationReplyRuntime };
 })(window);

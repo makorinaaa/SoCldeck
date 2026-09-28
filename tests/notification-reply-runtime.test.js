@@ -9,10 +9,20 @@ function load() {
   return context.window.SocialDeckNotificationReply;
 }
 
-test('reply intents target only a supported X notification post', () => {
+test('notification pages resolve likes, follows, and Bluesky post owners', () => {
+  const { notificationUrl } = load();
+  assert.equal(notificationUrl({ networkId: 'x', reason: 'like', targetUrl: 'https://x.com/me/status/123' }), 'https://x.com/me/status/123');
+  assert.equal(notificationUrl({ networkId: 'x', reason: 'like', targetUrl: 'https://x.com/alice' }), 'https://x.com/notifications');
+  assert.equal(notificationUrl({ networkId: 'x', reason: 'follow', author: { handle: 'alice' } }), 'https://x.com/alice');
+  assert.equal(notificationUrl({ networkId: 'b', reason: 'like', targetUri: 'at://did:plc:owner/app.bsky.feed.post/abc', author: { did: 'did:plc:liker' } }), 'https://bsky.app/profile/did%3Aplc%3Aowner/post/abc');
+});
+
+test('reply view opens the conversation post without tracking or media suffixes', () => {
   const { replyUrl } = load();
   const item = { networkId: 'x', reason: 'reply', targetUrl: 'https://x.com/alice/status/123?ref=notification' };
-  assert.equal(replyUrl(item), 'https://x.com/intent/tweet?in_reply_to=123');
+  assert.equal(replyUrl(item), 'https://x.com/alice/status/123');
+  assert.equal(replyUrl({ ...item, reason: 'mention', targetUrl: 'https://twitter.com/alice/status/123/photo/1' }), 'https://x.com/alice/status/123');
+  assert.equal(replyUrl({ ...item, reason: 'quote', targetUrl: 'https://x.com/alice/status/123#replies' }), 'https://x.com/alice/status/123');
   assert.equal(replyUrl({ ...item, targetUrl: 'https://example.com/alice/status/123' }), null);
   assert.equal(replyUrl({ ...item, reason: 'like' }), null);
   assert.equal(replyUrl({ ...item, targetUrl: 'https://x.com/notifications' }), null);

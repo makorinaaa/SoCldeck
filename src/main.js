@@ -1,6 +1,9 @@
 const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
+const workspaceBackupFiles = createWorkspaceBackupFiles({ dialog });
+const { createXPageDiagnostics } = require('./main/x-page-diagnostics');
 const os = require('os');
 const { randomUUID } = require('crypto');
 const { pathToFileURL } = require('url');
@@ -49,6 +52,10 @@ const fetch = (...args) => import('node-fetch').then(m => m.default(...args)).ca
 const ADBLOCK_CACHE = path.join(app.getPath('userData'), 'adblocker-cache.bin');
 
 let blocker = null;
+const xPageDiagnostics = createXPageDiagnostics({
+  save: data => fs.writeFileSync(path.join(app.getPath('userData'), 'x-page-diagnostics.json'), JSON.stringify(data, null, 2)),
+});
+app.on('before-quit', () => xPageDiagnostics.flush());
 
 const X_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -59,7 +66,11 @@ const WEBVIEW_PRELOAD_PATH = path.join(__dirname, 'webview-preload.js');
 const isDevelopment = process.argv.includes('--dev');
 
 function handleTrustedIpc(channel, handler) {
-  return registerTrustedIpcHandler({ ipcMain, indexPath: INDEX_PATH, channel, handler });
+  return registerTrustedIpcHandler({
+    ipcMain, indexPath: INDEX_PATH, channel, handler,
+    isAllowedContents: contents => [mainWindow, widgetWindow].some(window =>
+      window && !window.isDestroyed() && window.webContents === contents),
+  });
 }
 
 function parseHttpUrl(value) {
@@ -124,7 +135,10 @@ function applyAdBlockToSession(targetSession) {
   if (!blocker) return;
   try {
     targetSession.webRequest.onBeforeRequest(
-      (details, callback) => blocker.onBeforeRequest(details, callback)
+      (details, callback) => blocker.onBeforeRequest(details, result => {
+        if (result.cancel || result.redirectURL) xPageDiagnostics.blocked(details);
+        callback(result);
+      })
     );
     console.log('[AdBlock] セッションに適用しました');
   } catch (e) {
@@ -293,6 +307,7 @@ function createWindow() {
 // ── webview の権限設定 ──
 app.on('web-contents-created', (_, contents) => {
   if (contents.getType() === 'webview') {
+    xPageDiagnostics.attachContents(contents);
     denyWebviewPermissions(contents.session);
     secureWebviewContents(contents, { openExternalUrl });
 
@@ -312,6 +327,8 @@ app.on('web-contents-created', (_, contents) => {
 handleTrustedIpc('get-config', () => loadConfig());
 handleTrustedIpc('set-config', (_, data) => { saveConfig(data); return true; });
 handleTrustedIpc('get-app-version', () => app.getVersion());
+handleTrustedIpc('save-workspace-backup', (_, text) => workspaceBackupFiles.save(text));
+handleTrustedIpc('open-workspace-backup', () => workspaceBackupFiles.open());
 handleTrustedIpc('load-bluesky-session', () => blueskyGateway.restoreAccount());
 handleTrustedIpc('store-bluesky-session', (_, credentials) => blueskyGateway.migrateSession(credentials));
 handleTrustedIpc('clear-bluesky-session', () => blueskyGateway.clear());
@@ -548,28 +565,7 @@ function buildMenu() {
 
 // ── アプリ起動 ──
 app.whenReady().then(async () => {
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const headers = details.responseHeaders || {};
-    for (const key of Object.keys(headers)) {
-      const lower = key.toLowerCase();
-      if (lower === 'x-frame-options' || lower === 'x-content-type-options') {
-        delete headers[key];
-      }
-    }
-    callback({ responseHeaders: headers });
-  });
-
   const xSession = session.fromPartition('persist:x');
-  xSession.webRequest.onHeadersReceived((details, callback) => {
-    const headers = details.responseHeaders || {};
-    for (const key of Object.keys(headers)) {
-      const lower = key.toLowerCase();
-      if (lower === 'x-frame-options') {
-        delete headers[key];
-      }
-    }
-    callback({ responseHeaders: headers });
-  });
 
   xSession.webRequest.onBeforeSendHeaders((details, callback) => {
     details.requestHeaders['User-Agent'] =

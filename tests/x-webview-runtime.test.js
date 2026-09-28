@@ -47,7 +47,7 @@ function createWebView({ id = '', partition = '', src = '' } = {}) {
   };
 }
 
-function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false } = {}) {
+function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false } = {}) {
   const elements = new Map();
   const webviews = [];
   const columns = [];
@@ -95,11 +95,27 @@ function createHarness({ loginPending = false, loginGate = null, allowDevTools =
     getCanonicalUrl: id => id.includes('notif') ? 'https://x.com/notifications' : null,
     getPreloadPath: () => 'file:///preload.js',
     allowDevTools,
-    setTimeoutFn: realTimers ? setTimeout : fn => { fn(); return 1; },
+    setTimeoutFn: deferTimers ? () => 1 : realTimers ? setTimeout : fn => { fn(); return 1; },
     clearTimeoutFn: realTimers ? clearTimeout : () => {},
   });
   return { runtime, elements, webviews, columns };
 }
+
+test('ready post content is not covered while slow subresources keep navigation loading', async () => {
+  const { runtime, elements } = createHarness({ deferTimers: true });
+  const overlay = { style: { display: 'none' } };
+  elements.set('wvov-x-home', overlay);
+  const webview = runtime.mountColumn({ id: 'x-home', networkId: 'x', partition: 'persist:x-0', targetUrl: 'https://x.com/home',
+    host: { insertBefore() {} } });
+  elements.set('wv-x-home', webview);
+  webview.emit('dom-ready');
+  await runtime.reload('x-home');
+  assert.equal(webview.style.opacity, '0');
+  webview.src = 'https://x.com/alice/status/123';
+  webview.emit('dom-ready');
+  assert.notEqual(webview.style.opacity, '0', 'ready post remains hidden until every resource finishes');
+  assert.equal(overlay.style.display, 'none');
+});
 
 test('opens X WebView DevTools only when the host explicitly allows development tools', () => {
   const blocked = createHarness();
@@ -412,7 +428,7 @@ test('reports X Column and hidden notification reader counts', () => {
 });
 
 test('uses a lightweight overlay instead of a captured page during silent reload', async () => {
-  const { runtime, elements } = createHarness();
+  const { runtime, elements } = createHarness({ deferTimers: true });
   const webview = createWebView({ id: 'wv-x-home', src: 'https://x.com/home' });
   let captures = 0;
   webview.capturePage = async () => {

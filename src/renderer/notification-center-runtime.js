@@ -528,16 +528,19 @@
     async function activate(index) {
       const item = snapshot().items[index];
       if (!item) return { status: 'ignored', detail: 'not-found' };
-      view.setOpen?.(false);
-      intents.close?.();
-      if (item.networkId === 'x') {
-        await intents.openXNotification?.(item);
-        xItems = intents.observeX?.(xItems, session().xAccounts, xErrors, session().xAccounts.map(isEnabled)) || xItems;
-        render();
-      } else if (item.targetUri) {
-        await intents.openBlueskyPost?.(item);
-      } else if (item.author?.did) {
-        await intents.openBlueskyProfile?.(item);
+      try {
+        if (!await intents.openNotification?.(item)) {
+          intents.toast?.('対象ページを開けませんでした。アカウントのログイン状態を確認してください');
+          return { status: 'failed', item };
+        }
+        if (item.networkId === 'x') {
+          intents.markXRead?.(item);
+          xItems = intents.observeX?.(xItems, session().xAccounts, xErrors, session().xAccounts.map(isEnabled)) || xItems;
+          render();
+        }
+      } catch (error) {
+        intents.toast?.('対象ページを開けませんでした: ' + error.message);
+        return { status: 'failed', error, item };
       }
       return { status: 'succeeded', item };
     }

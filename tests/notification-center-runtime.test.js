@@ -183,9 +183,7 @@ test('activates notifications through semantic navigation intents', async () => 
     },
     intents: {
       close: () => calls.push(['close']),
-      openXNotification: item => calls.push(['x', item.id]),
-      openBlueskyPost: item => calls.push(['post', item.targetUri]),
-      openBlueskyProfile: item => calls.push(['profile', item.author.did]),
+      openNotification: item => { calls.push(['open', item.id]); return true; },
     },
   });
   await runtime.reload();
@@ -195,10 +193,23 @@ test('activates notifications through semantic navigation intents', async () => 
   await runtime.activate(2);
 
   assert.deepEqual(calls, [
-    ['close'], ['x', 'x:0:x-post'],
-    ['close'], ['post', 'at://post/1'],
-    ['close'], ['profile', 'did:plc:alice'],
+    ['open', 'x:0:x-post'],
+    ['open', 'b:post'],
+    ['open', 'b:follow'],
   ]);
+});
+
+test('failed inline navigation keeps the notification unread and the center open', async () => {
+  const calls = [];
+  const runtime = loadRuntime().createNotificationCenterRuntime({
+    model: createModel(), getSession: () => ({ xAccounts: [{ username: '@first' }] }),
+    sources: { listX: async () => [{ id: 'one', reason: 'reply', isRead: false }] },
+    view: { setOpen: () => calls.push('visibility') },
+    intents: { openNotification: () => false, markXRead: () => calls.push('read'), close: () => calls.push('close') },
+  });
+  await runtime.reload();
+  assert.equal((await runtime.activate(0)).status, 'failed');
+  assert.deepEqual(calls, []);
 });
 
 test('marks Bluesky notifications read using one captured timestamp', async () => {

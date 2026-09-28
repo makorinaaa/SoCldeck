@@ -271,3 +271,52 @@ test('rejects unknown operations and invalid bounded inputs', async () => {
     /invalid/i,
   );
 });
+
+test('logout invalidates an in-flight refresh without restoring credentials', async () => {
+  const vault = createVault(SESSION);
+  let resolveRefresh;
+  let started;
+  const ready = new Promise(resolve => { started = resolve; });
+  const gateway = createBlueskyGateway({ vault, client: {
+    timeline: async () => { throw new AtprotoError('expired', { status: 401 }); },
+    refresh: () => { started(); return new Promise(resolve => { resolveRefresh = resolve; }); },
+  } });
+  const pending = gateway.execute('getTimeline');
+  const rejected = assert.rejects(pending, /account changed/);
+  await ready;
+  gateway.clear();
+  resolveRefresh(SESSION);
+  await rejected;
+  assert.equal(vault.getSession(), null);
+});
+
+test('rejects refreshed credentials belonging to another account', async () => {
+  const vault = createVault(SESSION);
+  const gateway = createBlueskyGateway({ vault, client: {
+    timeline: async () => { throw new AtprotoError('expired', { status: 401 }); },
+    refresh: async () => ({ ...SESSION, did: 'did:plc:bob' }),
+  } });
+  await assert.rejects(gateway.execute('getTimeline'), /account mismatch/);
+  assert.equal(vault.getSession().did, SESSION.did);
+});
+
+test('successful account switch invalidates refresh started while login was pending', async () => {
+  const vault = createVault(SESSION);
+  let finishLogin, finishRefresh, started;
+  const ready = new Promise(resolve => { started = resolve; });
+  const gateway = createBlueskyGateway({ vault, client: {
+    login: () => new Promise(resolve => { finishLogin = resolve; }),
+    getProfile: async () => ({}),
+    timeline: async () => { throw new AtprotoError('expired', { status: 401 }); },
+    refresh: () => { started(); return new Promise(resolve => { finishRefresh = resolve; }); },
+  } });
+  const login = gateway.login({ handle: 'bob.test', password: 'fixture' });
+  const request = gateway.execute('getTimeline');
+  const rejected = assert.rejects(request, /account changed/);
+  await ready;
+  finishLogin({ ...SESSION, did: 'did:plc:bob', handle: 'bob.test' });
+  await login;
+  finishRefresh(SESSION);
+  await rejected;
+  assert.equal(vault.getSession().did, 'did:plc:bob');
+});

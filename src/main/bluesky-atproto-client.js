@@ -41,7 +41,7 @@ function createAtprotoClient({
     const controller = new AbortControllerImpl();
     const timer = setTimeoutImpl(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetchImpl(url, { ...options, signal: controller.signal });
+      const response = await fetchImpl(url, { ...options, redirect: 'error', credentials: 'omit', signal: controller.signal });
       return await parseResponse(response, endpoint);
     } catch (error) {
       if (controller.signal.aborted) {
@@ -78,7 +78,11 @@ function createAtprotoClient({
   }
 
   function deleteRecord(token, did, collection, uri) {
-    const rkey = String(uri || '').split('/').pop();
+    const match = typeof uri === 'string' && /^at:\/\/([^/]+)\/([^/]+)\/([A-Za-z0-9._~:-]{1,512})$/.exec(uri);
+    if (!match || match[1] !== did || match[2] !== collection || ['.', '..'].includes(match[3])) {
+      throw new Error('Bluesky record ownership or URI is invalid');
+    }
+    const rkey = match[3];
     return post('com.atproto.repo.deleteRecord', { repo: did, collection, rkey }, token);
   }
 
