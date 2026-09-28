@@ -59,6 +59,9 @@ jobs:
           & npm.cmd run test:e2e 2>&1 | Tee-Object -FilePath test-results/e2e.log
           exit $LASTEXITCODE
 
+      - name: Run local security tests
+        run: npm.cmd run test:security
+
       - name: Upload E2E log
         if: always()
         uses: actions/upload-artifact@v6

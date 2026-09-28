@@ -1,6 +1,6 @@
 {
   "name": "socialdeck",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "TweetDeck風マルチカラムクライアント (X + Bluesky)",
   "main": "src/main.js",
   "scripts": {
@@ -18,7 +18,8 @@
     "build-win": "npm run ffmpeg:install:win && electron-builder --win --publish never",
     "build-mac": "electron-builder --mac --publish never",
     "build-linux": "electron-builder --linux --publish never",
-    "security:check": "node scripts/check-secrets.cjs"
+    "security:check": "node scripts/check-secrets.cjs",
+    "test:security": "node --test --test-concurrency=1 tests-security/*.test.cjs"
   },
   "build": {
     "appId": "com.socialdeck.app",

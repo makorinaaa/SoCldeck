@@ -102,3 +102,45 @@ test('uploads and embeds one Bluesky video', async () => {
     alt: 'Demo video',
   });
 });
+
+for (const withImage of [false, true]) {
+  test('Bluesky delivery reaches authenticated API and completes: ' + (withImage ? 'image' : 'text'), async () => {
+    const { createAtprotoClient } = require('../src/main/bluesky-atproto-client');
+    const { createBlueskyGateway } = require('../src/main/bluesky-gateway');
+    const calls = [];
+    const client = createAtprotoClient({ fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, text: async () => JSON.stringify(url.endsWith('uploadBlob')
+        ? { blob: { $type: 'blob', ref: { $link: 'fixture' }, mimeType: 'image/png', size: 1 } }
+        : { uri: 'at://did:plc:test/app.bsky.feed.post/1', cid: 'fixture' }) };
+    } });
+    const gateway = createBlueskyGateway({ client, vault: {
+      load: () => ({ did: 'did:plc:test', accessJwt: 'fixture', refreshJwt: 'fixture' }),
+      save() {}, clear() {},
+    } });
+    const delivery = loadFactory()({
+      uploadBlob: async () => (await gateway.execute('uploadBlob', { mimeType: 'image/png', bytes: Buffer.from([1]) })).blob,
+      buildFacets: () => [], resolveFacets: async value => value,
+      createRecord: payload => gateway.execute('createPostRecord', payload),
+    });
+    const result = await delivery.execute({ text: '投稿テスト', images: withImage ? [{ file: {}, alt: '画像' }] : [] });
+    assert.equal(result.status, 'succeeded');
+    assert.equal(calls.length, withImage ? 2 : 1);
+    const record = JSON.parse(calls.at(-1).options.body);
+    assert.equal(record.repo, 'did:plc:test');
+    assert.equal(record.record.text, '投稿テスト');
+    assert.equal(Boolean(record.record.embed), withImage);
+    for (const call of calls) assert.equal(call.options.headers.Authorization, 'Bearer fixture');
+  });
+}
+
+test('Bluesky upload rejection does not submit an attachment-free post', async () => {
+  let created = 0;
+  const delivery = loadFactory()({
+    uploadBlob: async () => { throw new Error('Upload failed'); },
+    buildFacets: () => [], resolveFacets: async value => value,
+    createRecord: async () => { created++; },
+  });
+  await assert.rejects(delivery.execute({ text: 'hello', images: [{ file: {}, alt: '' }] }), /Upload failed/);
+  assert.equal(created, 0);
+});

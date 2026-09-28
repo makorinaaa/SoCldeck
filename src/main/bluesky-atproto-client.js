@@ -10,7 +10,15 @@ async function parseResponse(response, endpoint) {
   const text = await response.text();
   let body = {};
   if (text) {
-    try { body = JSON.parse(text); } catch {}
+    try {
+      body = JSON.parse(text);
+      if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error();
+    } catch {
+      throw new AtprotoError(`${endpoint} returned an invalid JSON response`, {
+        status: response.status,
+        code: 'InvalidResponse',
+      });
+    }
   }
   if (!response.ok) {
     throw new AtprotoError(body.message || body.error || `${endpoint} failed`, {
