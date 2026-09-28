@@ -71,6 +71,12 @@
       setRefreshBusy(id, false);
       webview.style.opacity = webview.dataset.sdPrevOpacity || '';
       delete webview.dataset.sdPrevOpacity;
+      const overlay = documentRef.getElementById(`wvov-${id}`);
+      if (overlay) {
+        overlay.style.display = 'none';
+        overlay.style.backgroundImage = '';
+        overlay.style.opacity = '1';
+      }
     }
 
     function observeLogin(partition, id, url) {
@@ -140,6 +146,8 @@
       webview.addEventListener('dom-ready', () => {
         if (webview.dataset.sdLoginParked === 'true') return;
         webview.dataset.ready = 'true';
+        // Do not wait for slow images or other subresources to reveal an interactive page.
+        finishReload(id, webview);
         if (loading) loading.style.display = 'none';
         webview.style.display = 'flex';
         if (!readyOnce) {
@@ -157,14 +165,6 @@
         const savedFontSize = Number(storage?.getItem?.(`col_fs_${id}`));
         if (savedFontSize && savedFontSize !== 13) {
           webview.insertCSS(`* { font-size: ${savedFontSize}px !important; }`).catch(() => {});
-        }
-        if (overlay && overlay.style.display !== 'none') {
-          overlay.style.opacity = '0';
-          setTimeoutFn(() => {
-            overlay.style.display = 'none';
-            overlay.style.backgroundImage = '';
-            overlay.style.opacity = '1';
-          }, 420);
         }
       });
 

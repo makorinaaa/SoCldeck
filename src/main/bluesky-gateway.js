@@ -105,17 +105,28 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
     throw new Error('Bluesky Gateway requires a Vault and AT Protocol client');
   }
   let refreshPromise = null;
+  let sessionVersion = 0;
+  function assertCurrent(version) {
+    if (version !== sessionVersion) throw new Error('Bluesky account changed during request');
+  }
 
   async function login(input) {
     const payload = readObject(input);
     const handle = readString(String(payload.handle || '').trim(), 'handle', 256);
     const password = readString(String(payload.password || '').trim(), 'app password', 1_024);
+    let version = ++sessionVersion;
+    refreshPromise = null;
     const session = await client.login(handle, password);
+    assertCurrent(version);
+    // Invalidate operations started with the previous account while login awaited.
+    version = ++sessionVersion;
+    refreshPromise = null;
     const stored = vault.save(session);
     let profile = null;
     try {
       profile = await client.getProfile(stored.accessJwt, stored.did);
     } catch {}
+    assertCurrent(version);
     return {
       handle: stored.handle,
       did: stored.did,
@@ -129,30 +140,43 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
   }
 
   function migrateSession(credentials) {
+    sessionVersion += 1;
+    refreshPromise = null;
     return publicIdentity(vault.save(credentials));
   }
 
-  async function refreshSession(current) {
+  async function refreshSession(current, version) {
+    assertCurrent(version);
     if (refreshPromise) return refreshPromise;
     if (!current.refreshJwt) throw new Error('Bluesky refresh token is unavailable');
-    refreshPromise = Promise.resolve(client.refresh(current.refreshJwt)).then(next => (
-      vault.save({ ...current, ...next })
-    ));
+    const pending = Promise.resolve(client.refresh(current.refreshJwt)).then(next => {
+      assertCurrent(version);
+      if (next.did !== current.did) throw new Error('Bluesky refresh account mismatch');
+      return vault.save({ ...current, ...next });
+    });
+    refreshPromise = pending;
     try {
       return await refreshPromise;
     } finally {
-      refreshPromise = null;
+      if (refreshPromise === pending) refreshPromise = null;
     }
   }
 
   async function authenticated(operation) {
+    const version = sessionVersion;
     const account = vault.load();
     if (!account?.accessJwt) throw new Error('Bluesky Network Account is unavailable');
     try {
-      return await operation(account);
+      const result = await operation(account);
+      assertCurrent(version);
+      return result;
     } catch (error) {
       if (!requiresRefresh(error)) throw error;
-      return operation(await refreshSession(account));
+      const refreshed = await refreshSession(account, version);
+      assertCurrent(version);
+      const result = await operation(refreshed);
+      assertCurrent(version);
+      return result;
     }
   }
 
@@ -272,6 +296,8 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
         if (typeof prepareVideo !== 'function' || typeof client.uploadVideo !== 'function') {
           throw new Error('Bluesky video upload is unavailable');
         }
+        const version = sessionVersion;
+        if (!vault.load()?.accessJwt) throw new Error('Bluesky Network Account is unavailable');
         const video = await prepareVideo({
           filePath: readString(payload.filePath, 'video file path', 32_768),
           name: readString(payload.name, 'video file name', 512),
@@ -279,6 +305,7 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
           endSeconds: readFiniteNumber(payload.endSeconds, 'video end'),
           durationSeconds: readFiniteNumber(payload.durationSeconds, 'video duration'),
         });
+        assertCurrent(version);
         const blob = await authenticated(account => client.uploadVideo(
           account.accessJwt,
           account.did,
@@ -293,7 +320,11 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
   }
 
   return {
-    clear: () => vault.clear(),
+    clear: () => {
+      sessionVersion += 1;
+      refreshPromise = null;
+      return vault.clear();
+    },
     execute,
     login,
     migrateSession,

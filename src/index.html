@@ -11,17 +11,24 @@
 ══════════════════════════════════ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg0:#000000;--bg1:#0d0d0d;--bg2:#141414;--bg3:#1e1e1e;
+  color-scheme:dark;
+  --bg0:#090c10;--bg1:#101419;--bg2:#181d24;--bg3:#222a34;
   --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
-  --text1:#e1e8f0;--text2:#8899bb;--text3:#4a5880;
+  --text1:#e8edf4;--text2:#a1afc1;--text3:#8594a8;
+  --hover:rgba(255,255,255,.035);--scroll-thumb:#495567;--scroll-track:rgba(255,255,255,.04);
+  --surface-shadow:0 16px 48px rgba(0,0,0,.32);--x-color:#e7e9ea;
   --accent:#4e9af0;--accent-dim:rgba(78,154,240,0.15);
   --red:#e05c7a;--green:#3dc98a;--yellow:#f5c842;
   --col-w:340px;--nav:46px;--sb:52px;
 }
 :root[data-theme="light"]{
+  color-scheme:light;
   --bg0:#f4f6f8;--bg1:#ffffff;--bg2:#ffffff;--bg3:#edf1f5;
   --border:rgba(23,32,51,0.10);--border2:rgba(23,32,51,0.18);
-  --text1:#172033;--text2:#53627a;--text3:#7b879b;
+  --text1:#172033;--text2:#53627a;--text3:#627087;
+  --hover:rgba(23,32,51,.035);--scroll-thumb:#9aa6b6;--scroll-track:rgba(23,32,51,.05);
+  --surface-shadow:0 16px 48px rgba(23,32,51,.14);--x-color:#172033;
+  --green:#187b54;--red:#b93253;--yellow:#886300;
 }
 html,body{height:100%;overflow:hidden;user-select:none}
 body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--text1);display:flex;flex-direction:column;-webkit-app-region:no-drag}
@@ -59,7 +66,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 /* ウィンドウコントロール */
 .win-controls{display:flex;align-items:center;gap:1px;margin-left:8px;-webkit-app-region:no-drag}
 .win-btn{width:46px;height:32px;background:transparent;border:none;color:var(--text3);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .1s;-webkit-app-region:no-drag}
-.win-btn:hover{background:rgba(255,255,255,.1);color:var(--text1)}
+.win-btn:hover{background:var(--bg3);color:var(--text1)}
 .win-close:hover{background:#e81123;color:#fff}
 
 /* アプリ内メニュー */
@@ -113,7 +120,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .aitem .ainame{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aitem .aihandle{font-size:10px;color:var(--text3)}
 .aplat{font-size:9px;padding:1px 5px;border-radius:3px;flex-shrink:0}
-.aplat.x{background:rgba(225,230,234,.1);color:#e7e9ea}
+.aplat.x{background:var(--bg3);color:var(--x-color)}
 .aplat.b{background:rgba(0,133,255,.12);color:#4d9ef0}
 .amenu-sep{height:1px;background:var(--border);margin:3px 0}
 .amenu-act{display:flex;align-items:center;gap:8px;padding:8px 13px;cursor:pointer;font-size:12px;color:var(--text2);transition:all .1s}
@@ -122,11 +129,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .amenu-act svg{width:13px;height:13px}
 
 /* ── COLUMNS WRAPPER ── */
-.cols{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;gap:0;scrollbar-width:auto;scrollbar-color:rgba(255,255,255,0.35) rgba(255,255,255,0.06)}
+.cols{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;gap:0;scrollbar-width:auto;scrollbar-color:var(--scroll-thumb) var(--scroll-track)}
 .cols::-webkit-scrollbar{height:8px}
-.cols::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.35);border-radius:4px}
-.cols::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.55)}
-.cols::-webkit-scrollbar-track{background:rgba(255,255,255,0.06);border-radius:4px}
+.cols::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:4px}
+.cols::-webkit-scrollbar-thumb:hover{background:var(--text2)}
+.cols::-webkit-scrollbar-track{background:var(--scroll-track);border-radius:4px}
 
 /* ── COLUMN ── */
 .col{width:var(--col-w);min-width:var(--col-w);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--bg1);position:relative}
@@ -134,11 +141,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .col-head{padding:9px 12px 8px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:8px}
 .col-ic{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .col-ic svg{width:11px;height:11px}
-.ic-x{background:rgba(225,230,234,0.1);color:#e7e9ea}
+.ic-x{background:var(--bg3);color:var(--x-color)}
 .ic-b{background:rgba(0,133,255,0.12);color:#4d9ef0}
 .ic-n{background:rgba(224,92,122,0.12);color:var(--red)}
 .ic-s{background:rgba(61,201,138,0.12);color:var(--green)}
-.ic-anime{background:rgba(255,209,102,0.13);color:#ffd166}
+.ic-anime{background:rgba(255,209,102,0.13);color:var(--yellow)}
 .col-info{flex:1;min-width:0}
 .col-title{font-size:12px;font-weight:700}
 .col-sub{font-size:10px;color:var(--text3);margin-top:1px;display:flex;align-items:center;gap:3px}
@@ -164,10 +171,11 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .spinner{width:22px;height:22px;border:2px solid var(--bg3);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 
 /* ── BLUESKY FEED COLUMN ── */
-.feed{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--bg3) transparent}
+.feed{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--scroll-thumb) transparent}
 .feed::-webkit-scrollbar{width:3px}
-.feed::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:2px}
-.feed-loading{display:flex;flex-direction:column;align-items:center;justify-content:height:100%;padding:30px;gap:10px;color:var(--text3);font-size:12px;justify-content:center;min-height:120px}
+.feed::-webkit-scrollbar-thumb{background:var(--scroll-thumb);border-radius:2px}
+.feed-loading{display:flex;flex-direction:column;align-items:center;padding:30px;gap:10px;color:var(--text3);font-size:12px;justify-content:center;min-height:120px}
+.feed-empty{margin:20px 14px;padding:32px 18px;border:1px dashed var(--border2);border-radius:12px;color:var(--text2);font-size:var(--ui-font);line-height:1.7;text-align:center;overflow-wrap:anywhere}
 .feed-err{padding:14px;font-size:12px;color:var(--red);background:rgba(224,92,122,0.06);margin:8px;border-radius:8px;border:1px solid rgba(224,92,122,0.15)}
 .feed-err button{margin-top:8px;padding:4px 10px;border-radius:5px;background:transparent;border:1px solid var(--red);color:var(--red);font-family:inherit;font-size:11px;cursor:pointer}
 .load-more{width:100%;padding:12px;background:transparent;border:none;border-top:1px solid var(--border);color:var(--text3);font-family:inherit;font-size:12px;cursor:pointer;transition:all .12s;display:flex;align-items:center;justify-content:center;gap:6px}
@@ -188,7 +196,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .anime-info{min-width:0}
 .anime-title{font-size:12px;font-weight:700;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .anime-meta{margin-top:7px;display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text3)}
-.anime-meta strong{font-size:9px;font-weight:700;color:#ffd166;border:1px solid rgba(255,209,102,.3);border-radius:8px;padding:1px 5px}
+.anime-meta strong{font-size:9px;font-weight:700;color:var(--yellow);border:1px solid rgba(255,209,102,.3);border-radius:8px;padding:1px 5px}
 
 /* ── BSKY SEARCH BAR ── */
 .col-search-bar{padding:7px 10px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:5px}
@@ -199,7 +207,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 
 /* ── POST ── */
 .post{padding:11px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s;user-select:text}
-.post:hover{background:rgba(255,255,255,0.02)}
+.post:hover{background:var(--hover)}
 .post.new{animation:fadeIn .2s ease}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 .repost-label{font-size:10px;color:var(--text3);display:flex;align-items:center;gap:4px;margin-bottom:6px;padding-left:2px}
@@ -303,7 +311,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 ══════════════════════════════════ */
 #login-screen{position:fixed;inset:0;z-index:1000;background:var(--bg0);display:flex;align-items:center;justify-content:center}
 #login-screen.hidden{display:none}
-.lcard{width:440px;max-width:calc(100vw - 32px);background:var(--bg1);border:1px solid var(--border2);border-radius:14px;padding:30px 26px}
+.lcard{width:440px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow-y:auto;background:var(--bg1);border:1px solid var(--border2);border-radius:16px;padding:30px 26px;box-shadow:var(--surface-shadow)}
 .llogo{display:flex;align-items:center;gap:10px;margin-bottom:26px}
 .llogo-icon{width:32px;height:32px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center}
 .llogo-icon svg{width:18px;height:18px;fill:#fff}
@@ -312,7 +320,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .ltab{flex:1;padding:9px 0;background:transparent;border:none;font-family:inherit;font-size:13px;font-weight:600;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px}
 .ltab svg{width:13px;height:13px}
 .ltab.active{color:var(--text1)}
-.ltab.active.xt{border-bottom-color:#e7e9ea}
+.ltab.active.xt{border-bottom-color:var(--x-color)}
 .ltab.active.bt{border-bottom-color:#4d9ef0}
 .lpanel{display:none}
 .lpanel.active{display:block}
@@ -351,8 +359,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:none;align-items:center;justify-content:center}
 .ov.on{display:flex}
 #compMod{z-index:260}
-.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:12px;padding:22px;width:420px;max-width:calc(100vw - 32px)}
-.modal h2{font-size:15px;font-weight:700;margin-bottom:4px}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:24px;width:420px;max-width:calc(100vw - 32px);box-shadow:var(--surface-shadow)}
+.modal h2{font-size:17px;font-weight:700;margin-bottom:6px}
 .modal p{font-size:12px;color:var(--text2);margin-bottom:16px}
 .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:14px}
 .opt{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 11px;cursor:pointer;color:var(--text1);font-family:inherit;text-align:left;transition:all .12s}
@@ -602,14 +610,23 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .modal .desktop-notif-field,.modal .ng-input{min-height:var(--control-size);padding:calc(var(--post-pad) * .6)}
 #appearanceMod .modal>div[style],#appearanceMod .modal>p{font-size:var(--ui-font)!important}
 .settings-list{display:grid;gap:8px;margin:18px 0}
-.settings-link{display:flex;flex-direction:column;gap:3px;text-align:left;padding:var(--post-pad);background:var(--bg2);border:1px solid var(--border);border-radius:9px;color:var(--text1);font:inherit;cursor:pointer}
+.settings-link{position:relative;display:flex;flex-direction:column;gap:4px;text-align:left;padding:var(--post-pad);padding-right:36px;background:var(--bg1);border:1px solid var(--border);border-radius:10px;color:var(--text1);font:inherit;cursor:pointer;transition:background .15s,border-color .15s}
+.settings-link::after{content:"";position:absolute;right:17px;top:calc(50% - 3px);width:6px;height:6px;border-top:1.5px solid var(--text3);border-right:1.5px solid var(--text3);transform:rotate(45deg);pointer-events:none}
 .settings-link:hover{border-color:var(--accent);background:var(--bg3)}
 .settings-link small{color:var(--text2);font-size:.9em}
 .compose-draft-tools{display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap}
 .compose-draft-tools small{flex:1;min-width:180px;color:var(--text2);font-size:11px}
 .compose-draft-tools button{background:transparent;border:1px solid var(--border);border-radius:6px;padding:6px 9px;color:var(--text2);font:inherit;cursor:pointer}
 .compose-status{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.6;background:var(--bg2);border-radius:7px;padding:10px;margin-top:10px}
-button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus-visible,summary:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+input,textarea,select{accent-color:var(--accent)}
+button:disabled{cursor:not-allowed}
+.col-search-bar input,.ng-input{min-width:0}
+.col-sub{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.si:active:not(:disabled),.tb-btn:active:not(:disabled){filter:brightness(.9)}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
 
 </style>
 </head>
@@ -640,9 +657,9 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
         X アカウントは未接続
       </div>
       <div class="lf">
-        <label>表示名（任意）</label>
-        <input type="text" id="x-user" placeholder="@username">
-        <div class="lhint">X は WebView でそのまま表示します。ここはナビ表示用です。</div>
+        <label for="x-user">表示名（任意）</label>
+        <input type="text" id="x-user" placeholder="@username" aria-describedby="x-user-hint">
+        <div class="lhint" id="x-user-hint">アカウントを見分けるための名前です。追加後、X の画面でログインしてください。</div>
       </div>
       <div class="lerr" id="x-err"></div>
       <button class="lbtn xbtn" id="x-login-btn" disabled>
@@ -658,11 +675,11 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
         Bluesky アカウントは未接続
       </div>
       <div class="lf">
-        <label>ハンドル</label>
+        <label for="b-user">ハンドル</label>
         <input type="text" id="b-user" placeholder="yourname.bsky.social" autocomplete="username">
       </div>
       <div class="lf">
-        <label>アプリパスワード</label>
+        <label for="b-pass">アプリパスワード</label>
         <input type="password" id="b-pass" placeholder="xxxx-xxxx-xxxx-xxxx" autocomplete="current-password">
         <div class="lhint"><a href="https://bsky.app/settings/app-passwords" target="_blank">→ アプリパスワードを発行する</a></div>
       </div>
@@ -842,6 +859,7 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
       <button class="settings-link" data-action="open-ng-settings"><strong>ミュート</strong><small>表示しないキーワードとユーザー</small></button>
       <button class="settings-link" data-action="open-memory-settings"><strong>メモリ管理</strong><small>使用量の確認と自動整理</small></button>
       <button class="settings-link" data-action="settings-accounts"><strong>アカウント</strong><small>X・Blueskyの追加とログアウト</small></button>
+      <button class="settings-link" data-action="open-backup"><strong>バックアップと復元</strong><small>カラム配置と各種設定の保存・復元</small></button>
     </div>
     <button class="btn-cancel" data-action="close-overlay" data-overlay-id="settingsMod">閉じる</button>
   </div>
@@ -1158,61 +1176,35 @@ button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outli
   <div id="lightbox-counter"></div>
 </div>
 
+<div class="ov" id="backupMod">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="backup-title">
+    <h2 id="backup-title">バックアップと復元</h2>
+    <p>外観・カラム配置と文字サイズ・ミュート・同時投稿・通知・メモリ管理の設定を保存します。認証情報・下書き・添付ファイル・通知履歴は含みません。復元には同じアカウントを追加しておく必要があります。</p>
+    <div class="settings-list">
+      <button class="btn-cancel" data-action="export-backup">ファイルに書き出す</button>
+      <button class="btn-cancel" data-action="import-backup">ファイルから復元する</button>
+      <button class="btn-cancel" data-action="recover-backup">前回の復元直前に戻す</button>
+    </div>
+    <p id="backup-status" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere"></p>
+    <button class="btn-cancel" id="backup-apply" data-action="apply-backup" hidden>この内容で復元して再読み込み</button>
+    <button class="btn-cancel" data-action="close-overlay" data-overlay-id="backupMod">閉じる</button>
+  </div>
+</div>
+<div id="column-undo" role="status" hidden style="position:fixed;left:68px;bottom:18px;z-index:190;padding:12px;background:var(--bg2);border:1px solid var(--border2);border-radius:9px;box-shadow:var(--surface-shadow)">
+  <span>カラムを削除しました</span>
+  <button class="chip-btn" data-action="undo-column">元に戻す</button>
+  <button class="chip-btn" data-action="dismiss-column-undo" aria-label="取り消しの案内を閉じる">×</button>
+</div>
+<div id="workspace-recovery" role="status" hidden style="position:fixed;top:40px;left:68px;max-width:calc(100vw - 90px);z-index:1100;padding:12px;background:var(--bg2);border:1px solid var(--yellow);border-radius:9px;font-size:13px">
+  <span id="workspace-recovery-message"></span>
+  <button class="chip-btn" data-action="dismiss-workspace-recovery" aria-label="復旧の案内を閉じる">×</button>
+</div>
 <div class="toast" id="toast"></div>
 <div id="reply-toast" class="reply-toast" role="status" aria-live="polite" hidden>
   <button id="reply-toast-content"><strong id="reply-toast-title"></strong><span id="reply-toast-body"></span><span class="reply-toast-action">会話を開く →</span></button>
   <button id="reply-toast-close" aria-label="通知を閉じる">×</button>
 </div>
 
-<script src="renderer/bluesky-gateway-adapter.js"></script>
-<script src="renderer/delegated-action-runtime.js"></script>
-<script src="renderer/bsky-post-view.js"></script>
-<script src="renderer/bsky-reactions.js"></script>
-<script src="renderer/bsky-profile-card.js"></script>
-<script src="renderer/bsky-columns-runtime.js"></script>
-<script src="renderer/state-store.js"></script>
-<script src="renderer/appearance-runtime.js"></script>
-<script src="renderer/bluesky-session-runtime.js"></script>
-<script src="renderer/account-session-runtime.js"></script>
-<script src="renderer/mute-rules.js"></script>
-<script src="renderer/column-runtime.js"></script>
-<script src="renderer/column-shell-runtime.js"></script>
-<script src="renderer/column-lifecycle.js"></script>
-<script src="renderer/compose-media.js"></script>
-<script src="renderer/compose-modal-runtime.js"></script>
-<script src="renderer/refresh-scheduler.js"></script>
-<script src="renderer/ui-utils.js"></script>
-<script src="renderer/bsky-richtext.js"></script>
-<script src="renderer/lightbox-runtime.js"></script>
-<script src="renderer/memory-cleaner.js"></script>
-<script src="renderer/settings-modals-runtime.js"></script>
-<script src="renderer/compose-mention-suggest.js"></script>
-<script src="renderer/column-picker.js"></script>
-<script src="renderer/widget-mode-runtime.js"></script>
-<script src="renderer/file-drag-shield.js"></script>
-<script src="renderer/notification-center.js"></script>
-<script src="renderer/notification-center-runtime.js"></script>
-<script src="renderer/notification-reply-runtime.js"></script>
-<script src="renderer/notification-runtime.js"></script>
-<script src="renderer/reply-notification-runtime.js"></script>
-<script src="renderer/desktop-notification-runtime.js"></script>
-<script src="renderer/anime-schedule-runtime.js"></script>
-<script src="renderer/network-adapters.js"></script>
-<script src="renderer/compose-request.js"></script>
-<script src="renderer/compose-cross-post-plan.js"></script>
-<script src="renderer/compose-submission.js"></script>
-<script src="renderer/compose-quote.js"></script>
-<script src="renderer/compose-attempt.js"></script>
-<script src="renderer/cross-post-runtime.js"></script>
-<script src="renderer/compose-completion.js"></script>
-<script src="renderer/compose-coordinator.js"></script>
-<script src="renderer/x-compose-preparation.js"></script>
-<script src="renderer/x-post-confirmation.js"></script>
-<script src="renderer/x-compose-delivery.js"></script>
-<script src="renderer/bsky-compose-delivery.js"></script>
-<script src="renderer/x-timeline-refresh.js"></script>
-<script src="renderer/x-login-gate.js"></script>
-<script src="renderer/x-webview-runtime.js"></script>
-<script src="renderer.js"></script>
+<script type="module" src="renderer.js"></script>
 </body>
 </html>

@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   setConfig: (data) => ipcRenderer.invoke('set-config', data),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  saveWorkspaceBackup: text => ipcRenderer.invoke('save-workspace-backup', text),
+  openWorkspaceBackup: () => ipcRenderer.invoke('open-workspace-backup'),
   loadBlueskySession: () => ipcRenderer.invoke('load-bluesky-session'),
   storeBlueskySession: credentials => ipcRenderer.invoke('store-bluesky-session', credentials),
   clearBlueskySession: () => ipcRenderer.invoke('clear-bluesky-session'),

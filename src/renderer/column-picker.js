@@ -49,7 +49,7 @@
         xAccounts.forEach((account, accountIndex) => {
           parts.push(sectionHeading(`
             <span style="display:inline-flex;align-items:center;gap:5px">
-              <span style="width:14px;height:14px;border-radius:50%;background:${account.bg};display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${account.initials}</span>
+              <span style="width:14px;height:14px;border-radius:50%;background:${escape(account.bg)};display:inline-flex;align-items:center;justify-content:center;font-size:7px;color:#000;font-weight:700">${escape(account.initials)}</span>
               X · ${escape(account.username)}
             </span>`, accountIndex === 0));
           xDefinitions.forEach(definition => {
@@ -60,7 +60,7 @@
 
       if (accounts.b) {
         if (xAccounts.length > 0) {
-          parts.push(sectionHeading(`Bluesky · @${accounts.b.handle}`));
+          parts.push(sectionHeading(`Bluesky · @${escape(accounts.b.handle)}`));
         }
         getColumnDefinitions('b').filter(definition => definition.picker !== false).forEach(definition => {
           parts.push(option(definition, 'b'));
@@ -117,7 +117,7 @@
       toast('Column added');
     }
 
-    return { addColumn, open };
+    return { addColumn, open, nextColumnId };
   }
 
   global.SocialDeckColumnPicker = { createColumnPicker };

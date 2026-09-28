@@ -8,7 +8,8 @@
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     function relTime(dateValue) {
@@ -42,11 +43,16 @@
     function formatText(text, facets, { delegated = false } = {}) {
       if (!facets || !facets.length) return esc(text).replace(/\n/g, '<br>');
       const bytes = textEncoder.encode(text);
-      const sorted = [...facets].sort((a, b) => a.index.byteStart - b.index.byteStart);
+      const sorted = (Array.isArray(facets) ? facets : []).filter(facet =>
+        Number.isInteger(facet?.index?.byteStart) && Number.isInteger(facet?.index?.byteEnd)
+        && facet.index.byteStart >= 0 && facet.index.byteEnd > facet.index.byteStart
+        && facet.index.byteEnd <= bytes.length
+      ).sort((a, b) => a.index.byteStart - b.index.byteStart);
       let result = '';
       let pos = 0;
 
       for (const facet of sorted) {
+        if (facet.index.byteStart < pos) continue;
         if (facet.index.byteStart > pos) {
           result += esc(textDecoder.decode(bytes.slice(pos, facet.index.byteStart))).replace(/\n/g, '<br>');
         }
@@ -54,7 +60,12 @@
         const seg = textDecoder.decode(bytes.slice(facet.index.byteStart, facet.index.byteEnd));
         const feat = facet.features?.[0];
         if (feat?.$type === 'app.bsky.richtext.facet#link') {
-          result += `<a href="${esc(feat.uri)}" target="_blank">${esc(seg)}</a>`;
+          let url;
+          try { url = new URL(feat.uri); } catch {}
+          const allowed = url && ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;
+          result += allowed
+            ? `<a href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${esc(seg)}</a>`
+            : esc(seg);
         } else if (feat?.$type === 'app.bsky.richtext.facet#mention') {
           result += `<a href="#" data-bsky-profile data-did="${esc(feat.did)}">${esc(seg)}</a>`;
         } else if (feat?.$type === 'app.bsky.richtext.facet#tag') {

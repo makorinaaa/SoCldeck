@@ -207,3 +207,22 @@ test('main process registers IPC only through the trusted wrapper', () => {
   assert.doesNotMatch(source, /ipcMain\.handle\(/);
   assert.match(source, /registerTrustedIpcHandler/);
 });
+
+test('rejects a different WebContents even when it loads the trusted document', async () => {
+  let invoke;
+  const owner = {};
+  registerTrustedIpcHandler({
+    ipcMain: { handle(_channel, handler) { invoke = handler; } },
+    indexPath, channel: 'private-operation',
+    isAllowedContents: contents => contents === owner,
+    handler: () => 'private-result',
+  });
+  const senderFrame = { parent: null, url: indexUrl };
+  await assert.rejects(invoke({ sender: {}, senderFrame }), /Unauthorized/);
+  assert.equal(await invoke({ sender: owner, senderFrame }), 'private-result');
+});
+
+test('keeps remote security response headers intact', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  assert.doesNotMatch(source, /delete\s+headers\[/);
+});

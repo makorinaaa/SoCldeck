@@ -36,6 +36,23 @@ function createDocument() {
   };
 }
 
+test('escapes imported layout metadata in widget options', async () => {
+  const documentRef = createDocument();
+  const payload = '</option></select><img src=x onerror=alert(1)>';
+  const runtime = loadModule().createWidgetModeRuntime({
+    documentRef,
+    columnRuntime: {
+      readStoredLayout: () => [{ id: '" data-injected="yes', title: payload, sub: payload }],
+      getWidgetColumnId: () => null,
+    },
+  });
+  await runtime.init();
+  const html = documentRef.getElementById('widget-bar').innerHTML;
+  assert.doesNotMatch(html, /<img|value="" data-injected=/);
+  assert.match(html, /&lt;img/);
+  assert.match(html, /&quot; data-injected=&quot;yes/);
+});
+
 test('initializes widget chrome with stored layout options and host state', async () => {
   const documentRef = createDocument();
   const slider = { id: 'wg-opacity', value: '100' };

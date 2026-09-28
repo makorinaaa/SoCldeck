@@ -1,4 +1,4 @@
-name: Unit CI
+name: SocialDeck CI
 
 on:
   pull_request:
@@ -30,5 +30,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check for committed secrets
+        run: npm.cmd run security:check
+
       - name: Run unit tests
         run: npm.cmd test
+
+  electron-e2e:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Electron E2E tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          & npm.cmd run test:e2e 2>&1 | Tee-Object -FilePath test-results/e2e.log
+          exit $LASTEXITCODE
+
+      - name: Upload E2E log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: electron-e2e-log
+          path: test-results/
+          retention-days: 7

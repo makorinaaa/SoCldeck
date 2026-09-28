@@ -3,6 +3,25 @@ const test = require('node:test');
 
 const preload = require('../src/webview-preload');
 
+test('post diagnostics capture a stall and recovery without exposing the post URL', t => {
+  let clock = 1000;
+  t.mock.method(Date, 'now', () => clock);
+  let tick;
+  let visible = false;
+  const events = [];
+  const windowLike = { location: { pathname: '/private/status/123' }, setInterval(fn) { tick = fn; return 1; }, clearInterval() {}, addEventListener() {} };
+  const documentLike = { querySelector: () => visible ? { closest: () => ({ getBoundingClientRect: () => ({ height: 100 }) }) } : null };
+  preload.installPageDiagnostics(documentLike, windowLike, { send: (channel, data) => events.push({ channel, ...data }) });
+  clock += 15000;
+  tick();
+  tick();
+  visible = true;
+  tick();
+  assert.deepEqual(events.map(event => event.phase), ['waiting', 'stalled', 'visible']);
+  assert.equal(events[1].elapsedMs, 15000);
+  assert.doesNotMatch(JSON.stringify(events), /private|123/);
+});
+
 function createPhoto({ src, alt = '', selectors = [], closestSelectors = [] }) {
   const image = {
     src,

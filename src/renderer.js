@@ -1,9 +1,73 @@
-﻿// ═══════════════════════════════════════════════
+import { createAppInfoRuntime } from './renderer/app-info-runtime.mjs';
+import { createPostMenuRuntime } from './renderer/post-menu-runtime.mjs';
+import { createXListDialogRuntime } from './renderer/x-list-dialog-runtime.mjs';
+import { createSubmissionScript } from './renderer/x-composer-submit.mjs';
+import {
+  SocialDeckAccountSessionRuntime,
+  SocialDeckAnimeScheduleRuntime,
+  SocialDeckAppearanceRuntime,
+  SocialDeckBackupSettingsRuntime,
+  SocialDeckBlueskyColumnsRuntime,
+  SocialDeckBlueskyGatewayAdapter,
+  SocialDeckBlueskySessionRuntime,
+  SocialDeckBskyComposeDelivery,
+  SocialDeckBskyRichText,
+  SocialDeckColumnLifecycle,
+  SocialDeckColumnPicker,
+  SocialDeckColumnReorderRuntime,
+  SocialDeckColumnRuntime,
+  SocialDeckColumnShellRuntime,
+  SocialDeckColumnUndo,
+  SocialDeckComposeAttempt,
+  SocialDeckComposeCompletion,
+  SocialDeckComposeCoordinator,
+  SocialDeckComposeCrossPostPlan,
+  SocialDeckComposeMedia,
+  SocialDeckComposeMentionSuggest,
+  SocialDeckComposeModalRuntime,
+  SocialDeckComposeQuote,
+  SocialDeckComposeRequest,
+  SocialDeckComposeSubmission,
+  SocialDeckCrossPostRuntime,
+  SocialDeckDelegatedActionRuntime,
+  SocialDeckDesktopNotificationRuntime,
+  SocialDeckFileDragShield,
+  SocialDeckLightboxRuntime,
+  SocialDeckMemoryCleaner,
+  SocialDeckMuteRules,
+  SocialDeckNetworkAdapters,
+  SocialDeckNotificationCenter,
+  SocialDeckNotificationCenterRuntime,
+  SocialDeckNotificationReply,
+  SocialDeckNotificationRuntime,
+  SocialDeckRefreshScheduler,
+  SocialDeckReplyNotifications,
+  SocialDeckSettingsModalsRuntime,
+  SocialDeckStateStore,
+  SocialDeckUiUtils,
+  SocialDeckWidgetModeRuntime,
+  SocialDeckWorkspaceBackup,
+  SocialDeckWorkspaceStorage,
+  SocialDeckXComposeDelivery,
+  SocialDeckXComposePreparation,
+  SocialDeckXLoginGate,
+  SocialDeckXPostConfirmation,
+  SocialDeckXTimelineRefresh,
+  SocialDeckXWebViewRuntime
+} from './renderer/legacy-runtime-modules.mjs';
+
+// ═══════════════════════════════════════════════
 //  SOCIALDECK — renderer.js
 //  Bluesky AT Protocol + X WebView
 // ═══════════════════════════════════════════════
 const IS_ELECTRON = typeof window.electronAPI !== 'undefined';
-const composeMedia = window.SocialDeckComposeMedia;
+const workspaceStorage = SocialDeckWorkspaceStorage.createWorkspaceStorage({
+  onRecovery: message => {
+    document.getElementById('workspace-recovery-message').textContent = message;
+    document.getElementById('workspace-recovery').hidden = false;
+  },
+});
+const composeMedia = SocialDeckComposeMedia;
 const xComposeMediaDraft = composeMedia.createMediaDraft({
   supportsVideo: true,
   resolveFilePath: file => IS_ELECTRON
@@ -17,11 +81,11 @@ const bskyComposeMediaDraft = composeMedia.createMediaDraft({
     ? window.electronAPI?.getPathForFile?.(file) || null
     : null,
 });
-const composeRequests = window.SocialDeckComposeRequest;
-const composeCrossPostPlan = window.SocialDeckComposeCrossPostPlan;
-const xComposePreparation = window.SocialDeckXComposePreparation;
-const xPostConfirmation = window.SocialDeckXPostConfirmation;
-const notificationCenter = window.SocialDeckNotificationCenter;
+const composeRequests = SocialDeckComposeRequest;
+const composeCrossPostPlan = SocialDeckComposeCrossPostPlan;
+const xComposePreparation = SocialDeckXComposePreparation;
+const xPostConfirmation = SocialDeckXPostConfirmation;
+const notificationCenter = SocialDeckNotificationCenter;
 const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
 let xWebViewRuntime;
 let bskyColumnsRuntime;
@@ -40,9 +104,9 @@ function readFileAsDataUrl(file) {
   });
 }
 
-const bskyRichText = window.SocialDeckBskyRichText.createBskyRichText();
+const bskyRichText = SocialDeckBskyRichText.createBskyRichText();
 const buildFacets = bskyRichText.buildFacets;
-const bskyGateway = window.SocialDeckBlueskyGatewayAdapter.createBlueskyGatewayAdapter({
+const bskyGateway = SocialDeckBlueskyGatewayAdapter.createBlueskyGatewayAdapter({
   invoke: (operation, payload) => window.electronAPI.invokeBluesky(operation, payload),
   login: credentials => window.electronAPI.loginBluesky(credentials),
   clearSession: () => window.electronAPI.clearBlueskySession(),
@@ -61,15 +125,16 @@ const SVG = {
 };
 
 // ─── COLUMN PERSISTENCE ──────────────────────────
-const columnRuntime = window.SocialDeckColumnRuntime.createColumnRuntime();
+const columnRuntime = SocialDeckColumnRuntime.createColumnRuntime({ storage: workspaceStorage });
 const COL_KEY = columnRuntime.layoutKey;
-const animeScheduleRuntime = window.SocialDeckAnimeScheduleRuntime.createAnimeScheduleRuntime({
+const animeScheduleRuntime = SocialDeckAnimeScheduleRuntime.createAnimeScheduleRuntime({
   documentRef: document,
   fetchSchedule: force => window.electronAPI?.getAnimeSchedule
     ? window.electronAPI.getAnimeSchedule(force)
     : Promise.reject(new Error('Anime schedule API is unavailable')),
 });
-const xComposeExecutor = window.SocialDeckXComposeDelivery.createXComposeDelivery({
+const xComposeExecutor = SocialDeckXComposeDelivery.createXComposeDelivery({
+  createSubmissionScript: createSubmissionScript,
   createPreparationScript: () => xComposePreparation.createPreparationScript(),
   createConfirmationScript: options => xPostConfirmation.createConfirmationScript(options),
   readFileAsDataUrl,
@@ -78,7 +143,7 @@ const xComposeExecutor = window.SocialDeckXComposeDelivery.createXComposeDeliver
   deleteTempFile: window.electronAPI?.deleteTempFile,
   setStatus: setFFmpegStatus,
 });
-const bskyComposeExecutor = window.SocialDeckBskyComposeDelivery.createBlueskyComposeDelivery({
+const bskyComposeExecutor = SocialDeckBskyComposeDelivery.createBlueskyComposeDelivery({
   uploadBlob: async file => {
     const response = await bskyGateway.uploadBlob({
       mimeType: file.type,
@@ -101,11 +166,11 @@ const bskyComposeExecutor = window.SocialDeckBskyComposeDelivery.createBlueskyCo
   resolveFacets: facets => resolveMentionDids(facets),
   createRecord: ({ record }) => bskyGateway.createPostRecord({ record }),
 });
-const networkAdapters = window.SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
+const networkAdapters = SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
   icons: SVG,
   composeExecutors: { x: xComposeExecutor, b: bskyComposeExecutor },
 });
-const columnShellRuntime = window.SocialDeckColumnShellRuntime.createColumnShellRuntime({
+const columnShellRuntime = SocialDeckColumnShellRuntime.createColumnShellRuntime({
   documentRef: document,
   container: document.getElementById('cols'),
   onCollapseChange: () => columnLifecycle.persist(),
@@ -120,7 +185,7 @@ const columnShellRuntime = window.SocialDeckColumnShellRuntime.createColumnShell
     if (type === 'scroll-top' && kind === 'schedule') return animeScheduleScrollTop(id);
   },
 });
-const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
+const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
   createPlan: request => networkAdapters.createColumnPlan(request),
   insertPlan: insertColumnPlan,
   scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
@@ -146,14 +211,14 @@ const columnLifecycle = window.SocialDeckColumnLifecycle.createColumnLifecycle({
   persistWorkspace: saveColLayout,
   onRefreshStateChange: (id, state) => columnShellRuntime.setRefreshState(id, state),
 });
-const composeCompletion = window.SocialDeckComposeCompletion.createComposeCompletionRuntime({
+const composeCompletion = SocialDeckComposeCompletion.createComposeCompletionRuntime({
   notify: toast,
   refresh: refreshAfterCompose,
   onRefreshError: error => console.warn('Compose refresh failed:', error),
 });
-const composeCoordinator = window.SocialDeckComposeCoordinator.createComposeCoordinator({
-  createAttemptRuntime: window.SocialDeckComposeAttempt.createComposeAttemptRuntime,
-  createCrossPostRuntime: window.SocialDeckCrossPostRuntime.createCrossPostRuntime,
+const composeCoordinator = SocialDeckComposeCoordinator.createComposeCoordinator({
+  createAttemptRuntime: SocialDeckComposeAttempt.createComposeAttemptRuntime,
+  createCrossPostRuntime: SocialDeckCrossPostRuntime.createCrossPostRuntime,
   complete: plan => composeCompletion.complete(plan),
 });
 
@@ -217,7 +282,7 @@ function restoreColLayout() {
 }
 
 // ─── NG WORD / MUTE ──────────────────────────────
-const muteRules = window.SocialDeckMuteRules.createMuteRules();
+const muteRules = SocialDeckMuteRules.createMuteRules();
 
 // NGルール変更時に全Bskyカラムを再読み込みして即時反映
 function refilterBskyCols() {
@@ -231,13 +296,13 @@ function refilterBskyCols() {
 }
 
 // ─── STATE ────────────────────────────────────
-const LS_KEY = window.SocialDeckStateStore.STATE_KEY;
+const LS_KEY = SocialDeckStateStore.STATE_KEY;
 const MEM_KEY = 'socialdeck_mem_interval'; // メモリクリア間隔設定キー  // v4: Xマルチアカウント対応
 // state.xs: Xアカウントの配列 [{username, initials, bg, partition}]
 // state.activeX: アクティブなXアカウントのindex
 // state.b: Blueskyアカウント（単一）
-const stateStore = window.SocialDeckStateStore.createStateStore();
-const blueskySessionRuntime = window.SocialDeckBlueskySessionRuntime.createBlueskySessionRuntime({
+const stateStore = SocialDeckStateStore.createStateStore(workspaceStorage);
+const blueskySessionRuntime = SocialDeckBlueskySessionRuntime.createBlueskySessionRuntime({
   vault: {
     load: () => IS_ELECTRON && window.electronAPI?.loadBlueskySession
       ? window.electronAPI.loadBlueskySession()
@@ -257,7 +322,7 @@ let state = {
   composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
   appearance: { theme: 'dark', accent: '#4e9af0' },
 };
-const appearanceRuntime = window.SocialDeckAppearanceRuntime.createAppearanceRuntime({
+const appearanceRuntime = SocialDeckAppearanceRuntime.createAppearanceRuntime({
   root: document.documentElement,
   persist: appearance => {
     state.appearance = appearance;
@@ -265,13 +330,13 @@ const appearanceRuntime = window.SocialDeckAppearanceRuntime.createAppearanceRun
   },
 });
 const AVBG = ['linear-gradient(135deg,#4e9af0,#6a5cf0)', 'linear-gradient(135deg,#e05c7a,#9a5cf0)', 'linear-gradient(135deg,#3dc98a,#4e9af0)', 'linear-gradient(135deg,#f5c842,#e05c7a)', 'linear-gradient(135deg,#9a5cf0,#e05c7a)', 'linear-gradient(135deg,#4e9af0,#3dc98a)', 'linear-gradient(135deg,#e05c7a,#f5c842)', 'linear-gradient(135deg,#3dc98a,#6a5cf0)'];
-const uiUtils = window.SocialDeckUiUtils.createUiUtils({
+const uiUtils = SocialDeckUiUtils.createUiUtils({
   avatarBackgrounds: AVBG,
   bskyIcon: SVG.bsky,
 });
 const { esc, relTime, avBgFor, renderAvatar, formatText } = uiUtils;
-const lightboxRuntime = window.SocialDeckLightboxRuntime.createLightboxRuntime();
-const memoryCleaner = window.SocialDeckMemoryCleaner.createMemoryCleaner({
+const lightboxRuntime = SocialDeckLightboxRuntime.createLightboxRuntime();
+const memoryCleaner = SocialDeckMemoryCleaner.createMemoryCleaner({
   key: MEM_KEY,
   clearMemory: IS_ELECTRON ? () => window.electronAPI?.clearMemory?.() : null,
   getMemoryMetrics: IS_ELECTRON ? () => window.electronAPI?.getMemoryMetrics?.() : null,
@@ -295,7 +360,7 @@ const memoryCleaner = window.SocialDeckMemoryCleaner.createMemoryCleaner({
     return { blueskyItemsRemoved, xNotificationReadersDisposed };
   },
 });
-const settingsModals = window.SocialDeckSettingsModalsRuntime.createSettingsModalsRuntime({
+const settingsModals = SocialDeckSettingsModalsRuntime.createSettingsModalsRuntime({
   documentRef: document,
   storage: localStorage,
   muteRules,
@@ -320,7 +385,7 @@ const settingsModals = window.SocialDeckSettingsModalsRuntime.createSettingsModa
     refilterColumns: () => refilterBskyCols(),
   },
 });
-const mentionSuggest = window.SocialDeckComposeMentionSuggest.createComposeMentionSuggest({
+const mentionSuggest = SocialDeckComposeMentionSuggest.createComposeMentionSuggest({
   documentRef: document,
   windowRef: window,
   searchActors: async query => (
@@ -329,7 +394,7 @@ const mentionSuggest = window.SocialDeckComposeMentionSuggest.createComposeMenti
   isAvailable: () => Boolean(state.b),
   ui: { escape: esc, avatarBackground: avBgFor },
 });
-const columnPicker = window.SocialDeckColumnPicker.createColumnPicker({
+const columnPicker = SocialDeckColumnPicker.createColumnPicker({
   documentRef: document,
   getAccounts: () => ({ x: state.xs || [], b: state.b }),
   getColumnDefinitions: networkId => networkAdapters.getColumnDefinitions(networkId),
@@ -338,10 +403,10 @@ const columnPicker = window.SocialDeckColumnPicker.createColumnPicker({
   intents: {
     toast,
     close: modalId => closeOv(modalId),
-    requestXListInput: accountIndex => openXListDialog(accountIndex),
+    requestXListInput: accountIndex => xListDialog.openXListDialog(accountIndex),
   },
 });
-const widgetMode = window.SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
+const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
   documentRef: document,
   widgetHost: IS_ELECTRON
     ? {
@@ -355,7 +420,7 @@ const widgetMode = window.SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
   columnRuntime,
   intents: { toast, reload: () => location.reload() },
 });
-const composeQuote = window.SocialDeckComposeQuote.createComposeQuote({
+const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   documentRef: document,
   getAccount: () => state.b,
   buildFacets: text => buildFacets(text),
@@ -375,17 +440,76 @@ const composeQuote = window.SocialDeckComposeQuote.createComposeQuote({
     },
   },
 });
-const fileDragShield = window.SocialDeckFileDragShield.createFileDragShield({
-  getIsColumnDragging: () => Boolean(dragSrc),
+const columnReorderRuntime = SocialDeckColumnReorderRuntime.createColumnReorderRuntime({
+  container: document.getElementById('cols'),
+  onReorder: () => {
+    toast('カラムを移動しました');
+    columnLifecycle.persist();
+  },
 });
-const notificationRuntime = window.SocialDeckNotificationRuntime.createNotificationRuntime();
-const xLoginGate = window.SocialDeckXLoginGate.createXLoginGate();
-const composeModalView = window.SocialDeckComposeModalRuntime.createComposeModalDomView({
+const fileDragShield = SocialDeckFileDragShield.createFileDragShield({
+  getIsColumnDragging: columnReorderRuntime.isDragging,
+});
+const workspaceBackup = SocialDeckWorkspaceBackup.createWorkspaceBackup({
+  storage: workspaceStorage,
+  getState: () => state,
+  resolveDefinition: column => networkAdapters.resolveColumnDefinition(column),
+  getNotificationRules: () => desktopNotificationRuntime.getSnapshot().rules,
+  getMemoryInterval: () => memoryCleaner.getInterval(),
+});
+const backupSettings = SocialDeckBackupSettingsRuntime.createBackupSettingsRuntime({
+  backup: workspaceBackup, files: window.electronAPI,
+  beforeCapture: () => { saveColLayout(); },
+  beforeRestore: () => {
+    if (['x', 'b'].some(network => composeCoordinator.getStatus(network).isSending)) {
+      throw new Error('投稿の送信が終わってから復元してください');
+    }
+    if (columnRuntime.isWidgetMode()) throw new Error('メイン画面から復元してください');
+  },
+  reload: () => location.reload(),
+});
+const columnUndo = SocialDeckColumnUndo.createColumnUndo({
+  capture: id => {
+    saveColLayout();
+    const layout = columnRuntime.readStoredLayout();
+    const index = layout.findIndex(column => column.id === id);
+    if (index < 0) return null;
+    const column = layout[index];
+    return { column, index, nextId: layout[index + 1]?.id,
+      fontSize: localStorage.getItem(`col_fs_${id}`),
+      account: column.network === 'b' ? state.b?.did
+        : state.xs.find(account => account.partition === column.partition)?.username };
+  },
+  remove: id => columnLifecycle.remove(id),
+  canRestore: ({ column, account }) => column.network === 'b' ? state.b?.did === account
+    : column.network === 'x' ? state.xs.some(item => item.partition === column.partition && item.username === account) : true,
+  restore: snapshot => {
+    const { column, index, nextId, fontSize } = snapshot;
+    if (columnShellRuntime.getRoot(column.id)) throw new Error('同じカラムが既に存在します');
+    if (fontSize !== null) localStorage.setItem(`col_fs_${column.id}`, fontSize);
+    const result = columnLifecycle.restore([column]);
+    if (result.failures.length) {
+      columnShellRuntime.remove(column.id);
+      throw result.failures[0].error;
+    }
+    const root = columnShellRuntime.getRoot(column.id);
+    const container = document.getElementById('cols');
+    const other = [...container.querySelectorAll('.col')].filter(item => item !== root);
+    const before = columnShellRuntime.getRoot(nextId) || other[index] || container.querySelector('.add-col-btn');
+    container.insertBefore(root, before);
+    try { saveColLayout(); }
+    catch (error) { columnLifecycle.remove(column.id); throw error; }
+  },
+  changed: pending => { document.getElementById('column-undo').hidden = !pending; },
+});
+const notificationRuntime = SocialDeckNotificationRuntime.createNotificationRuntime();
+const xLoginGate = SocialDeckXLoginGate.createXLoginGate();
+const composeModalView = SocialDeckComposeModalRuntime.createComposeModalDomView({
   documentRef: document,
   ui: { escape: esc, formatSeconds: fmtSec },
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
 });
-composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRuntime({
+composeModalRuntime = SocialDeckComposeModalRuntime.createComposeModalRuntime({
   storage: localStorage,
   getAccounts: () => ({ x: state.xs || [], b: state.b }),
   getPreferences: () => state.composePreferences || {},
@@ -406,7 +530,7 @@ composeModalRuntime = window.SocialDeckComposeModalRuntime.createComposeModalRun
     onBlueskyTextInput: event => mentionSuggest.onInput(event),
   },
 });
-const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmission({
+const composeSubmission = SocialDeckComposeSubmission.createComposeSubmission({
   modalRuntime: {
     getSnapshot: networkId => composeModalRuntime.getSnapshot(networkId),
     setBusy: (networkId, busy, label, options) => composeModalRuntime.setBusy(networkId, busy, label, options),
@@ -429,7 +553,7 @@ const composeSubmission = window.SocialDeckComposeSubmission.createComposeSubmis
   },
 });
 const authenticatedBskyAdapter = bskyGateway;
-bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumnsRuntime({
+bskyColumnsRuntime = SocialDeckBlueskyColumnsRuntime.createBlueskyColumnsRuntime({
   adapter: authenticatedBskyAdapter,
   muteRules,
   ui: { formatText, relTime, renderAvatar },
@@ -440,7 +564,7 @@ bskyColumnsRuntime = window.SocialDeckBlueskyColumnsRuntime.createBlueskyColumns
     quote: ({ uri, cid, handle }) => composeQuote.open(uri, cid, handle),
     openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
     openProfile: ({ did, handle }) => showProfile(did || handle),
-    openPostMenu: ({ handle, x, y }) => showPostMenu({ handle, x, y }),
+    openPostMenu: ({ handle, x, y }) => postMenu.showPostMenu({ handle, x, y }),
     clearNotificationUnread: () => notificationRuntime.clearUnread(),
     activateNotification: ({ authorDid, authorHandle, targetUri }) => {
       if (targetUri) {
@@ -519,7 +643,6 @@ function renderApp() {
   accountSessionRuntime.refresh();
   renderDefaultCols();
   renderCompUI();
-  buildOptGrid();
 }
 function closeAmenu() { document.getElementById('amenu').classList.remove('open'); }
 document.addEventListener('click', e => { if (!e.target.closest('.sb')) closeAmenu(); });
@@ -537,10 +660,10 @@ async function initWvPreloadPath() {
     wvPreloadPath = await window.electronAPI.getWebviewPreloadPath() || '';
   }
 }
-const refreshScheduler = window.SocialDeckRefreshScheduler.createRefreshScheduler();
+const refreshScheduler = SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
 const ANIME_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
-xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
+xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
   documentRef: document,
   storage: localStorage,
   isElectron: IS_ELECTRON,
@@ -550,7 +673,7 @@ xWebViewRuntime = window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
   getRefreshInterval: id => columnLifecycle.getRefreshInterval(id),
   setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
   defaultRefreshInterval: DEFAULT_INTERVAL_MS,
-  createRefreshScript: destination => window.SocialDeckXTimelineRefresh.createRefreshScript(destination),
+  createRefreshScript: destination => SocialDeckXTimelineRefresh.createRefreshScript(destination),
   getCanonicalUrl: getXNotificationColumnUrl,
   getPreloadPath: () => wvPreloadPath,
   allowDevTools: window.electronAPI?.devToolsEnabled === true,
@@ -560,32 +683,34 @@ function openUnreadReplies() {
   notificationReplyRuntime.back();
   notificationCenterRuntime.open({ network: 'x', reason: 'all', unreadOnly: true });
 }
-const replyNotificationView = window.SocialDeckReplyNotifications.createReplyNotificationDomView({
+const replyNotificationView = SocialDeckReplyNotifications.createReplyNotificationDomView({
   documentRef: document,
   activate: item => replyNotificationRuntime.activate(item),
   openUnread: openUnreadReplies,
   onBadge: count => notificationRuntime.setXUnreadCount(count),
 });
-const replyNotificationRuntime = window.SocialDeckReplyNotifications.createReplyNotificationRuntime({
+const replyNotificationRuntime = SocialDeckReplyNotifications.createReplyNotificationRuntime({
   storage: localStorage, view: replyNotificationView,
   openItem: item => openXNotificationCenterItem(item),
 });
-const notificationReplyRuntime = window.SocialDeckNotificationReply.createNotificationReplyRuntime({
+const notificationReplyRuntime = SocialDeckNotificationReply.createNotificationReplyRuntime({
   documentRef: document,
   getAccounts: () => state.xs || [],
   getPreloadPath: () => wvPreloadPath,
+  getBlueskyAccount: () => state.b,
+  getActivationScript: item => notificationCenter.buildXNotificationActivationScript(item.raw),
 });
-const notificationCenterView = window.SocialDeckNotificationCenterRuntime.createNotificationCenterDomView({
+const notificationCenterView = SocialDeckNotificationCenterRuntime.createNotificationCenterDomView({
   documentRef: document,
   ui: {
     escape: esc,
     renderAvatar,
     relativeTime: relTime,
     avatarBackground: avBgFor,
-    canReply: item => Boolean(window.SocialDeckNotificationReply.replyUrl(item)),
+    canReply: item => Boolean(SocialDeckNotificationReply.replyUrl(item)),
   },
 });
-notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNotificationCenterRuntime({
+notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificationCenterRuntime({
   model: notificationCenter,
   getSession: () => ({
     bluesky: Boolean(state.b),
@@ -637,26 +762,18 @@ notificationCenterRuntime = window.SocialDeckNotificationCenterRuntime.createNot
         isRead: ['reply', 'like'].includes(item.reason) ? replyNotificationRuntime.isRead(item) : null,
       }));
     },
-    openXNotification: item => replyNotificationRuntime.activate(item),
+    openNotification: item => notificationReplyRuntime.open(item),
     markXRead: item => replyNotificationRuntime.markRead(item),
     markAllXRead: () => replyNotificationRuntime.markAllRead(),
     reply: item => notificationReplyRuntime.open(item),
-    openBlueskyPost: item => {
-      const handle = ['like', 'repost'].includes(item.reason) ? state.b?.handle : item.author?.handle;
-      return bskyColumnsRuntime.openPost({
-        uri: item.targetUri,
-        handle: handle || state.b?.handle || 'post',
-      });
-    },
-    openBlueskyProfile: item => showProfile(item.author.did),
     clearUnread: () => notificationRuntime.clearUnread(),
     toast,
   },
 });
-const desktopNotificationView = window.SocialDeckDesktopNotificationRuntime.createDesktopNotificationDomView({
+const desktopNotificationView = SocialDeckDesktopNotificationRuntime.createDesktopNotificationDomView({
   documentRef: document,
 });
-desktopNotificationRuntime = window.SocialDeckDesktopNotificationRuntime.createDesktopNotificationRuntime({
+desktopNotificationRuntime = SocialDeckDesktopNotificationRuntime.createDesktopNotificationRuntime({
   storage: localStorage,
   fetchItems: async () => {
     await notificationCenterRuntime.reload();
@@ -689,11 +806,11 @@ desktopNotificationRuntime = window.SocialDeckDesktopNotificationRuntime.createD
     },
   },
 });
-const accountSessionView = window.SocialDeckAccountSessionRuntime.createAccountSessionDomView({
+const accountSessionView = SocialDeckAccountSessionRuntime.createAccountSessionDomView({
   documentRef: document,
   escape: esc,
 });
-accountSessionRuntime = window.SocialDeckAccountSessionRuntime.createAccountSessionRuntime({
+accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRuntime({
   state: {
     get: () => state,
     commit: nextState => {
@@ -727,7 +844,7 @@ accountSessionRuntime = window.SocialDeckAccountSessionRuntime.createAccountSess
   },
   getAvatarBackground: index => AVBG[index % AVBG.length],
   getBlueskyBackground: avBgFor,
-  createDefaultState: window.SocialDeckStateStore.defaultState,
+  createDefaultState: SocialDeckStateStore.defaultState,
   view: accountSessionView,
   intents: {
     confirmLogout: account => confirm(`Log out ${account.username}?`),
@@ -783,6 +900,8 @@ function renderDefaultCols() {
   columnLifecycle.clear({ removeElements: true });
 
   if (restoreColLayout()) return;
+  // An explicitly saved empty workspace must remain empty after restore/reload.
+  if (localStorage.getItem(COL_KEY) === '[]') return;
 
   // 初回起動: Blueskyのデフォルトカラムのみ追加
   if (state.b) {
@@ -1046,7 +1165,8 @@ async function loadBskyFeed(cid, type, feedUri = null, append = false) {
 }
 
 function removeCol(id) {
-  columnLifecycle.remove(id);
+  try { columnUndo.remove(id); }
+  catch (error) { toast(`カラムを削除できませんでした: ${error.message}`); }
 }
 
 async function refreshColumn(id, button) {
@@ -1134,9 +1254,9 @@ function renderCompUI() {
   if (avEl && state.b) {
     avEl.style.background = state.b.bg || '';
     if (state.b.avatar) {
-      avEl.innerHTML = `<img src="${state.b.avatar}"><span id="comp-av-txt" style="display:none"></span>`;
+      avEl.innerHTML = `<img src="${esc(state.b.avatar)}"><span id="comp-av-txt" style="display:none"></span>`;
     } else {
-      avEl.innerHTML = `<span id="comp-av-txt">${state.b.initials || '?'}</span>`;
+      avEl.innerHTML = `<span id="comp-av-txt">${esc(state.b.initials || '?')}</span>`;
     }
   }
 
@@ -1144,7 +1264,7 @@ function renderCompUI() {
   const activeXAcc = state.xs?.[state.activeX || 0];
   if (xAvEl && activeXAcc) {
     xAvEl.style.background = activeXAcc.bg || '';
-    xAvEl.innerHTML = `<span id="x-post-av-txt">${activeXAcc.initials || 'X'}</span>`;
+    xAvEl.innerHTML = `<span id="x-post-av-txt">${esc(activeXAcc.initials || 'X')}</span>`;
   }
 }
 
@@ -1199,38 +1319,9 @@ async function resolveMentionDids(facets) {
   });
 }
 
-function showPostMenu({ handle, x, y }) {
-  document.getElementById('post-ctx-menu')?.remove();
-  const menu = document.createElement('div');
-  menu.id = 'post-ctx-menu';
-  menu.className = 'ctx-menu';
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  menu.innerHTML = `
-    <div data-action="add-ng-user" data-handle="${esc(handle)}" class="ctx-item hover-row">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-      @${esc(handle)} をミュート
-    </div>
-    <div data-action="copy-handle" data-handle="${esc(handle)}" class="ctx-item hover-row">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      ハンドルをコピー
-    </div>
-  `;
-  document.body.appendChild(menu);
-  const closeMenu = () => { menu.remove(); document.removeEventListener('click', closeMenu); };
-  setTimeout(() => document.addEventListener('click', closeMenu), 50);
-}
-function addNgUser(handle) {
-  const { value: clean } = muteRules.add('user', handle);
-  if (!clean) return;
-  toast(`@${clean} をミュートしました`);
-  document.getElementById('post-ctx-menu')?.remove();
-  refilterBskyCols(); // 即時反映
-}
-function copyHandle(handle) {
-  navigator.clipboard?.writeText('@' + handle).then(() => toast('コピーしました'));
-  document.getElementById('post-ctx-menu')?.remove();
-}
+const postMenu = createPostMenuRuntime({
+  documentRef: document, esc, muteRules, toast, refilterBskyCols,
+});
 
 function renderNotifIcons() {
   const el = document.getElementById('sb-notif-icons');
@@ -1259,51 +1350,9 @@ function renderNotifIcons() {
   if (state.b) startNotifPoll();
 }
 
-async function openAbout() {
-  const modal = document.getElementById('aboutMod');
-  const version = document.getElementById('about-version');
-  if (!modal || !version) return;
-  try {
-    const appVersion = await window.electronAPI?.getAppVersion?.();
-    version.textContent = `Version ${appVersion || '開発版'}`;
-  } catch {
-    version.textContent = 'Version 開発版';
-  }
-  modal.classList.add('on');
-}
-
-function checkForUpdates() {
-  const button = document.getElementById('check-update-btn');
-  const status = document.getElementById('update-status');
-  if (button) button.disabled = true;
-  if (status) status.textContent = '更新を確認しています…';
-  window.electronAPI?.checkForUpdates?.();
-}
-
-function installUpdate() {
-  window.electronAPI?.installUpdate?.();
-}
-
-function renderUpdateStatus(update) {
-  const status = document.getElementById('update-status');
-  const checkButton = document.getElementById('check-update-btn');
-  const installButton = document.getElementById('install-update-btn');
-  if (!status || !checkButton || !installButton || !update) return;
-
-  checkButton.disabled = update.status === 'checking' || update.status === 'downloading';
-  installButton.style.display = update.status === 'downloaded' ? '' : 'none';
-
-  const messages = {
-    checking: '更新を確認しています…',
-    available: `Version ${update.version} を取得しています…`,
-    downloading: `更新をダウンロードしています… ${update.percent ?? 0}%`,
-    downloaded: `Version ${update.version} を適用できます。`,
-    'not-available': '最新バージョンです。',
-    development: '更新確認はインストール版で利用できます。',
-    error: update.message || '更新を確認できませんでした。',
-  };
-  status.textContent = messages[update.status] || '';
-}
+const appInfo = createAppInfoRuntime({
+  documentRef: document, api: window.electronAPI,
+});
 
 async function openXNotificationCenterItem(item) {
   const accountIndex = state.xs?.findIndex(account =>
@@ -1422,79 +1471,10 @@ function scrollToStart() {
   document.getElementById('cols')?.scrollTo({ left: 0, behavior: 'smooth' });
 }
 
-function openXListDialog(accountIdx) {
-  document.getElementById('x-list-dialog-ov')?.remove();
-  const ov = document.createElement('div');
-  ov.className = 'ov on'; ov.id = 'x-list-dialog-ov';
-  ov.onclick = e => { if (e.target === ov) ov.remove(); };
-
-  const acc = state.xs?.[accountIdx ?? 0];
-  const accLabel = acc ? ` (${acc.username})` : '';
-
-  ov.innerHTML = `
-    <div class="modal" style="width:400px">
-      <h2 style="margin-bottom:6px;display:flex;align-items:center;gap:8px">
-        ${SVG.x.replace('viewBox', 'width="15" height="15" viewBox')}
-        Add X list${esc(accLabel)}
-      </h2>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:16px">Enter a list URL or list ID.</p>
-      <div class="lf" style="margin-bottom:6px">
-        <label>List URL / ID</label>
-        <input type="text" id="x-list-input" placeholder="https://x.com/i/lists/123456789 or 123456789"
-          style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text1);font-family:inherit;outline:none"
-          data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}">
-      </div>
-      <div class="lf" style="margin-bottom:16px">
-        <label>Column name (optional)</label>
-        <input type="text" id="x-list-name" placeholder="My list"
-          style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text1);font-family:inherit;outline:none"
-          data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}">
-      </div>
-      <div style="display:flex;gap:8px">
-        <button data-action="remove-element" data-target-id="x-list-dialog-ov" class="btn-cancel" style="flex:1">Cancel</button>
-        <button data-action="confirm-x-list" data-account-index="${accountIdx}" style="flex:1;padding:9px;border-radius:7px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Add</button>
-      </div>
-    </div>`;
-  document.body.appendChild(ov);
-  setTimeout(() => document.getElementById('x-list-input')?.focus(), 50);
-}
-
-function confirmXList(accountIdx) {
-  const raw = document.getElementById('x-list-input')?.value?.trim();
-  const nameInput = document.getElementById('x-list-name')?.value?.trim();
-  if (!raw) { toast('Enter a list URL or ID'); return; }
-
-  let listId = raw;
-  const m = raw.match(/lists\/([0-9]+)/);
-  if (m) listId = m[1];
-  // 数字のみでなければエラー
-  if (!/^[0-9]+$/.test(listId)) { toast('Enter a valid list URL or ID'); return; }
-
-  const url = `https://x.com/i/lists/${listId}`;
-  const title = nameInput || `List ${listId}`;
-  const acc = state.xs?.[accountIdx ?? 0];
-  const xPart = acc?.partition || `persist:x-${accountIdx ?? 0}`;
-  const accLabel = acc ? ` - ${acc.username}` : '';
-
-  const id = nextColumnId(`x${accountIdx}-list-${listId}`);
-  const result = columnLifecycle.create({
-    networkId: 'x',
-    definitionId: 'x-list-new',
-    id,
-    account: acc ? { ...acc, index: accountIdx ?? 0, partition: xPart } : null,
-    params: { url, title, sub: `X${accLabel}` },
-  });
-  if (result.status !== 'created') {
-    toast('List column could not be added');
-    return;
-  }
-
-  document.getElementById('x-list-dialog-ov')?.remove();
-  const cols = document.getElementById('cols');
-  const lastCol = cols.querySelector('.col:last-of-type');
-  if (lastCol) lastCol.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-  toast('List column added');
-}
+const xListDialog = createXListDialogRuntime({
+  documentRef: document, getAccounts: () => state.xs, esc, icon: SVG.x, toast,
+  nextColumnId: prefix => columnPicker.nextColumnId(prefix), createColumn: request => columnLifecycle.create(request),
+});
 
 function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
   const networkId = modalId === 'xPostMod' ? 'x' : 'b';
@@ -1533,7 +1513,7 @@ function createUiActionHandlers() {
     'switch-tab': ({ dataset }) => switchTab(dataset.network),
     'toggle-app-menu': ({ dataset, event }) => toggleAmDrop(dataset.targetId, event),
     'open-login': () => openLoginScreen(),
-    'open-about': () => openAbout(),
+    'open-about': () => appInfo.openAbout(),
     'close-app': () => window.electronAPI?.close(),
     'open-add-column': () => columnPicker.open(),
     'refresh-all': () => refreshAll(),
@@ -1553,6 +1533,17 @@ function createUiActionHandlers() {
     'open-ng-settings': () => settingsModals.openNgSettings(),
     'open-memory-settings': () => settingsModals.openMemorySettings(),
     'open-settings': () => document.getElementById('settingsMod').classList.add('on'),
+    'open-backup': () => backupSettings.open(),
+    'export-backup': () => backupSettings.export(),
+    'import-backup': () => backupSettings.import(),
+    'recover-backup': () => backupSettings.recover(),
+    'apply-backup': () => backupSettings.apply(),
+    'undo-column': () => {
+      try { if (columnUndo.undo()) toast('カラムを元に戻しました'); }
+      catch (error) { toast(error.message); }
+    },
+    'dismiss-column-undo': () => columnUndo.clear(),
+    'dismiss-workspace-recovery': () => { document.getElementById('workspace-recovery').hidden = true; },
     'settings-accounts': () => {
       document.getElementById('settingsMod').classList.remove('on');
       openLoginScreen();
@@ -1567,8 +1558,8 @@ function createUiActionHandlers() {
     'close-overlay': ({ dataset, event, target }) => (
       closeOv(dataset.overlayId, target.classList.contains('ov') ? event : undefined)
     ),
-    'check-updates': () => checkForUpdates(),
-    'install-update': () => installUpdate(),
+    'check-updates': () => appInfo.checkForUpdates(),
+    'install-update': () => appInfo.installUpdate(),
     'close-lightbox': ({ event }) => lbClose(event),
     'move-lightbox': ({ dataset }) => lbMove(integer(dataset.direction)),
     'remove-ng-rule': ({ dataset }) => settingsModals.removeNgRule(dataset.ruleKind, integer(dataset.ruleIndex)),
@@ -1591,14 +1582,14 @@ function createUiActionHandlers() {
       dataset.columnType,
       integer(dataset.fontSize, 13),
     ),
-    'add-ng-user': ({ dataset }) => addNgUser(dataset.handle),
-    'copy-handle': ({ dataset }) => copyHandle(dataset.handle),
+    'add-ng-user': ({ dataset }) => postMenu.addNgUser(dataset.handle),
+    'copy-handle': ({ dataset }) => postMenu.copyHandle(dataset.handle),
     'apply-memory-interval': ({ dataset }) => settingsModals.applyMemoryInterval(integer(dataset.intervalMs)),
     'clear-memory-now': () => {
       settingsModals.clearMemoryNow(true);
     },
     'refresh-memory-metrics': () => settingsModals.refreshMemoryMetrics(),
-    'confirm-x-list': ({ dataset }) => confirmXList(integer(dataset.accountIndex)),
+    'confirm-x-list': ({ dataset }) => xListDialog.confirmXList(integer(dataset.accountIndex)),
     'insert-mention': ({ dataset }) => mentionSuggest.insert(dataset.handle),
     'widget-select-column': ({ value }) => widgetMode.selectColumn(value),
     'widget-set-opacity': ({ value }) => widgetMode.setOpacity(value),
@@ -1668,8 +1659,8 @@ if (IS_ELECTRON) {
   window.electronAPI.on('refresh-all', () => refreshAll());
   window.electronAPI.on('scroll-left', () => { document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }); });
   window.electronAPI.on('scroll-right', () => { document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }); });
-  window.electronAPI.on('show-about', () => openAbout());
-  window.electronAPI.onUpdateStatus?.(renderUpdateStatus);
+  window.electronAPI.on('show-about', () => appInfo.openAbout());
+  window.electronAPI.onUpdateStatus?.(appInfo.renderUpdateStatus);
 
   window.addEventListener('resize', () => {
     const btn = document.getElementById('win-max-btn');
@@ -1681,85 +1672,8 @@ if (IS_ELECTRON) {
   });
 }
 
-// ─── DRAG & DROP ─────────────────────────────────
-let dragSrc = null;
-fileDragShield.attach();
-
-function initDnD() {
-  const cols = document.getElementById('cols');
-  let lastDragOverCol = null;
-
-  cols.addEventListener('dragstart', e => {
-    const head = e.target.closest('[data-column-drag-handle]');
-    const interactive = e.target.closest('button,a,input,textarea,select,[contenteditable="true"],.feed,.post,.notif,.col-webview,[data-column-resize-handle]');
-    if (!head || interactive) { e.preventDefault(); return; }
-    const col = head.closest('.col'); if (!col) return;
-    dragSrc = col;
-    requestAnimationFrame(() => { col.style.opacity = '0.4'; });
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', col.id);
-    document.querySelectorAll('.col').forEach(c => {
-      if (!c.querySelector('.col-drag-shield')) {
-        const shield = document.createElement('div');
-        shield.className = 'col-drag-shield';
-        shield.style.cssText = 'position:absolute;inset:0;z-index:20;pointer-events:none;background:transparent';
-        c.style.position = 'relative';
-        c.appendChild(shield);
-      }
-    });
-  });
-
-  cols.addEventListener('dragend', () => {
-    if (dragSrc) dragSrc.style.opacity = '';
-    if (lastDragOverCol) { lastDragOverCol.classList.remove('drag-over'); lastDragOverCol = null; }
-    dragSrc = null;
-    document.querySelectorAll('.col-drag-shield').forEach(s => s.remove());
-  });
-
-  cols.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const col = e.target.closest('.col');
-    if (!col || col === dragSrc) {
-      if (lastDragOverCol) { lastDragOverCol.classList.remove('drag-over'); lastDragOverCol = null; }
-      return;
-    }
-    if (lastDragOverCol !== col) {
-      if (lastDragOverCol) lastDragOverCol.classList.remove('drag-over');
-      col.classList.add('drag-over');
-      lastDragOverCol = col;
-    }
-  });
-
-  cols.addEventListener('dragleave', e => {
-    if (!cols.contains(e.relatedTarget)) {
-      if (lastDragOverCol) { lastDragOverCol.classList.remove('drag-over'); lastDragOverCol = null; }
-    }
-  });
-
-  cols.addEventListener('drop', e => {
-    e.preventDefault();
-    const target = e.target.closest('.col');
-    if (lastDragOverCol) { lastDragOverCol.classList.remove('drag-over'); lastDragOverCol = null; }
-    if (!target || !dragSrc || target === dragSrc) return;
-
-    // ドロップ先と位置をスワップ
-    const cols2 = [...cols.querySelectorAll('.col')];
-    const srcIdx = cols2.indexOf(dragSrc);
-    const tgtIdx = cols2.indexOf(target);
-    if (srcIdx < tgtIdx) {
-      target.insertAdjacentElement('afterend', dragSrc);
-    } else {
-      cols.insertBefore(dragSrc, target);
-    }
-    dragSrc.style.opacity = '';
-    toast('カラムを移動しました');
-    columnLifecycle.persist();
-  });
-}
-
 // ─── INIT ───────────────────────────────────────
-delegatedActionRuntime = window.SocialDeckDelegatedActionRuntime.createDelegatedActionRuntime({
+delegatedActionRuntime = SocialDeckDelegatedActionRuntime.createDelegatedActionRuntime({
   root: document,
   actions: createUiActionHandlers(),
 });
@@ -1783,7 +1697,8 @@ const xLoginStatesReady = accountSessionReady
   .then(() => initializeXLoginStates())
   .catch(() => {});
 xLoginStatesReady.then(() => desktopNotificationRuntime.start()).catch(() => {});
-initDnD();
+fileDragShield.attach();
+columnReorderRuntime.attach();
 
 const hasStoredAccounts = (state.xs && state.xs.length > 0) || state.b;
 if (hasStoredAccounts) {
@@ -1827,3 +1742,7 @@ Promise.all([xLoginStatesReady, webviewPreloadReady]).then(() => {
   const timer = setInterval(pollReplies, 30000);
   window.addEventListener('beforeunload', () => clearInterval(timer), { once: true });
 });
+
+// Integration tests import these live bindings; no renderer state is published on window.
+export { xWebViewRuntime, accountSessionRuntime, notificationCenterRuntime, replyNotificationRuntime,
+  notificationCenter, state, columnShellRuntime, columnLifecycle, desktopNotificationRuntime, removeCol };

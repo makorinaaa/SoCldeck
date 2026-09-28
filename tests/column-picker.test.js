@@ -119,3 +119,13 @@ test('reports an unavailable Column type', () => {
   assert.deepEqual(calls.toasts, ['Column type is unavailable']);
   assert.equal(calls.scrolled, 0);
 });
+
+test('escapes account metadata before rendering picker HTML', () => {
+  const { picker, grid } = createHarness({ accounts: {
+    x: [{ username: 'user', bg: '\" onclick=\"alert(1)', initials: '<img src=x onerror=alert(1)>' }],
+    b: { handle: '<script>alert(1)</script>' },
+  } });
+  picker.open();
+  assert.doesNotMatch(grid.innerHTML, /<script>|<img src=x|background=" onclick=/);
+  assert.match(grid.innerHTML, /&lt;script&gt;/);
+});

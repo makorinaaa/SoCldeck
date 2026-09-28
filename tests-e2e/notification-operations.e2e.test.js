@@ -8,6 +8,51 @@ const { version: appVersion } = require('../package.json');
 
 const APP_ROOT = path.join(__dirname, '..');
 
+test('X submission waits for composer attachments and ignores media in the timeline', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, pageHtml: `<!doctype html><html><body>
+    <article data-testid="attachments"><div data-testid="tweetPhoto"></div><div data-testid="tweetPhoto"></div></article>
+    <div role="dialog">
+      <div contenteditable="true" data-testid="tweetTextarea_0"></div>
+      <div data-testid="toolBar"><input type="file" data-testid="fileInput" multiple></div>
+      <div data-testid="attachments" id="media"></div>
+      <button data-testid="tweetButton">Post</button>
+    </div>
+    <script>
+      window.submissions = [];
+      document.querySelector('[contenteditable]').addEventListener('paste', function(event) {
+        if (getComputedStyle(this).display !== 'none' && getComputedStyle(this.parentElement).display !== 'none') {
+          this.textContent = event.clipboardData.getData('text/plain');
+        }
+      });
+      document.querySelector('input').addEventListener('change', event => {
+        const count = event.target.files.length;
+        const progress = document.createElement('div'); progress.setAttribute('role', 'progressbar');
+        document.querySelector('[role="dialog"]').appendChild(progress);
+        setTimeout(() => {
+          document.getElementById('media').innerHTML = '<div data-testid="tweetPhoto"></div>'.repeat(count);
+          setTimeout(() => progress.remove(), 250);
+        }, 250);
+      });
+      document.querySelector('button').addEventListener('click', () => window.submissions.push({
+        count: document.getElementById('media').children.length,
+        busy: Boolean(document.querySelector('[role="progressbar"]'))
+      }));
+    </script>
+  </body></html>` });
+  const column = await addXHomeColumn(page);
+  const view = column.locator('webview');
+  const { createSubmissionScript } = await import('../src/renderer/x-composer-submit.mjs');
+  const photo = { name: 'image.png', type: 'image/png', dataUrl: 'data:image/png;base64,eA==' };
+  await view.evaluate(element => new Promise(resolve => {
+    if (element.dataset.ready === 'true') resolve();
+    else element.addEventListener('dom-ready', resolve, { once: true });
+  }));
+  await view.evaluate((element, script) => element.executeJavaScript(script), createSubmissionScript({
+    text: 'hello', images: [photo, photo], timeoutMs: 5000,
+  }));
+  assert.deepEqual(await view.evaluate(element => element.executeJavaScript('window.submissions')), [{ count: 2, busy: false }]);
+});
+
 test('conversation filter combines replies mentions and quotes and survives restart', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
     xNotifications: ['replied to you', 'mentioned you', 'quoted your post', 'liked your post'].map((action, index) => ({
@@ -189,9 +234,9 @@ async function launchApp(t, fixtures) {
     fs.rmSync(userDataDir, { recursive: true, force: true });
   });
   await electronApp.evaluate(async ({ session }, fixture) => {
-    const intercept = (partition, network) => new Promise((resolve, reject) => {
+    const intercept = (partition, network) => {
       const targetSession = partition ? session.fromPartition(partition) : session.defaultSession;
-      targetSession.protocol.interceptBufferProtocol('https', (request, callback) => {
+      const registered = targetSession.protocol.interceptBufferProtocol('https', (request, callback) => {
         const url = new URL(request.url);
         const allowed = network === 'x'
           ? ['x.com', 'pbs.twimg.com'].includes(url.hostname)
@@ -202,6 +247,10 @@ async function launchApp(t, fixtures) {
               : url.hostname === 'pbs.twimg.com';
         if (!allowed) return callback({ error: -3 });
         if (url.hostname === 'pbs.twimg.com' || url.hostname === 's4.anilist.co') {
+          if (fixture.slowResourceDelay && url.pathname === '/slow.png') {
+            setTimeout(() => callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') }), fixture.slowResourceDelay);
+            return;
+          }
           callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') });
           return;
         }
@@ -229,8 +278,9 @@ async function launchApp(t, fixtures) {
             ? notificationsHtml
             : fixture.pageHtml.replaceAll('__PATH__', url.pathname);
         callback({ mimeType: 'text/html', charset: 'utf-8', data: Buffer.from(body) });
-      }, error => error ? reject(error) : resolve());
-    });
+      });
+      if (!registered) throw new Error('Failed to intercept test HTTPS protocol');
+    };
     const tasks = fixture.xPartitions.map(partition => intercept(partition, 'x'));
     fixture.authenticatedXPartitions.forEach(partition => {
       tasks.push(session.fromPartition(partition).cookies.set({
@@ -252,7 +302,7 @@ async function launchApp(t, fixtures) {
     await Promise.all(tasks);
   }, {
     notificationsHtml: xFixture(NOTIFICATIONS_URL),
-    pageHtml: `<!doctype html><html><body data-e2e-path="__PATH__">
+    pageHtml: fixtures.pageHtml || `<!doctype html><html><body data-e2e-path="__PATH__">
       <nav>
         <a data-testid="AppTabBar_Home_Link" href="https://x.com/home">Home</a>
         <a data-testid="AppTabBar_Notifications_Link" href="https://x.com/notifications">Notifications</a>
@@ -265,12 +315,17 @@ async function launchApp(t, fixtures) {
     hasBluesky: Boolean(fixtures.state.b),
     simulateXLogin: Boolean(fixtures.simulateXLogin),
     redirectNotifications: Boolean(fixtures.redirectNotifications),
+    slowResourceDelay: fixtures.slowResourceDelay || 0,
     avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   });
   const page = await electronApp.firstWindow();
+  const rendererErrors = [];
+  page.on('pageerror', error => rendererErrors.push(error.message));
+  t.after(() => assert.deepEqual(rendererErrors, [], 'renderer must not raise unhandled errors'));
+  await page.reload();
   await page.locator('script[src="renderer.js"]').waitFor({ state: 'attached', timeout: 10000 });
   await page.waitForLoadState('domcontentloaded');
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     window.__e2eWarnings = [];
     const originalWarn = console.warn;
     console.warn = (...args) => {
@@ -312,7 +367,7 @@ async function openXLikeNotification(page) {
       timeout: 10000,
     });
   } catch (error) {
-    const diagnostics = await page.evaluate(() => ({
+    const diagnostics = await page.evaluate(async () => ({
       notificationText: document.getElementById('notif-center-list')?.textContent || '',
       notificationHtml: document.getElementById('notif-center-list')?.innerHTML || '',
       readers: [...document.querySelectorAll('#notif-center-x-readers webview')].map(webview => ({
@@ -340,34 +395,99 @@ async function addXHomeColumn(page, accountIndex = 0) {
   return column;
 }
 
-test('X notification journey reuses the account column and returns to notifications', async t => {
+test('X list dialog adds distinct columns for the chosen account and survives restart', async t => {
+  const { page } = await launchApp(t, X_FIXTURES);
+  for (const name of ['Friends', 'Friends again']) {
+    await page.locator('button[data-action="open-add-column"]:visible').first().click();
+    await page.locator('#addMod [data-definition-id="x-list-new"][data-account-index="1"]').click();
+    await page.locator('#x-list-input').fill('https://x.com/i/lists/123');
+    await page.locator('#x-list-name').fill(name);
+    await page.locator('#x-list-name').press('Enter');
+    await page.locator('#x-list-dialog-ov').waitFor({ state: 'detached' });
+  }
+  const columns = page.locator('.col[data-definition-id="x-list-new"]');
+  assert.equal(await columns.count(), 2);
+  const ids = await columns.evaluateAll(elements => elements.map(element => element.id));
+  assert.equal(new Set(ids).size, 2);
+  assert.deepEqual(await columns.locator('webview').evaluateAll(elements => elements.map(element => element.partition)), ['persist:x-1', 'persist:x-1']);
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.deepEqual(await columns.locator('.col-title').allTextContents(), ['Friends', 'Friends again']);
+});
+
+test('X like notifications open inside the center without creating a column', async t => {
   const { page } = await launchApp(t, X_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
   await openXLikeNotification(page);
-  const column = page.locator('.col[data-definition-id="x-notif-new"]');
-  const webviewSelector = '.col[data-definition-id="x-notif-new"] webview';
-  await column.waitFor();
-  assert.equal(await column.count(), 1);
-  assert.equal(await column.locator('webview').getAttribute('partition'), 'persist:x-1');
-  await expectWebviewUrl(page, webviewSelector, LIKED_POST_URL);
+  const webview = page.locator('#notif-reply-host webview');
+  assert.equal(await webview.getAttribute('partition'), 'persist:x-1');
+  let url = '';
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    url = await webview.evaluate(el => el.getURL()).catch(() => '');
+    if (url === LIKED_POST_URL) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(url, LIKED_POST_URL);
+  assert.equal(await page.locator('.col[data-definition-id="x-notif-new"]').count(), 0);
+  assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
+  await page.locator('#notif-reply-back').click();
+  await page.locator('.notif-center-item').first().waitFor({ state: 'visible' });
+});
 
-  await column.locator('button[title="戻る"]').click();
-  await expectWebviewUrl(page, webviewSelector, NOTIFICATIONS_URL);
+test('X detail diagnostic captures waiting and rendered states in the real preload', { timeout: 20000 }, async t => {
+  const { page, electronApp } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: [{ accountIndex: 0, text: 'Alice replied', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/789' }],
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().click();
+  const view = page.locator('#notif-reply-host webview');
+  const diagnosticPath = await electronApp.evaluate(({ app }) => app.getPath('userData'));
+  async function waitForPhase(phase) {
+    const deadline = Date.now() + 6000;
+    while (Date.now() < deadline) {
+      let found = false;
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(diagnosticPath, 'x-page-diagnostics.json'), 'utf8'));
+        found = data.events.some(event => event.type === 'page' && event.phase === phase);
+      } catch {}
+      if (found) return;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.fail(`missing ${phase} diagnostic`);
+  }
+  await waitForPhase('waiting');
+  await view.evaluate(el => el.executeJavaScript('document.body.innerHTML = \'<article data-testid="tweet"><a href="/alice/status/789">Post loaded</a></article>\''));
+  await waitForPhase('visible');
+});
 
-  await openXLikeNotification(page);
-  await expectWebviewUrl(page, webviewSelector, LIKED_POST_URL);
-  await column.locator('button[id^="rfr-"]').click();
-  await expectWebviewUrl(page, webviewSelector, NOTIFICATIONS_URL);
-
-  await openXLikeNotification(page);
-  await expectWebviewUrl(page, webviewSelector, LIKED_POST_URL);
-  await column.locator('.col-info').click();
-  await expectWebviewUrl(page, webviewSelector, NOTIFICATIONS_URL);
-
-  await openXLikeNotification(page);
-  await expectWebviewUrl(page, webviewSelector, LIKED_POST_URL);
-  assert.equal(await column.count(), 1);
+test('post content becomes visible before a slow image finishes during column reload', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, slowResourceDelay: 4000,
+    pageHtml: '<!doctype html><html><body><article>本文は準備済み</article><img src="https://pbs.twimg.com/slow.png"></body></html>',
+  });
+  const column = await addXHomeColumn(page);
+  const id = (await column.getAttribute('id')).replace(/^col-/, '');
+  const webview = column.locator('webview');
+  await webview.evaluate(el => new Promise(resolve => {
+    if (el.dataset.ready === 'true' && !el.isLoading()) resolve();
+    else el.addEventListener('did-stop-loading', resolve, { once: true });
+  }));
+  await webview.evaluate(el => el.loadURL('https://x.com/alice/status/123'));
+  const ready = await page.evaluate(async id => {
+    const view = document.getElementById(`wv-${id}`);
+    const started = performance.now();
+    const ready = new Promise(resolve => view.addEventListener('dom-ready', () => resolve({
+      opacity: view.style.opacity, overlay: document.getElementById(`wvov-${id}`).style.display,
+      loading: view.isLoading(), elapsed: performance.now() - started,
+    }), { once: true }));
+    await (await import('./renderer.js')).xWebViewRuntime.reload(id);
+    return ready;
+  }, id);
+  assert.equal(ready.loading, true, 'the image is still loading but the document is ready');
+  assert.ok(ready.elapsed < 3000, JSON.stringify(ready));
+  assert.notEqual(ready.opacity, '0');
+  assert.equal(ready.overlay, 'none');
 });
 
 test('X Column refresh preserves an open reply composer', async t => {
@@ -394,7 +514,7 @@ test('X Column refresh preserves an open reply composer', async t => {
 test('new X accounts use one login WebView and default to the black theme', async t => {
   const { electronApp, page } = await launchApp(t, NEW_X_ACCOUNT_FIXTURES);
   await page.locator('#login-screen').waitFor({ state: 'visible' });
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     localStorage.setItem('socialdeck_cols', JSON.stringify([
       { kind: 'wv', network: 'x', definitionId: 'x-home-new', id: 'login-home', url: 'https://x.com/home', partition: 'persist:x-0' },
       { kind: 'wv', network: 'x', definitionId: 'x-notif-new', id: 'login-notifications', url: 'https://x.com/notifications', partition: 'persist:x-0' },
@@ -407,9 +527,9 @@ test('new X accounts use one login WebView and default to the black theme', asyn
   try {
     await page.locator('#app').waitFor({ state: 'visible' });
   } catch (error) {
-    const diagnostics = await page.evaluate(() => ({
-      snapshot: typeof accountSessionRuntime !== 'undefined'
-        ? accountSessionRuntime.getSnapshot()
+    const diagnostics = await page.evaluate(async () => ({
+      snapshot: typeof (await import('./renderer.js')).accountSessionRuntime !== 'undefined'
+        ? (await import('./renderer.js')).accountSessionRuntime.getSnapshot()
         : null,
       input: document.getElementById('x-user')?.value || '',
       loginDisabled: document.getElementById('x-login-btn')?.disabled,
@@ -457,11 +577,12 @@ test('new X accounts use one login WebView and default to the black theme', asyn
   assert.equal(cookies[0]?.value, '2');
 });
 
-test('Bluesky follow notifications reuse one profile column and switch its URL', async t => {
+test('Bluesky follow notifications open profiles inside the notification center', async t => {
   const { page } = await launchApp(t, BLUESKY_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
-  await page.evaluate(() => openAbout());
+  await page.locator('[data-action="toggle-app-menu"][data-target-id="am-app"]').click();
+  await page.locator('[data-action="open-about"]').click();
   await page.locator('#aboutMod.on').waitFor();
   assert.equal(await page.locator('#about-version').textContent(), `Version ${appVersion}`);
   await page.locator('#about-close-btn').click();
@@ -470,18 +591,16 @@ test('Bluesky follow notifications reuse one profile column and switch its URL',
   await page.locator('.notif-center-tab[data-network="b"]').click();
   await page.locator('.notif-center-item').nth(0).click();
 
-  const column = page.locator('.col[data-definition-id="b-profile"]');
-  const webviewSelector = '.col[data-definition-id="b-profile"] webview';
-  await column.waitFor();
-  assert.equal(await column.count(), 1);
-  await expectWebviewUrl(page, webviewSelector, 'https://bsky.app/profile/did:plc:alice');
+  const webviewSelector = '#notif-reply-host webview';
+  assert.equal(await page.locator(webviewSelector).getAttribute('partition'), 'persist:bsky');
+  await expectWebviewUrl(page, webviewSelector, 'https://bsky.app/profile/did%3Aplc%3Aalice');
 
-  await page.locator('#sb-notif-b').click();
+  await page.locator('#notif-reply-back').click();
   await page.locator('.notif-center-tab[data-network="b"]').click();
   await page.locator('.notif-center-item').nth(1).click();
 
-  await expectWebviewUrl(page, webviewSelector, 'https://bsky.app/profile/did:plc:bob');
-  assert.equal(await column.count(), 1);
+  await expectWebviewUrl(page, webviewSelector, 'https://bsky.app/profile/did%3Aplc%3Abob');
+  assert.equal(await page.locator('.col[data-definition-id="b-profile"]').count(), 0);
 });
 
 test('desktop notification rules persist through the settings modal', async t => {
@@ -498,7 +617,7 @@ test('desktop notification rules persist through the settings modal', async t =>
   await page.locator('[data-desktop-notification-action="save"]').click();
   await page.locator('#desktopNotifSettingsMod').waitFor({ state: 'hidden' });
 
-  const persisted = await page.evaluate(() =>
+  const persisted = await page.evaluate(async () =>
     JSON.parse(localStorage.getItem('socialdeck_desktop_notification_rules'))
   );
   assert.equal(persisted.rules.enabled, true);
@@ -574,7 +693,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
-  await page.evaluate(() => openXPost());
+  await page.locator('#sb-post-x').click();
   await page.locator('#x-img-file').setInputFiles({
     name: 'x-image.png',
     mimeType: 'image/png',
@@ -584,12 +703,12 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   assert.equal(await page.locator('#x-sndb').isEnabled(), true);
   await page.locator('#xPostMod [data-compose-action="toggle-preview"]').click();
   assert.match(await page.locator('#x-compose-preview').textContent(), /画像 1枚 \/ ALT入力 1枚/);
-  await page.evaluate(() => closeOv('xPostMod'));
-  await page.evaluate(() => openXPost());
+  await page.locator('#xPostMod [data-compose-action="close"]').click();
+  await page.locator('#sb-post-x').click();
   assert.equal(await page.locator('#x-alt-0').inputValue(), 'X image description');
-  await page.evaluate(() => closeOv('xPostMod'));
+  await page.locator('#xPostMod [data-compose-action="close"]').click();
 
-  await page.evaluate(() => openComp());
+  await page.locator('#sb-post-b').click();
   await page.locator('#b-img-file').setInputFiles({
     name: 'b-image.png',
     mimeType: 'image/png',
@@ -621,7 +740,7 @@ test('polish journey restores drafts, previews density and opens column actions'
   await page.locator('[data-density="comfortable"]').click();
   assert.equal(await page.locator('html').getAttribute('data-density'), 'comfortable');
   await page.locator('[data-action="save-appearance"]').click();
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_v4')).appearance.density), 'comfortable');
+  assert.equal(await page.evaluate(async () => JSON.parse(localStorage.getItem('socialdeck_v4')).appearance.density), 'comfortable');
   await page.locator('#desktop-notif-settings-btn').click();
   assert.equal(await page.locator('.desktop-notif-label').first().evaluate(element => getComputedStyle(element).fontSize), '15px');
   await page.locator('[data-desktop-notification-action="close"]').click();
@@ -649,14 +768,14 @@ test('video Compose exposes precise trim controls and MP4 cross-posting', async 
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
-  await page.evaluate(() => openXPost());
+  await page.locator('#sb-post-x').click();
   await page.locator('#x-img-file').setInputFiles({
     name: 'shared.mp4',
     mimeType: 'video/mp4',
     buffer: Buffer.from('e2e-video-placeholder'),
   });
   await page.locator('#x-video-wrap').waitFor({ state: 'visible' });
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const video = document.getElementById('x-video-preview');
     Object.defineProperty(video, 'duration', { configurable: true, value: 120 });
     video.dispatchEvent(new Event('loadedmetadata'));
@@ -689,7 +808,7 @@ test('anime schedule Column can be added and persisted from the picker', async t
   assert.match(await column.locator('.anime-item').nth(2).textContent(), /深夜のアニメ/);
   assert.equal(await column.locator('.anime-cover img').count(), 3);
 
-  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_cols')));
+  const stored = await page.evaluate(async () => JSON.parse(localStorage.getItem('socialdeck_cols')));
   const schedule = stored.find(item => item.definitionId === 'anime-today');
   assert.equal(schedule.kind, 'schedule');
   assert.equal(schedule.network, 'anime');
@@ -710,9 +829,9 @@ test('anime schedule Column can be added and persisted from the picker', async t
 test('X replies show a toast and remain unread until the conversation opens', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false, xNotifications: [] });
   await page.evaluate(async () => {
-    await notificationCenterRuntime.reload();
-    replyNotificationRuntime.observe([notificationCenter.normalizeXNotification({ text: 'Alice replied: Hello!', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/socialdeck/status/123' }, { account: state.xs[0], accountIndex: 0 })], state.xs[0], 0);
-    await notificationCenterRuntime.reload();
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
+    (await import('./renderer.js')).replyNotificationRuntime.observe([(await import('./renderer.js')).notificationCenter.normalizeXNotification({ text: 'Alice replied: Hello!', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/socialdeck/status/123' }, { account: (await import('./renderer.js')).state.xs[0], accountIndex: 0 })], (await import('./renderer.js')).state.xs[0], 0);
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
   });
   await page.locator('#reply-toast').waitFor({ state: 'visible', timeout: 5000 });
   assert.equal(await page.locator('#bsky-notif-badge').textContent(), '1');
@@ -723,12 +842,13 @@ test('X replies show a toast and remain unread until the conversation opens', { 
   const item = page.locator('.notif-center-item.unread').filter({ hasText: 'Alice' });
   await item.waitFor({ state: 'visible', timeout: 5000 });
   await item.click();
-  await page.locator('#bsky-notif-badge').waitFor({ state: 'hidden', timeout: 5000 }).catch(async error => { throw new Error(error.message + JSON.stringify(await page.evaluate(() => ({ toast: document.getElementById('toast').textContent, warnings: window.__e2eWarnings, unread: replyNotificationRuntime.unreadItems() })))); });
+  await page.locator('#bsky-notif-badge').waitFor({ state: 'hidden', timeout: 5000 }).catch(async error => { throw new Error(error.message + JSON.stringify(await page.evaluate(async () => ({ toast: document.getElementById('toast').textContent, warnings: window.__e2eWarnings, unread: (await import('./renderer.js')).replyNotificationRuntime.unreadItems() })))); });
 });
 
-test('notification center opens the correct account reply composer and preserves it on return', { timeout: 20000 }, async t => {
+test('notification center shows the conversation in the correct account and retains the reply draft', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, {
     ...X_FIXTURES, useNotificationReaders: false,
+    pageHtml: '<!doctype html><html><body><main><article>親の投稿</article><article>通知の対象投稿</article><textarea aria-label="返信"></textarea><article>続きの返信</article></main></body></html>',
     xNotifications: [{ accountIndex: 1, text: 'Alice replied: Hello!', actorName: 'Alice',
       profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/456' }],
   });
@@ -739,26 +859,39 @@ test('notification center opens the correct account reply composer and preserves
   await page.locator('#notif-reply-panel').waitFor({ state: 'visible', timeout: 5000 });
   const composer = page.locator('#notif-reply-host webview');
   assert.equal(await composer.getAttribute('partition'), 'persist:x-1');
-  assert.equal(await composer.getAttribute('src'), 'https://x.com/intent/tweet?in_reply_to=456');
+  assert.equal(await composer.getAttribute('src'), 'https://x.com/alice/status/456');
   assert.match(await page.locator('#notif-reply-title').textContent(), /@second/);
   assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
+  let conversation = '';
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    conversation = await composer.evaluate(el => el.executeJavaScript('document.body.innerText')).catch(() => '');
+    if (conversation.includes('続きの返信')) break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.match(conversation, /親の投稿/);
+  assert.match(conversation, /通知の対象投稿/);
+  assert.match(conversation, /続きの返信/);
+  await composer.evaluate(el => el.executeJavaScript('document.querySelector("textarea").value = "入力中の返信"'));
   await composer.evaluate(el => { el.dataset.retained = 'yes'; });
   await page.locator('#notif-reply-back').click();
   await button.click();
   assert.equal(await composer.getAttribute('data-retained'), 'yes');
+  assert.equal(await composer.evaluate(el => el.executeJavaScript('document.querySelector("textarea").value')), '入力中の返信');
   assert.equal(await page.locator('#sb-notif-icons > button').count(), 1);
 });
 
 test('X reply read buttons clear individual and all unread replies without navigation', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false, xNotifications: [] });
   await page.evaluate(async () => {
-    await notificationCenterRuntime.reload();
-    const account = state.xs[0];
-    replyNotificationRuntime.observe([123, 456].map(id => notificationCenter.normalizeXNotification({
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
+    const account = (await import('./renderer.js')).state.xs[0];
+    const { notificationCenter } = await import('./renderer.js');
+    (await import('./renderer.js')).replyNotificationRuntime.observe([123, 456].map(id => notificationCenter.normalizeXNotification({
       text: 'Alice replied: Hello!', actorName: 'Alice', profileUrl: 'https://x.com/alice',
       targetUrl: `https://x.com/alice/status/${id}`,
     }, { account, accountIndex: 0 })), account, 0);
-    await notificationCenterRuntime.reload();
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
   });
   await page.locator('#sb-notif-b').click();
   await page.locator('[data-notification-read]').first().click();
@@ -766,9 +899,9 @@ test('X reply read buttons clear individual and all unread replies without navig
   assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
   await page.locator('[data-notification-action="mark-x-read"]').click();
   await page.locator('#bsky-notif-badge').waitFor({ state: 'hidden', timeout: 5000 });
-  await page.evaluate(() => notificationCenterRuntime.reload());
+  await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.reload());
   assert.equal(await page.locator('[data-notification-read]').count(), 0);
-  assert.equal(await page.evaluate(() => replyNotificationRuntime.unreadItems().length), 0);
+  assert.equal(await page.evaluate(async () => (await import('./renderer.js')).replyNotificationRuntime.unreadItems().length), 0);
 });
 
 test('fetches X notifications at startup with the notification center and Columns closed', { timeout: 20000 }, async t => {
@@ -776,32 +909,32 @@ test('fetches X notifications at startup with the notification center and Column
   const deadline = Date.now() + 10000;
   let received = false;
   while (Date.now() < deadline) {
-    received = await page.evaluate(() => notificationCenterRuntime.getAllItems().some(item => item.networkId === 'x'));
+    received = await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.getAllItems().some(item => item.networkId === 'x'));
     if (received) break;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.equal(received, true);
   assert.equal(await page.locator('.col[data-definition-id="x-notif-new"]').count(), 0);
   assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), false);
-  assert.equal(await page.evaluate(() => desktopNotificationRuntime.getSnapshot().rules.enabled), false);
+  assert.equal(await page.evaluate(async () => (await import('./renderer.js')).desktopNotificationRuntime.getSnapshot().rules.enabled), false);
 });
 
 test('X notification extraction survives a client redirect without aborted navigation', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, { ...X_FIXTURES, redirectNotifications: true });
   const result = await page.evaluate(async () => {
-    const outcome = await notificationCenterRuntime.reload();
+    const outcome = await (await import('./renderer.js')).notificationCenterRuntime.reload();
     return { errors: outcome.snapshot.xErrors, count: outcome.snapshot.items.filter(item => item.networkId === 'x').length };
   });
   assert.deepEqual(result.errors, []);
   assert.ok(result.count > 0);
   const repeated = await page.evaluate(async () => {
-    await desktopNotificationRuntime.updateRules({ enabled: true });
+    await (await import('./renderer.js')).desktopNotificationRuntime.updateRules({ enabled: true });
     const outcomes = [];
     for (let count = 0; count < 2; count++) {
-      outcomes.push(await desktopNotificationRuntime.poll());
+      outcomes.push(await (await import('./renderer.js')).desktopNotificationRuntime.poll());
     }
     return { statuses: outcomes.map(outcome => outcome.status),
-      count: notificationCenterRuntime.getAllItems().filter(item => item.networkId === 'x').length };
+      count: (await import('./renderer.js')).notificationCenterRuntime.getAllItems().filter(item => item.networkId === 'x').length };
   });
   assert.deepEqual(repeated.statuses, ['succeeded', 'succeeded']);
   assert.ok(repeated.count > 0);
@@ -813,7 +946,7 @@ test('notification account choices are saved and restored after renderer restart
   await page.locator('#notif-center-settings summary').click();
   await page.locator('[data-fetch-account="0"]').uncheck();
   assert.match(await page.locator('.notif-fetch-account').first().textContent(), /取得オフ/);
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_notification_accounts_v1')));
+  const saved = await page.evaluate(async () => JSON.parse(localStorage.getItem('socialdeck_notification_accounts_v1')));
   assert.equal(saved['persist:x-0'], false);
   await page.reload();
   await page.locator('#sb-notif-b').click();
@@ -830,16 +963,16 @@ test('notification center shows account errors while keeping cached rows and sup
   await page.locator('.notif-center-item').first().waitFor({ state: 'visible', timeout: 10000 });
   const before = await page.locator('.notif-center-item').count();
   await page.evaluate(async () => {
-    window.__savedNotificationReader = xWebViewRuntime.listNotifications;
-    xWebViewRuntime.listNotifications = async options => {
+    window.__savedNotificationReader = (await import('./renderer.js')).xWebViewRuntime.listNotifications;
+    (await import('./renderer.js')).xWebViewRuntime.listNotifications = async options => {
       if (options.accountId === '@first') throw new Error('test account offline');
       return window.__savedNotificationReader(options);
     };
-    await notificationCenterRuntime.reload();
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
   });
   assert.equal(await page.locator('.notif-center-item').count(), before);
   assert.match(await page.locator('.notif-fetch-account').first().textContent(), /取得失敗.*最終取得.*test account offline/);
-  await page.evaluate(() => { xWebViewRuntime.listNotifications = window.__savedNotificationReader; });
+  await page.evaluate(async () => { (await import('./renderer.js')).xWebViewRuntime.listNotifications = window.__savedNotificationReader; });
   assert.match(await page.locator('#notif-center-health').textContent(), /1アカウントを確認/);
   await page.locator('#notif-center-settings summary').click();
   await page.locator('[data-fetch-retry="0"]').click();
@@ -853,10 +986,10 @@ test('closed notification center receives replies and likes through the real bac
   });
   const baselineDeadline = Date.now() + 10000;
   while (Date.now() < baselineDeadline) {
-    if (await page.evaluate(() => notificationCenterRuntime.getAllItems().length > 0)) break;
+    if (await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.getAllItems().length > 0)) break;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  assert.ok(await page.evaluate(() => notificationCenterRuntime.getAllItems().length > 0));
+  assert.ok(await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.getAllItems().length > 0));
   await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
   await electronApp.evaluate(() => {
     global.__e2eNotificationHtml = `<!doctype html><html><body>
@@ -882,7 +1015,7 @@ test('unread filter survives closing and app reload and unchanged refresh keeps 
   await page.locator('#sb-notif-b').click();
   await page.locator('.notif-center-item').first().waitFor({ state: 'visible', timeout: 5000 });
   await page.locator('.notif-center-item').first().evaluate(element => { element.dataset.preserved = 'yes'; });
-  await page.evaluate(() => notificationCenterRuntime.reload());
+  await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.reload());
   assert.equal(await page.locator('.notif-center-item').first().getAttribute('data-preserved'), 'yes');
   await page.locator('#notif-center-unread').check();
   await page.locator('#notifCenterMod [data-notification-action="close"]').click();
@@ -916,14 +1049,185 @@ test('notification search and pagination keep actions bound to the matching acco
   assert.match(await page.locator('.notif-center-meta').textContent(), /@second/);
   await page.locator('[data-notification-reply]').click();
   assert.equal(await page.locator('#notif-reply-host webview').getAttribute('partition'), 'persist:x-1');
-  assert.match(await page.locator('#notif-reply-host webview').getAttribute('src'), /in_reply_to=1100/);
+  assert.equal(await page.locator('#notif-reply-host webview').getAttribute('src'), 'https://x.com/alice/status/1100');
   await page.locator('#notif-reply-back').click();
   await page.locator('#notif-center-search').fill('nothing-matches-this');
   assert.match(await page.locator('.notif-center-state').textContent(), /検索に一致/);
-  await page.evaluate(() => notificationCenterRuntime.open({ network: 'x' }));
+  await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.open({ network: 'x' }));
   assert.equal(await page.locator('#notif-center-search').inputValue(), '');
   assert.equal(await page.locator('.notif-center-item').count(), 60);
   if (process.env.SOCIALDECK_NOTIFICATION_PREVIEW) {
     await page.locator('#notifCenterMod').screenshot({ path: process.env.SOCIALDECK_NOTIFICATION_PREVIEW });
   }
+});
+
+test('column reorder persists in both directions and restores after reload', async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const titles = () => page.locator('#cols > .col .col-title').allTextContents();
+  const original = await titles();
+  assert.equal(original.length, 2);
+  const move = () => page.evaluate(async () => {
+    const columns = [...document.querySelectorAll('#cols > .col')];
+    const dataTransfer = new DataTransfer();
+    const fire = (target, type) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer }));
+    fire(columns[0].querySelector('[data-column-drag-handle]'), 'dragstart');
+    fire(columns[1], 'dragover');
+    fire(columns[1], 'drop');
+    fire(columns[0], 'dragend');
+  });
+  await move();
+  assert.deepEqual(await titles(), [...original].reverse());
+  assert.equal(await page.locator('.col-drag-shield,.drag-over').count(), 0);
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.deepEqual(await titles(), [...original].reverse());
+  // Move the last column back before the first one.
+  await page.evaluate(async () => {
+    const columns = [...document.querySelectorAll('#cols > .col')];
+    const dataTransfer = new DataTransfer();
+    columns[1].querySelector('[data-column-drag-handle]').dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer }));
+    columns[0].dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer }));
+  });
+  assert.deepEqual(await titles(), original);
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.deepEqual(await titles(), original);
+});
+
+test('column reorder ignores external drags and cleans up cancellation and disposal', async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const result = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    host.innerHTML = '<div class="col"><div data-column-drag-handle><button>Action</button></div></div><div class="col"></div>';
+    document.body.appendChild(host);
+    const frames = [];
+    let changes = 0;
+    const runtime = window.SocialDeckColumnReorderRuntime.createColumnReorderRuntime({
+      container: host, requestFrame: callback => frames.push(callback), onReorder: () => changes++,
+    });
+    runtime.attach();
+    runtime.attach();
+    const [first, second] = host.children;
+    const handle = first.firstElementChild;
+    const fire = (target, type) => target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+    const externalAllowed = fire(second, 'dragover');
+    fire(second, 'drop');
+    const externalMarked = second.classList.contains('drag-over');
+    fire(handle.firstElementChild, 'dragstart');
+    const buttonStarted = runtime.isDragging();
+    fire(handle, 'dragstart');
+    fire(second, 'dragover');
+    fire(handle, 'dragend');
+    frames.splice(0).forEach(callback => callback());
+    const cancelledClean = !runtime.isDragging() && first.style.opacity === '' && !host.querySelector('.col-drag-shield,.drag-over');
+    fire(handle, 'dragstart');
+    fire(second, 'dragover');
+    runtime.dispose();
+    frames.splice(0).forEach(callback => callback());
+    const disposedClean = !runtime.isDragging() && first.style.opacity === '' && !host.querySelector('.col-drag-shield,.drag-over');
+    fire(handle, 'dragstart');
+    const restartedAfterDispose = runtime.isDragging();
+    host.remove();
+    return { externalAllowed, externalMarked, buttonStarted, cancelledClean, disposedClean, restartedAfterDispose, changes };
+  });
+  assert.deepEqual(result, {
+    externalAllowed: true, externalMarked: false, buttonStarted: false,
+    cancelledClean: true, disposedClean: true, restartedAfterDispose: false, changes: 0,
+  });
+});
+
+test('deleted column undo restores position width collapse interval and font after reload', async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.evaluate(async () => {
+    (await import('./renderer.js')).columnShellRuntime.applyWidth('b-home', '410px');
+    (await import('./renderer.js')).columnShellRuntime.setCollapsed('b-home', true);
+    (await import('./renderer.js')).columnLifecycle.setRefreshInterval('b-home', 120000);
+    localStorage.setItem('col_fs_b-home', '16');
+    (await import('./renderer.js')).columnLifecycle.persist();
+    (await import('./renderer.js')).removeCol('b-home');
+  });
+  assert.equal(await page.locator('#col-b-home').count(), 0);
+  await page.locator('#column-undo [data-action="undo-column"]').click();
+  assert.equal(await page.locator('#column-undo').isVisible(), false);
+  assert.deepEqual(await page.locator('#cols > .col').evaluateAll(elements => elements.map(element => element.id)), ['col-b-home', 'col-b-notif']);
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#col-b-home').getAttribute('data-saved-width'), '410px');
+  assert.equal(await page.evaluate(async () => (await import('./renderer.js')).columnLifecycle.getRefreshInterval('b-home')), 120000);
+  assert.equal(await page.locator('#feed-b-home').evaluate(element => element.style.fontSize), '16px');
+  await page.evaluate(async () => (await import('./renderer.js')).columnShellRuntime.setCollapsed('b-home', false));
+  assert.equal(await page.locator('#col-b-home').evaluate(element => element.style.width), '410px');
+});
+
+test('workspace backup file export import preview recovery and invalid file preserve accounts', async t => {
+  const { electronApp, page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const backupFile = path.join(await electronApp.evaluate(({ app }) => app.getPath('userData')), 'workspace-test.json');
+  await electronApp.evaluate(({ dialog }, filePath) => {
+    dialog.showSaveDialog = async () => ({ filePath, canceled: false });
+    dialog.showOpenDialog = async () => ({ filePaths: [filePath], canceled: false });
+  }, backupFile);
+  const openBackup = async () => {
+    await page.locator('[data-action="open-settings"]').click();
+    await page.locator('[data-action="open-backup"]').click();
+  };
+  await openBackup();
+  await page.locator('[data-action="export-backup"]').click();
+  await page.locator('#backup-status').filter({ hasText: '書き出しました' }).waitFor();
+  const exported = JSON.parse(fs.readFileSync(backupFile, 'utf8'));
+  assert.equal(exported.columns.length, 2);
+  assert.equal(typeof exported.notifications.enabled, 'boolean');
+  assert.equal(typeof exported.memoryInterval, 'number');
+  assert.doesNotMatch(JSON.stringify(exported), /e2e-token|accessJwt|refreshJwt/);
+  await page.evaluate(async () => (await import('./renderer.js')).removeCol('b-home'));
+  await page.locator('[data-action="import-backup"]').click();
+  await page.locator('#backup-apply').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#cols > .col').count(), 1);
+  await page.locator('#backup-apply').click();
+  await page.locator('#backupMod').waitFor({ state: 'hidden' });
+  await page.locator('#col-b-home').waitFor();
+  await openBackup();
+  await page.locator('[data-action="recover-backup"]').click();
+  await page.locator('#backup-apply').waitFor({ state: 'visible' });
+  await page.locator('#backup-apply').click();
+  await page.locator('#backupMod').waitFor({ state: 'hidden' });
+  await page.locator('#col-b-notif').waitFor();
+  assert.equal(await page.locator('#cols > .col').count(), 1);
+  assert.equal(await page.evaluate(async () => (await import('./renderer.js')).state.b.did), BLUESKY_FIXTURES.state.b.did);
+  fs.writeFileSync(backupFile, '{"format":"socialdeck-workspace","version":999}');
+  await openBackup();
+  await page.locator('[data-action="import-backup"]').click();
+  await page.locator('#backup-status').filter({ hasText: '不正' }).waitFor();
+  assert.equal(await page.locator('#backup-apply').isVisible(), false);
+  assert.equal(await page.locator('#cols > .col').count(), 1);
+  if (process.env.SOCIALDECK_BACKUP_SCREENSHOT) await page.screenshot({ path: process.env.SOCIALDECK_BACKUP_SCREENSHOT });
+  exported.columns = [];
+  fs.writeFileSync(backupFile, JSON.stringify(exported));
+  await page.locator('[data-action="import-backup"]').click();
+  await page.locator('#backup-apply').waitFor({ state: 'visible' });
+  await page.locator('#backup-apply').click();
+  await page.locator('#backupMod').waitFor({ state: 'hidden' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#cols > .col').count(), 0);
+});
+
+test('corrupted workspace layout recovers its previous save and displays a notice', async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.evaluate(async () => {
+    (await import('./renderer.js')).columnLifecycle.persist();
+    (await import('./renderer.js')).removeCol('b-home');
+    localStorage.setItem('socialdeck_cols', '{broken');
+  });
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#cols > .col').count(), 2);
+  assert.equal(await page.locator('#workspace-recovery').isVisible(), true);
+  assert.match(await page.locator('#workspace-recovery-message').textContent(), /復旧/);
+  assert.equal(await page.evaluate(async () => localStorage.getItem('socialdeck_cols.corrupt')), '{broken');
+  await page.locator('[data-action="dismiss-workspace-recovery"]').click();
+  assert.equal(await page.locator('#workspace-recovery').isVisible(), false);
 });

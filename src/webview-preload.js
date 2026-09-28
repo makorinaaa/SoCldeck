@@ -393,6 +393,31 @@ function installXBehavior(documentLike, windowLike, ipcRendererLike) {
   installImageClickInterception(documentLike, windowLike, ipcRendererLike);
   installMessageBridge(windowLike, ipcRendererLike);
   installMutationMaintenance(documentLike, windowLike);
+  installPageDiagnostics(documentLike, windowLike, ipcRendererLike);
+}
+
+function installPageDiagnostics(documentLike, windowLike, ipcRendererLike) {
+  if (windowLike.__socialdeckPageDiagnostics || typeof windowLike.setInterval !== 'function') return;
+  windowLike.__socialdeckPageDiagnostics = true;
+  let route = '';
+  let started = 0;
+  let phase = '';
+  function check() {
+    const next = windowLike.location?.pathname || '';
+    const post = next.match(/^\/[^/]+\/status\/(\d+)/);
+    if (!post) { route = ''; phase = ''; return; }
+    if (route !== next) { route = next; started = Date.now(); phase = ''; }
+    const article = documentLike.querySelector(`article[data-testid="tweet"] a[href*="/status/${post[1]}"]`)?.closest('article');
+    const elapsedMs = Date.now() - started;
+    const nextPhase = article && article.getBoundingClientRect().height > 0 ? 'visible' : elapsedMs >= 15000 ? 'stalled' : 'waiting';
+    if (phase === nextPhase) return;
+    phase = nextPhase;
+    ipcRendererLike.send('x-page-diagnostic', { phase, elapsedMs });
+  }
+  if (typeof ipcRendererLike.send !== 'function') return;
+  const timer = windowLike.setInterval(check, 1000);
+  windowLike.addEventListener('pagehide', () => windowLike.clearInterval(timer), { once: true });
+  check();
 }
 
 function bootstrap(options = {}) {
@@ -446,6 +471,7 @@ module.exports = {
   isVideoPhoto,
   isXHost,
   isXHostname,
+  installPageDiagnostics,
   normalizeXImageUrl,
   shouldHideHomeComposer,
 };

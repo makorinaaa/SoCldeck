@@ -21,7 +21,7 @@ test('unit CI protects pull requests and main pushes', () => {
   assert.match(workflow, /cancel-in-progress:\s*true/);
 });
 
-test('unit CI installs the lockfile and runs only the fast test suite', () => {
+test('CI runs unit and Electron suites without publishing and retains E2E logs', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8');
 
   assert.match(workflow, /runs-on:\s*windows-latest/);
@@ -31,5 +31,10 @@ test('unit CI installs the lockfile and runs only the fast test suite', () => {
   assert.match(workflow, /cache:\s*npm/);
   assert.match(workflow, /run:\s*npm ci/);
   assert.match(workflow, /run:\s*npm\.cmd test/);
-  assert.doesNotMatch(workflow, /test:e2e|build-win|electron-builder/);
+  assert.match(workflow, /electron-e2e:/);
+  assert.match(workflow, /npm\.cmd run test:e2e/);
+  assert.match(workflow, /exit \$LASTEXITCODE/);
+  assert.match(workflow, /if: always\(\)/);
+  assert.match(workflow, /actions\/upload-artifact@v6/);
+  assert.doesNotMatch(workflow, /build-win|electron-builder/);
 });
