@@ -963,6 +963,8 @@ test('notification center shows account errors while keeping cached rows and sup
   await page.locator('.notif-center-item').first().waitFor({ state: 'visible', timeout: 10000 });
   const before = await page.locator('.notif-center-item').count();
   await page.evaluate(async () => {
+    // Drain startup/open refresh before replacing the reader; reload coalesces active work.
+    await (await import('./renderer.js')).notificationCenterRuntime.reload();
     window.__savedNotificationReader = (await import('./renderer.js')).xWebViewRuntime.listNotifications;
     (await import('./renderer.js')).xWebViewRuntime.listNotifications = async options => {
       if (options.accountId === '@first') throw new Error('test account offline');
