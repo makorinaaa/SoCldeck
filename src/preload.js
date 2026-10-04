@@ -36,9 +36,7 @@ function invokeBluesky(operation, payload = {}) {
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // 設定
-  getConfig: () => ipcRenderer.invoke('get-config'),
-  setConfig: (data) => ipcRenderer.invoke('set-config', data),
+  // アプリ情報・バックアップ・Bluesky
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   saveWorkspaceBackup: text => ipcRenderer.invoke('save-workspace-backup', text),
   openWorkspaceBackup: () => ipcRenderer.invoke('open-workspace-backup'),
@@ -75,9 +73,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   zoomReset: () => ipcRenderer.invoke('zoom-reset'),
   toggleFullscreen: () => ipcRenderer.invoke('toggle-fullscreen'),
   openDevTools: () => ipcRenderer.invoke('open-dev-tools'),
-
-  // UA
-  getUserAgent: () => ipcRenderer.invoke('get-useragent'),
 
   // セッションクリア
   clearXSession: (partition) => isXPartition(partition)

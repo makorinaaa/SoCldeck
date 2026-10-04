@@ -13,6 +13,8 @@ SocialDeck は X と Bluesky に接続する Electron デスクトップクラ�
 | セッション競合 | ログアウト・アカウント変更後は古い非同期処理の結果を返さず、古い更新処理による認証情報の再保存を拒否。更新レスポンスの DID が変わった場合も拒否する。送信済みのリモート操作自体を取り消すものではない。 |
 | 秘密情報 | Bluesky のトークンを Electron safeStorage で暗号化し、暗号化不能・`basic_text` バックエンドでは保存を拒否する。一般画面への返却は公開アカウント情報に限定する。 |
 | Cookie | X はアカウント別の永続セッションで分離。認証 Cookie の値をアプリ画面へ返さず、認証の有無だけを返す。WebView の接続先は HTTPS に限定。Bluesky API 通信は `credentials: omit`、`redirect: error` に固定する。 |
+| 配布物 | Electron Fuses で `ELECTRON_RUN_AS_NODE`・`NODE_OPTIONS`・`--inspect` を無効化し、整合性検証付きの `app.asar` だけを読み込む。Cookie ストアは OS の暗号化キーで暗号化する（一方向の移行で、既存の平文 Cookie は次回書き込み時に暗号化）。 |
+| 設定ファイル | `config.json` はウィンドウ位置などの Main 専用設定で、Renderer に読み書きの IPC を公開しない。一時ファイルから置き換えて保存し、壊れたファイルは `config.json.corrupt` に退避する。 |
 
 X の認証 Cookie の `Secure` / `HttpOnly` / `SameSite` は X 側が発行時に設定します。
 アプリ側で一律に書き換えると WebView 内ログインや CSRF 対策を壊すため、変更していません。

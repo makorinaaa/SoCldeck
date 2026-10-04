@@ -83,3 +83,16 @@ test('the release workflow verifies generated updater files before publishing', 
       < workflow.indexOf('softprops/action-gh-release@v2')
   );
 });
+
+test('packaged builds disable Node.js entry points and only load the integrity-checked app.asar', () => {
+  const { build } = require('../package.json');
+  assert.equal(build.asar, true);
+  assert.deepEqual(build.electronFuses, {
+    runAsNode: false,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    onlyLoadAppFromAsar: true,
+    enableEmbeddedAsarIntegrityValidation: true,
+    enableCookieEncryption: true,
+  });
+});
