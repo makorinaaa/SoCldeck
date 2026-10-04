@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification,
 const path = require('path');
 const fs = require('fs');
 const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
+const { createAppConfigStore } = require('./main/app-config-store');
 const workspaceBackupFiles = createWorkspaceBackupFiles({ dialog });
 const { createXPageDiagnostics } = require('./main/x-page-diagnostics');
 const os = require('os');
@@ -171,20 +172,9 @@ const blueskyGateway = createBlueskyGateway({
   prepareVideo: input => blueskyVideoFileService.prepare(input),
 });
 
-function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    }
-  } catch (e) {}
-  return {};
-}
-
-function saveConfig(data) {
-  try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {}
-}
+const appConfigStore = createAppConfigStore({ filePath: CONFIG_PATH });
+const loadConfig = () => appConfigStore.load();
+const updateConfig = patch => appConfigStore.update(patch);
 
 // ── メインウィンドウ ──
 let mainWindow;
@@ -239,10 +229,10 @@ function createWidgetWindow() {
 
   widgetWindow.on('close', () => {
     if (!widgetWindow || widgetWindow.isDestroyed()) return;
-    const cfg = loadConfig();
-    cfg.widgetBounds = widgetWindow.getBounds();
-    cfg.widgetAlwaysOnTop = widgetWindow.isAlwaysOnTop();
-    saveConfig(cfg);
+    updateConfig({
+      widgetBounds: widgetWindow.getBounds(),
+      widgetAlwaysOnTop: widgetWindow.isAlwaysOnTop(),
+    });
   });
 
   widgetWindow.on('closed', () => { widgetWindow = null; });
@@ -289,11 +279,10 @@ function createWindow() {
   });
 
   mainWindow.on('close', () => {
-    const bounds = mainWindow.getBounds();
-    const cfg = loadConfig();
-    cfg.windowBounds = bounds;
-    cfg.maximized = mainWindow.isMaximized();
-    saveConfig(cfg);
+    updateConfig({
+      windowBounds: mainWindow.getBounds(),
+      maximized: mainWindow.isMaximized(),
+    });
   });
 
   if (isDevelopment) {
@@ -324,8 +313,6 @@ app.on('web-contents-created', (_, contents) => {
 
 // ── IPC ハンドラ ──
 
-handleTrustedIpc('get-config', () => loadConfig());
-handleTrustedIpc('set-config', (_, data) => { saveConfig(data); return true; });
 handleTrustedIpc('get-app-version', () => app.getVersion());
 handleTrustedIpc('save-workspace-backup', (_, text) => workspaceBackupFiles.save(text));
 handleTrustedIpc('open-workspace-backup', () => workspaceBackupFiles.open());
@@ -383,9 +370,7 @@ handleTrustedIpc('widget-toggle-top', (e) => {
   if (!win || win === mainWindow) return false;
   const next = !win.isAlwaysOnTop();
   win.setAlwaysOnTop(next);
-  const cfg = loadConfig();
-  cfg.widgetAlwaysOnTop = next;
-  saveConfig(cfg);
+  updateConfig({ widgetAlwaysOnTop: next });
   return next;
 });
 handleTrustedIpc('widget-get-top', (e) => {
@@ -399,9 +384,7 @@ handleTrustedIpc('widget-set-opacity', (e, value) => {
   if (!Number.isFinite(opacity)) return false;
   const clampedOpacity = Math.min(1, Math.max(0.3, opacity));
   win.setOpacity(clampedOpacity);
-  const cfg = loadConfig();
-  cfg.widgetOpacity = clampedOpacity;
-  saveConfig(cfg);
+  updateConfig({ widgetOpacity: clampedOpacity });
   return true;
 });
 handleTrustedIpc('widget-get-opacity', () => loadConfig().widgetOpacity ?? 1);
@@ -425,8 +408,6 @@ handleTrustedIpc('open-dev-tools', () => {
   mainWindow.webContents.openDevTools({ mode: 'detach' });
   return true;
 });
-
-handleTrustedIpc('get-useragent', () => X_USER_AGENT);
 
 handleTrustedIpc('clear-memory', async () => {
   try {
