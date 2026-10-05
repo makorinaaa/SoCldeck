@@ -1,9 +1,6 @@
 (function (global) {
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, character => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    })[character]);
-  }
+  const { escapeHtml } = global.SocialDeckHtmlEscape;
+
   const WIDGET_STYLES = `
     body.widget-mode { background: transparent !important; }
     body.widget-mode .sidebar,

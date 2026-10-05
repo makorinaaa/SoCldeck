@@ -1,4 +1,5 @@
 // Compatibility boundary for existing browser factories. New modules use named ESM exports.
+import './html-escape.js';
 import './account-session-runtime.js';
 import './anime-schedule-runtime.js';
 import './appearance-runtime.js';

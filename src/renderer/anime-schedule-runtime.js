@@ -1,18 +1,11 @@
 (function (global) {
+  const { escapeHtml } = global.SocialDeckHtmlEscape;
+
   const FORMAT_LABELS = {
     TV: 'TV',
     TV_SHORT: '短編',
     ONA: '配信',
   };
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
 
   function safeHttpUrl(value) {
     try {

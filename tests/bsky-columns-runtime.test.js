@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadRuntime(windowOverrides = {}) {
   const context = { window: { ...windowOverrides } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'html-escape.js'), 'utf8'), context);
   for (const file of [
     'bsky-post-view.js',
     'bsky-reactions.js',

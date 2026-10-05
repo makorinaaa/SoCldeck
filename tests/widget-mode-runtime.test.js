@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadModule() {
   const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'html-escape.js'), 'utf8'), context);
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'widget-mode-runtime.js'),
     'utf8',

@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadUiUtils(options) {
   const context = { window: {}, TextEncoder, TextDecoder, URL };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'html-escape.js'), 'utf8'), context);
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'ui-utils.js'),
     'utf8',
