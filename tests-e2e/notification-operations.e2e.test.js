@@ -8,6 +8,36 @@ const { version: appVersion } = require('../package.json');
 
 const APP_ROOT = path.join(__dirname, '..');
 
+test('app shell shortcuts preserve modal and enabled-submit behavior with external CSS', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#sb-post-b').waitFor({ state: 'visible' });
+  assert.equal(await page.evaluate(() => [...document.styleSheets].some(sheet =>
+    sheet.href?.endsWith('/styles/app.css') && sheet.cssRules.length > 0)), true);
+  await page.keyboard.press('Control+n');
+  await page.locator('#addMod.on').waitFor({ state: 'visible' });
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#addMod').evaluate(element => element.classList.contains('on')), false);
+  await page.locator('#sb-post-b').click();
+  await page.locator('#compMod.on').waitFor({ state: 'visible' });
+  await page.evaluate(() => {
+    window.__shortcutClicks = 0;
+    document.getElementById('sndb').addEventListener('click', event => {
+      window.__shortcutClicks++;
+      // Verify keyboard delivery without starting even a fixture-backed API post.
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+    });
+  });
+  await page.keyboard.press('Control+Enter');
+  assert.equal(await page.evaluate(() => window.__shortcutClicks), 0);
+  await page.locator('#cta').fill('shortcut fixture');
+  await page.waitForFunction(() => !document.getElementById('sndb').disabled);
+  await page.keyboard.press('Control+Enter');
+  assert.equal(await page.evaluate(() => window.__shortcutClicks), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#compMod').evaluate(element => element.classList.contains('on')), false);
+});
+
 test('X submission waits for composer attachments and ignores media in the timeline', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, { ...X_FIXTURES, pageHtml: `<!doctype html><html><body>
     <article data-testid="attachments"><div data-testid="tweetPhoto"></div><div data-testid="tweetPhoto"></div></article>
@@ -263,7 +293,7 @@ async function launchApp(t, fixtures) {
                 ? '{"count":0}'
                 : url.pathname.endsWith('listNotifications')
                   ? '{"notifications":[]}'
-                  : '{"feed":[]}';
+                  : JSON.stringify({ feed: url.pathname.endsWith('getTimeline') ? fixture.blueskyFeed : [] });
           callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(body) });
           return;
         }
@@ -313,6 +343,7 @@ async function launchApp(t, fixtures) {
     authenticatedXPartitions: fixtures.authenticatedXPartitions || [],
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
+    blueskyFeed: fixtures.blueskyFeed || [],
     simulateXLogin: Boolean(fixtures.simulateXLogin),
     redirectNotifications: Boolean(fixtures.redirectNotifications),
     slowResourceDelay: fixtures.slowResourceDelay || 0,
@@ -383,6 +414,44 @@ async function openXLikeNotification(page) {
   }
   await item.click();
 }
+
+test('single-key shortcuts move through Bluesky posts, act on them, and open help', { timeout: 20000 }, async t => {
+  const post = n => ({ post: {
+    uri: `at://did:plc:alice/app.bsky.feed.post/${n}`, cid: `cid${n}`,
+    author: { did: 'did:plc:alice', handle: 'alice.test', displayName: 'Alice' },
+    record: { text: `post ${n}`, createdAt: '2026-07-15T00:00:00Z' },
+  } });
+  const { page } = await launchApp(t, { ...BLUESKY_FIXTURES, blueskyFeed: [post(1), post(2), post(3)] });
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod [data-action="add-column"][data-definition-id="b-timeline-new"]').click();
+  await page.locator('.col .post').nth(2).waitFor();
+  const focusedUri = () => page.evaluate(() => document.activeElement?.dataset?.uri || null);
+
+  await page.keyboard.press('j');
+  assert.equal(await focusedUri(), 'at://did:plc:alice/app.bsky.feed.post/1');
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  await page.keyboard.press('k');
+  assert.equal(await focusedUri(), 'at://did:plc:alice/app.bsky.feed.post/2');
+
+  await page.evaluate(() => {
+    window.__likeClicks = [];
+    document.querySelectorAll('[data-bsky-action="like"]').forEach(button => button.addEventListener('click', event => {
+      window.__likeClicks.push(button.closest('.post').dataset.uri);
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+    }));
+  });
+  await page.keyboard.press('l');
+  assert.deepEqual(await page.evaluate(() => window.__likeClicks), ['at://did:plc:alice/app.bsky.feed.post/2']);
+
+  await page.keyboard.press('?');
+  await page.locator('#shortcutsMod.on').waitFor({ state: 'visible' });
+  await page.keyboard.press('j');
+  assert.equal(await focusedUri(), 'at://did:plc:alice/app.bsky.feed.post/2', 'help modal blocks navigation');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#shortcutsMod').evaluate(element => element.classList.contains('on')), false);
+});
 
 async function addXHomeColumn(page, accountIndex = 0) {
   await page.locator('button[data-action="open-add-column"]:visible').first().click();

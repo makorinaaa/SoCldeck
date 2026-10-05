@@ -1,17 +1,9 @@
 (function (global) {
+  const esc = global.SocialDeckHtmlEscape.escapeHtml;
   const textEncoder = new TextEncoder();
   const textDecoder = new TextDecoder();
 
   function createUiUtils({ avatarBackgrounds = [], bskyIcon = '', now = () => Date.now() } = {}) {
-    function esc(value) {
-      return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
     function relTime(dateValue) {
       const timestamp = new Date(dateValue).getTime();
       if (!Number.isFinite(timestamp)) return '';

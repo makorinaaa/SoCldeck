@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadRuntime(windowOverrides = {}) {
   const context = { window: { ...windowOverrides } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'html-escape.js'), 'utf8'), context);
   for (const file of [
     'bsky-post-view.js',
     'bsky-reactions.js',
@@ -804,7 +805,7 @@ test('keeps the Timeline repost menu compact and dismisses it without choosing a
   documentRef.dispatch('keydown', { key: 'Escape' });
   assert.equal(documentRef.getElementById('rt-ctx-menu'), null);
 
-  const stylesheet = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+  const stylesheet = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'app.css'), 'utf8');
   assert.match(stylesheet, /\.bsky-repost-menu\s+svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/);
 });
 

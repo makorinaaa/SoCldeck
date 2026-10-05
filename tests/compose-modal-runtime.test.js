@@ -4,15 +4,14 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function loadRuntime() {
+function loadModule(file, name) {
   const context = { window: {} };
-  const source = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'renderer', 'compose-modal-runtime.js'),
-    'utf8',
-  );
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', file), 'utf8');
   vm.runInNewContext(source, context);
-  return context.window.SocialDeckComposeModalRuntime;
+  return context.window[name];
 }
+const loadRuntime = () => loadModule('compose-modal-runtime.js', 'SocialDeckComposeModalRuntime');
+const loadView = () => loadModule('compose-modal-view.js', 'SocialDeckComposeModalView');
 
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
@@ -234,7 +233,7 @@ test('DOM view delegates Compose input, submit, and close events', () => {
   const elements = { xPostMod: xModal, compMod: bModal, 'x-cta': textarea, 'x-sndb': submit };
   const documentRef = { getElementById: id => elements[id] || null };
   const events = [];
-  const view = loadRuntime().createComposeModalDomView({ documentRef });
+  const view = loadView().createComposeModalDomView({ documentRef });
   view.connect({
     close: networkId => events.push(['close', networkId]),
     submit: networkId => events.push(['submit', networkId]),
@@ -293,7 +292,7 @@ test('DOM view provides precise LosslessCut-style trim controls', async () => {
   };
   const documentRef = { activeElement: null, getElementById: id => ids[id] || null };
   const events = [];
-  const view = loadRuntime().createComposeModalDomView({
+  const view = loadView().createComposeModalDomView({
     documentRef,
     urlApi: { createObjectURL: () => 'blob:clip', revokeObjectURL() {} },
     generateThumbnails: async ({ sourceUrl, durationSeconds }) => {
@@ -388,7 +387,7 @@ test('DOM view loops the selected trim range and jumps to its edges', () => {
   };
   const documentRef = { activeElement: null, getElementById: id => ids[id] || null };
   const events = [];
-  const view = loadRuntime().createComposeModalDomView({
+  const view = loadView().createComposeModalDomView({
     documentRef,
     urlApi: { createObjectURL: () => 'blob:clip', revokeObjectURL() {} },
     generateThumbnails: async () => [],
@@ -456,7 +455,7 @@ test('DOM view skips rebuilding unchanged account chips and a closed preview', (
     ['xPostMod', 'compMod', 'x-acc-select', 'x-compose-preview'].map(id => [id, createElement()]),
   );
   const documentRef = { activeElement: null, getElementById: id => elements[id] || null };
-  const view = loadRuntime().createComposeModalDomView({ documentRef });
+  const view = loadView().createComposeModalDomView({ documentRef });
   const snapshot = {
     networkId: 'x',
     xAccounts: [
@@ -502,7 +501,7 @@ test('DOM view renders an X Compose snapshot without inline handlers', () => {
   ];
   const elements = Object.fromEntries(ids.map(id => [id, createElement()]));
   const documentRef = { getElementById: id => elements[id] || null };
-  const view = loadRuntime().createComposeModalDomView({
+  const view = loadView().createComposeModalDomView({
     documentRef,
     urlApi: { createObjectURL: file => `blob:${file.name}`, revokeObjectURL() {} },
     ui: { escape: value => String(value), formatSeconds: value => `${value}s` },
@@ -571,7 +570,7 @@ test('DOM view replaces previews when a different video has the same file name',
   const ids = ['xPostMod', 'compMod', 'x-video-wrap', 'x-video-preview', 'x-img-preview', 'x-img-drop'];
   const elements = Object.fromEntries(ids.map(id => [id, createElement()]));
   const urls = [];
-  const view = loadRuntime().createComposeModalDomView({
+  const view = loadView().createComposeModalDomView({
     documentRef: { getElementById: id => elements[id] || null },
     urlApi: {
       createObjectURL: file => {
@@ -625,7 +624,7 @@ test('DOM view preserves the active ALT input when only its value changes', () =
     activeElement: altInput,
     getElementById: id => elements[id] || null,
   };
-  const view = loadRuntime().createComposeModalDomView({
+  const view = loadView().createComposeModalDomView({
     documentRef,
     urlApi: { createObjectURL: () => 'blob:image', revokeObjectURL() {} },
   });

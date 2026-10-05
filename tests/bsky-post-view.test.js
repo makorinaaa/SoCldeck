@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadPostView() {
   const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'html-escape.js'), 'utf8'), context);
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'bsky-post-view.js'),
     'utf8',

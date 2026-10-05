@@ -1,4 +1,5 @@
 // Compatibility boundary for existing browser factories. New modules use named ESM exports.
+import './html-escape.js';
 import './account-session-runtime.js';
 import './anime-schedule-runtime.js';
 import './appearance-runtime.js';
@@ -24,6 +25,7 @@ import './compose-cross-post-plan.js';
 import './compose-media.js';
 import './compose-mention-suggest.js';
 import './compose-modal-runtime.js';
+import './compose-modal-view.js';
 import './compose-quote.js';
 import './compose-request.js';
 import './compose-submission.js';
@@ -48,6 +50,7 @@ import './widget-mode-runtime.js';
 import './workspace-backup.js';
 import './workspace-storage.js';
 import './x-compose-delivery.js';
+import './x-composer-dom.js';
 import './x-compose-preparation.js';
 import './x-login-gate.js';
 import './x-post-confirmation.js';
@@ -80,6 +83,7 @@ export const {
   SocialDeckComposeMedia,
   SocialDeckComposeMentionSuggest,
   SocialDeckComposeModalRuntime,
+  SocialDeckComposeModalView,
   SocialDeckComposeQuote,
   SocialDeckComposeRequest,
   SocialDeckComposeSubmission,

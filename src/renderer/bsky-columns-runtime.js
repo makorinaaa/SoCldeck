@@ -1,17 +1,10 @@
 (function (global) {
+  const { escapeHtml } = global.SocialDeckHtmlEscape;
+
   const MAX_RENDERED_ITEMS = 300;
   const PAGE_LIMIT = 40;
   const PREPEND_LIMIT = 30;
   const RELATIVE_TIME_INTERVAL_MS = 60_000;
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
 
   function trimRenderedItems(host, { removeFrom = 'end', preserveScroll = false } = {}) {
     const items = Array.from(host?.querySelectorAll?.('.post, .notif') || []);

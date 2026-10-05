@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadPreparationRuntime() {
   const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'x-composer-dom.js'), 'utf8'), context);
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'x-compose-preparation.js'),
     'utf8',

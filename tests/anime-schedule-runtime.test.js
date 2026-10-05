@@ -10,6 +10,7 @@ function loadModule(windowOverrides = {}) {
     Intl,
     window: { ...windowOverrides },
   };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'html-escape.js'), 'utf8'), context);
   const source = fs.readFileSync(
     path.join(__dirname, '..', 'src', 'renderer', 'anime-schedule-runtime.js'),
     'utf8',

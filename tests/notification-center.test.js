@@ -27,7 +27,7 @@ function loadModule() {
 }
 
 test('keeps hidden X notification readers inside the viewport for lazy avatars', () => {
-  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'app.css'), 'utf8');
   const rule = html.match(/\.notif-center-x-readers\s*\{([^}]+)\}/)?.[1] || '';
 
   assert.doesNotMatch(rule, /left\s*:\s*-\d/);

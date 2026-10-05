@@ -33,6 +33,9 @@ jobs:
       - name: Check for committed secrets
         run: npm.cmd run security:check
 
+      - name: Lint
+        run: npm.cmd run lint
+
       - name: Run unit tests
         run: npm.cmd test
 
