@@ -25,6 +25,7 @@ import './compose-cross-post-plan.js';
 import './compose-media.js';
 import './compose-mention-suggest.js';
 import './compose-modal-runtime.js';
+import './compose-modal-view.js';
 import './compose-quote.js';
 import './compose-request.js';
 import './compose-submission.js';
@@ -81,6 +82,7 @@ export const {
   SocialDeckComposeMedia,
   SocialDeckComposeMentionSuggest,
   SocialDeckComposeModalRuntime,
+  SocialDeckComposeModalView,
   SocialDeckComposeQuote,
   SocialDeckComposeRequest,
   SocialDeckComposeSubmission,

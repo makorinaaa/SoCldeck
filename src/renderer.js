@@ -28,6 +28,7 @@ import {
   SocialDeckComposeMedia,
   SocialDeckComposeMentionSuggest,
   SocialDeckComposeModalRuntime,
+  SocialDeckComposeModalView,
   SocialDeckComposeQuote,
   SocialDeckComposeRequest,
   SocialDeckComposeSubmission,
@@ -497,7 +498,7 @@ const columnUndo = SocialDeckColumnUndo.createColumnUndo({
 });
 const notificationRuntime = SocialDeckNotificationRuntime.createNotificationRuntime();
 const xLoginGate = SocialDeckXLoginGate.createXLoginGate();
-const composeModalView = SocialDeckComposeModalRuntime.createComposeModalDomView({
+const composeModalView = SocialDeckComposeModalView.createComposeModalDomView({
   documentRef: document,
   ui: { escape: esc, formatSeconds: fmtSec },
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
