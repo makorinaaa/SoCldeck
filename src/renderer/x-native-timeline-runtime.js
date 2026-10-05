@@ -121,6 +121,44 @@
     return `(window.scrollTo(0, 0), (${selectHomeTab.toString()})(document, ${JSON.stringify(timeline)}, setTimeout, 20))`;
   }
 
+  // Serialized into X's home page: X's Following tab can sort by "Popular" or "Recent".
+  // Pressing the selected Following tab opens that menu; SocialDeck picks Recent.
+  async function selectFollowingRecent(documentLike, schedule) {
+    const wait = ms => new Promise(resolve => schedule(resolve, ms));
+    const close = () => {
+      if (typeof KeyboardEvent === 'function') {
+        documentLike.dispatchEvent?.(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+    };
+    const following = Array.from(documentLike.querySelectorAll('[role="tab"]'))
+      .find(tab => /フォロー中|Following/i.test(String(tab.textContent || '')));
+    if (!following || following.getAttribute('aria-selected') !== 'true') return 'not-following';
+    following.click();
+    let items = [];
+    for (let check = 0; check < 20 && !items.length; check += 1) {
+      await wait(100);
+      items = Array.from(documentLike.querySelectorAll('[role="menuitem"], [role="menuitemradio"]'));
+    }
+    if (!items.length) return 'no-menu';
+    const recent = items.find(item => /最新|Recent|Latest/i.test(String(item.textContent || '')));
+    if (!recent) {
+      close();
+      return 'no-recent';
+    }
+    const checked = recent.getAttribute('aria-checked') === 'true'
+      || Boolean(recent.querySelector('[data-testid="check"], svg[aria-label*="選択"], svg[aria-label*="Selected"]'));
+    if (checked) {
+      close();
+      return 'already';
+    }
+    recent.click();
+    return 'selected';
+  }
+
+  function createFollowingRecentScript() {
+    return `(window.scrollTo(0, 0), (${selectFollowingRecent.toString()})(document, setTimeout))`;
+  }
+
   function isLoginUrl(value) {
     if (/\/i\/flow\/(?:login|signup)|\/login(?:[/?#]|$)|\/logout(?:[/?#]|$)/.test(value || '')) return true;
     // A signed-out session is sent from /home to X's landing page.
@@ -199,6 +237,11 @@
       if (payload?.webContentsId == null) return;
       const reader = [...readers.values()].find(item => item.webContentsId === payload.webContentsId);
       if (!reader || !Array.isArray(payload.posts)) return;
+      if (reader.sorting && payload.firstPage && payload.timeline === 'following' && payload.operation !== 'CreateTweet') {
+        reader.sorting = false;
+        clearTimeoutFn(reader.sortingTimer);
+        reader.posts = [];
+      }
       if (reader.switching) {
         if (payload.operation === 'CreateTweet' || !payload.firstPage) return;
         if (payload.timeline !== reader.switching) {
@@ -234,7 +277,23 @@
         const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local && sortValue(post) > previousTop);
         if (arrived.length) announceNewPosts(reader, arrived.length);
       }
+      if (isFirstPage && reader.timeline === 'following' && !reader.sortChecked && !reader.switching) {
+        ensureRecentSort(reader);
+      }
     });
+
+    // Following defaults to Recent. X remembers the choice, so this runs once per Column
+    // start and after switching to Following.
+    async function ensureRecentSort(reader) {
+      if (isBusy()) return;
+      reader.sortChecked = true;
+      const result = await reader.webview.executeJavaScript(createFollowingRecentScript()).catch(() => 'failed');
+      log('following sort', result);
+      if (result !== 'selected') return;
+      reader.sorting = true;
+      clearTimeoutFn(reader.sortingTimer);
+      reader.sortingTimer = setTimeoutFn(() => { reader.sorting = false; }, CAPTURE_TIMEOUT_MS);
+    }
 
     // Shows "+N" on the Column header. While the reader is scrolled down the count adds up
     // and stays until they return to the top; at the top it fades like Bluesky's.
@@ -373,6 +432,7 @@
 
     function disposeReader(reader) {
       clearTimeoutFn(reader.loadWatchdog);
+      clearTimeoutFn(reader.sortingTimer);
       clearTimeoutFn(reader.snapshotTimer);
       readers.delete(reader.partition);
       reader.waiters.splice(0).forEach(resolve => resolve({ status: 'deferred', detail: 'disposed' }));
@@ -1115,6 +1175,7 @@
       }
       reader.switching = null;
       renderReader(reader);
+      if (succeeded && timeline === 'following') ensureRecentSort(reader);
       if (!succeeded) {
         intents.onOutcome?.({ kind: 'timeline', status: 'failed', error: new Error(result === 'clicked' || result === 'already'
           ? 'X からタイムラインを受け取れませんでした。更新ボタンで再試行してください'
@@ -1296,9 +1357,11 @@
 
   global.SocialDeckXNativeTimelineRuntime = {
     createXNativeTimelineRuntime,
+    createFollowingRecentScript,
     createSelectTabScript,
     mergePosts,
     placeOnTop,
+    selectFollowingRecent,
     selectHomeTab,
     reconcileFirstPage,
     toMuteShape,

@@ -378,3 +378,60 @@ test('a restored subtitle does not repeat the tab label', async () => {
   harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture, 'HomeTimeline'), firstPage: true });
   assert.equal(subtitle.textContent, 'X · @sub · おすすめ');
 });
+
+test('selectFollowingRecent picks Recent from the Following tab menu', async () => {
+  const { selectFollowingRecent } = load().SocialDeckXNativeTimelineRuntime;
+  const immediate = fn => fn();
+  const make = ({ selected = 'フォロー中', recentChecked = false, menu = true } = {}) => {
+    const clicks = [];
+    let open = false;
+    const tabs = [
+      { textContent: 'おすすめ', getAttribute: () => String(selected === 'おすすめ'), click() {} },
+      { textContent: 'フォロー中', getAttribute: () => String(selected === 'フォロー中'), click() { clicks.push('tab'); open = menu; } },
+    ];
+    const items = [
+      { textContent: '人気順', getAttribute: () => null, querySelector: () => null, click() { clicks.push('popular'); } },
+      { textContent: '最新順', getAttribute: name => (name === 'aria-checked' ? String(recentChecked) : null), querySelector: () => null, click() { clicks.push('recent'); } },
+    ];
+    const documentLike = {
+      querySelectorAll: selector => (selector === '[role="tab"]' ? tabs : (open ? items : [])),
+      dispatchEvent() { clicks.push('escape'); },
+    };
+    return { documentLike, clicks };
+  };
+  const popular = make();
+  assert.equal(await selectFollowingRecent(popular.documentLike, immediate), 'selected');
+  assert.deepEqual(popular.clicks, ['tab', 'recent']);
+  assert.equal(await selectFollowingRecent(make({ recentChecked: true }).documentLike, immediate), 'already');
+  assert.equal(await selectFollowingRecent(make({ menu: false }).documentLike, immediate), 'no-menu');
+  assert.equal(await selectFollowingRecent(make({ selected: 'おすすめ' }).documentLike, immediate), 'not-following');
+});
+
+test('Following switches to Recent once and the list is replaced by the Recent page', async () => {
+  const harness = createHarness();
+  const host = harness.createHost();
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
+  const [reader] = harness.webviews;
+  await reader.dispatch('dom-ready');
+  const base = reader.executeJavaScript.bind(reader);
+  let sortRuns = 0;
+  reader.executeJavaScript = script => {
+    if (script.includes('selectFollowingRecent')) {
+      sortRuns += 1;
+      return Promise.resolve('selected');
+    }
+    return base(script);
+  };
+  const following = normalizeTimelineResponse(fixture, 'HomeLatestTimeline');
+  // The Popular page arrives first.
+  harness.emit({ webContentsId: 41, ...following, firstPage: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sortRuns, 1);
+  // X answers the sort change with a Recent first page: Popular-only posts are gone.
+  harness.emit({ webContentsId: 41, ...following, posts: following.posts.slice(2), firstPage: true });
+  assert.equal((host.innerHTML.match(/data-x-id=/g) || []).length, 1);
+  // Later pages do not trigger the check again.
+  harness.emit({ webContentsId: 41, ...following, firstPage: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sortRuns, 1);
+});
