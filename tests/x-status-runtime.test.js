@@ -304,3 +304,26 @@ test('delete clicks the menu again when the first click lands before X is ready'
   assert.equal(await deleteStatus({ documentLike, statusId: '1', find: findStatusArticle, schedule: immediate }), 'done');
   assert.equal(state.caretClicks, 2);
 });
+
+test('reply presses the button again when the first click opens nothing', async () => {
+  const { openReplyComposer, findStatusArticle } = load().SocialDeckXStatusActions;
+  const body = {};
+  let clicks = 0;
+  let box = null;
+  const scope = {
+    parentElement: body,
+    querySelector: selector => (selector === '[data-testid="toolBar"]' || selector.includes('tweetButton') ? {} : null),
+    querySelectorAll: () => [box],
+  };
+  const article = createArticle('1');
+  article.querySelector = selector => (selector === '[data-testid="reply"]'
+    ? { click() { clicks += 1; if (clicks === 2) box = { parentElement: scope, setAttribute() {} }; } }
+    : null);
+  const documentLike = {
+    body,
+    querySelectorAll: selector => (selector.includes('tweetTextarea_0') ? (box ? [box] : []) : [article]),
+  };
+  const result = await openReplyComposer({ documentLike, statusId: '1', find: findStatusArticle, schedule: immediate });
+  assert.equal(result.status, 'ready');
+  assert.equal(clicks, 2);
+});
