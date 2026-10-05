@@ -688,10 +688,38 @@ const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
       onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
     }
   : null;
+// X accounts are told apart by their real @handle, learned from the account's own posts
+// (matched by the user id in the session cookie). The display name stays as entered.
+const xAccountIds = new Map();
+function refreshXAccountIds(accounts = state.xs || []) {
+  accounts.forEach((account, index) => {
+    const partition = account.partition || `persist:x-${index}`;
+    window.electronAPI?.getXAccountId?.(partition)
+      .then(id => { if (id) xAccountIds.set(partition, String(id)); })
+      .catch(() => {});
+  });
+}
+function learnXHandle(partition, author) {
+  const id = xAccountIds.get(partition);
+  if (!id || !author?.handle || String(author.id || '') !== id) return;
+  const account = getXAccountByPartition(partition);
+  if (!account || account.handle === author.handle) return;
+  account.handle = author.handle;
+  saveState();
+}
+function learnXHandlesFromPosts(partition, posts = []) {
+  posts.forEach(post => {
+    learnXHandle(partition, post?.author);
+    learnXHandle(partition, post?.quoted?.author);
+  });
+}
+
 const xNotificationCapture = xTimelineTap
   ? SocialDeckXNotificationCapture.createXNotificationCapture({
       tap: xTimelineTap,
       log: (...args) => console.debug('[XNative]', ...args),
+      onItems: (partition, items) => items.forEach(item =>
+        learnXHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle })),
       onFirstCapture: partition => {
         const account = getXAccountByPartition(partition);
         if (account) replyNotificationRuntime?.rebaseline(account);
@@ -752,6 +780,7 @@ const xNativeTimelineRuntime = xTimelineTap
         openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
         openExternal: ({ url }) => window.open(url, '_blank', 'noopener'),
         reply: target => openXReply(target),
+        postsSeen: (partition, posts) => learnXHandlesFromPosts(partition, posts),
         loginCompleted: partition => completeXLogin(partition),
         quote: target => openXQuote(target),
         onOutcome: outcome => {
@@ -788,7 +817,8 @@ const replyNotificationView = SocialDeckReplyNotifications.createReplyNotificati
 });
 const replyNotificationRuntime = SocialDeckReplyNotifications.createReplyNotificationRuntime({
   storage: localStorage, view: replyNotificationView,
-  openItem: item => openXNotificationCenterItem(item),
+  // Desktop notifications and reply toasts open the post like the notification center does.
+  openItem: item => openXNotificationNatively(item) || openXNotificationCenterItem(item),
 });
 const notificationReplyRuntime = SocialDeckNotificationReply.createNotificationReplyRuntime({
   documentRef: document,
@@ -937,6 +967,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     },
     sync: accounts => {
       xWebViewRuntime.syncAccounts(accounts);
+      refreshXAccountIds(accounts);
       if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
         return Promise.resolve([]);
       }

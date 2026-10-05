@@ -91,3 +91,18 @@ test('maps X notification icons and wording to reasons', () => {
   assert.equal(reasonFromIcon('', 'Aliceさんがあなたをフォローしました'), 'follow');
   assert.equal(reasonFromIcon('bird_icon', 'something else'), null);
 });
+
+test('notification items name the author of their target post', () => {
+  const json = {
+    globalObjects: {
+      users: { 1: { screen_name: 'shun', name: 'shun' }, 2: { screen_name: 'realme', name: 'Me' } },
+      tweets: { 9: { full_text: 'post', user_id_str: '2' } },
+      notifications: { n1: { id: 'n1', icon: { id: 'heart_icon' }, timestampMs: '1', message: { text: 'liked' },
+        template: { aggregateUserActionsV1: { targetObjects: [{ tweet: { id: '9' } }], fromUsers: [{ user: { id: '1' } }] } } } },
+    },
+    timeline: { instructions: [{ addEntries: { entries: [{ sortIndex: '1', content: { item: { content: { notification: { id: 'n1' } } } } }] } }] },
+  };
+  const [like] = normalizeCapturedResponse(json, 'NotificationsRest').notifications;
+  assert.equal(like.targetAuthorId, '2');
+  assert.equal(like.targetAuthorHandle, 'realme');
+});

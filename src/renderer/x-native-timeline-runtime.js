@@ -294,6 +294,7 @@
       const shownBefore = new Set(reader.posts.map(post => post.id));
       const previousTop = reader.posts.reduce((max, post) => (post.local ? max : (sortValue(post) > max ? sortValue(post) : max)), 0n);
       const isFirstPage = payload.operation !== 'CreateTweet' && payload.firstPage === true;
+      intents.postsSeen?.(reader.partition, payload.posts);
       if (payload.operation !== 'CreateTweet' && now() - (reader.lastDrivenAt || 0) > DRIVEN_RESPONSE_MS) {
         reader.lastPolledAt = now();
         log('x polled', payload.operation, payload.posts.length);
@@ -1083,6 +1084,7 @@
     }
 
     function handleStatusCapture(partition, payload) {
+      intents.postsSeen?.(partition, [...(payload.thread || []), ...(payload.posts || [])]);
       log('status captured', payload.operation, payload.focalId || '', activeDetail?.focalId || '');
       if (payload.operation === 'TweetDetail') {
         recentDetails.set(partition, [payload, ...(recentDetails.get(partition) || [])].slice(0, 5));

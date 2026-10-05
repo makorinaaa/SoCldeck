@@ -317,7 +317,7 @@
       if (accountSelect) {
         accountSelect.style.display = snapshot.xAccounts.length > 1 ? 'flex' : 'none';
         const signature = snapshot.xAccounts.length > 1
-          ? snapshot.xAccounts.map(account => `${account.username}|${account.initials}|${account.bg}`).join(',')
+          ? snapshot.xAccounts.map(account => `${account.username}|${account.handle || ''}|${account.initials}|${account.bg}`).join(',')
             + `#${snapshot.selectedXAccountIndex}`
           : '';
         if (renderedSignatures.xAccountSelect !== signature) {
@@ -325,10 +325,11 @@
           accountSelect.innerHTML = snapshot.xAccounts.length > 1
             ? snapshot.xAccounts.map((account, accountIndex) => {
                 const active = accountIndex === snapshot.selectedXAccountIndex;
-                return `<button data-compose-action="select-x-account" data-compose-account-index="${accountIndex}"
+                const label = account.handle ? `@${account.handle}` : account.username || '';
+                return `<button data-compose-action="select-x-account" data-compose-account-index="${accountIndex}" title="${escape(account.username || '')}"
                   style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:20px;border:2px solid ${active ? 'var(--accent)' : 'var(--border2)'};background:${active ? 'var(--accent-dim)' : 'transparent'};color:${active ? 'var(--accent)' : 'var(--text2)'};cursor:pointer;font-family:inherit;font-size:12px;font-weight:600">
                   <span style="width:20px;height:20px;border-radius:50%;background:${escape(account.bg || 'var(--bg3)')};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000">${escape(account.initials || 'X')}</span>
-                  ${escape(account.username || '')}
+                  ${escape(label)}
                 </button>`;
               }).join('')
             : '';

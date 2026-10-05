@@ -10,6 +10,7 @@
     log = () => {},
     storage = global.localStorage,
     onFirstCapture = () => {},
+    onItems = () => {},
   } = {}) {
     if (!tap?.attach || !tap?.onCaptured) throw new Error('X notification capture requires a timeline tap');
     const SOURCE_KEY = 'socialdeck_x_notification_source_v1';
@@ -36,6 +37,7 @@
       // A continued page (older notifications) does not replace the newest list.
       if (payload.requestCursor) return;
       latest.set(partition, { at: now(), items: payload.notifications });
+      onItems(partition, payload.notifications);
       misses.delete(partition);
       rememberCaptured(partition);
       log('notifications captured', payload.notifications.length);
