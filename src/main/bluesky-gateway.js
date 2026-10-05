@@ -131,7 +131,9 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
       handle: stored.handle,
       did: stored.did,
       displayName: profile?.displayName || stored.handle,
-      avatar: profile?.avatar || null,
+      // Drawn at sidebar size: use the CDN's 128px preset, as the renderer adapter does.
+      avatar: String(profile?.avatar || '')
+        .replace(/^https:\/\/cdn\.bsky\.app\/img\/avatar\//, 'https://cdn.bsky.app/img/avatar_thumbnail/') || null,
     };
   }
 

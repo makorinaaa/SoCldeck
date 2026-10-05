@@ -31,6 +31,11 @@ function normalizeSession(value) {
 function createBlueskySessionVault({ filePath, safeStorage, fsImpl = fs } = {}) {
   if (!filePath || !safeStorage) throw new Error('Bluesky Session Vault requires secure storage');
 
+  // Every Bluesky request reads the session, so keep the decrypted copy in memory
+  // instead of reading and decrypting the file on the main thread each time.
+  // undefined: not read yet; null: no stored session.
+  let cached;
+
   function assertEncryptionAvailable() {
     if (!safeStorage.isEncryptionAvailable?.() || safeStorage.getSelectedStorageBackend?.() === 'basic_text') {
       throw new Error('Bluesky session encryption is unavailable');
@@ -53,12 +58,14 @@ function createBlueskySessionVault({ filePath, safeStorage, fsImpl = fs } = {}) 
       fsImpl.renameSync(temporaryPath, filePath);
     } catch (error) {
       try { fsImpl.unlinkSync(temporaryPath); } catch {}
+      cached = undefined;
       throw error;
     }
-    return session;
+    cached = session;
+    return { ...session };
   }
 
-  function load() {
+  function readStored() {
     if (!fsImpl.existsSync(filePath)) return null;
     assertEncryptionAvailable();
     try {
@@ -71,7 +78,13 @@ function createBlueskySessionVault({ filePath, safeStorage, fsImpl = fs } = {}) 
     }
   }
 
+  function load() {
+    if (cached === undefined) cached = readStored();
+    return cached ? { ...cached } : null;
+  }
+
   function clear() {
+    cached = undefined;
     try {
       fsImpl.unlinkSync(filePath);
     } catch (error) {

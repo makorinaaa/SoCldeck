@@ -205,6 +205,9 @@
 
   async function refreshXColumn({ id, plan, operations }) {
     if (plan.kind === 'x-native') {
+      if (plan.definitionId === 'x-notif-native') {
+        return await operations.refreshXNativeNotifications(id) || { status: 'succeeded' };
+      }
       return await operations.refreshXNativeTimeline(id) || { status: 'succeeded' };
     }
     const destination = plan.definitionId === 'x-home-new'
@@ -274,7 +277,7 @@
               id: 'x-home-native',
               network: 'x',
               columnType: 'timeline',
-              label: 'Home（ネイティブ・試作）',
+              label: 'Home（ネイティブ）',
               description: 'SocialDeck の表示で読む',
               icon: icons.x,
               requiresAccount: true,
@@ -289,6 +292,16 @@
               icon: icons.bell,
               requiresAccount: true,
               defaultParams: { url: 'https://x.com/notifications' },
+            }),
+            createDefinition({
+              id: 'x-notif-native',
+              network: 'x',
+              columnType: 'notifications',
+              label: 'Notifications（ネイティブ）',
+              description: 'SocialDeck の表示で読む・軽量',
+              icon: icons.bell,
+              requiresAccount: true,
+              defaultParams: { native: true },
             }),
             createDefinition({
               id: 'x-search-new',

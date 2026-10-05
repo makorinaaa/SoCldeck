@@ -284,6 +284,11 @@ async function launchApp(t, fixtures) {
           callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') });
           return;
         }
+        if (network === 'x' && url.pathname.includes('/graphql/') && (global.__e2eNotificationsGraphql || fixture.notificationsGraphql)) {
+          const json = global.__e2eNotificationsGraphql || fixture.notificationsGraphql;
+          callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(JSON.stringify(json)) });
+          return;
+        }
         if (network === 'api') {
           const body = url.pathname.endsWith('uploadBlob')
             ? '{"blob":{"ref":"e2e-blob"}}'
@@ -331,7 +336,18 @@ async function launchApp(t, fixtures) {
     }
     await Promise.all(tasks);
   }, {
-    notificationsHtml: xFixture(NOTIFICATIONS_URL),
+    // With GraphQL fixtures the notification page behaves like X's client: it fetches its
+    // data when it loads and again when its Notifications tab is pressed.
+    notificationsHtml: fixtures.notificationsGraphql ? `<!doctype html><html><body>
+      <nav><a data-testid="AppTabBar_Notifications_Link" href="/notifications">Notifications</a></nav>
+      <script>
+        window.__loads = 0;
+        const load = () => { window.__loads += 1; return fetch('/i/api/graphql/q/NotificationsTimeline?variables=' + encodeURIComponent('{"count":20}')); };
+        load();
+        document.querySelector('nav a').addEventListener('click', event => { event.preventDefault(); load(); });
+      </script>
+    </body></html>` : xFixture(NOTIFICATIONS_URL),
+    notificationsGraphql: fixtures.notificationsGraphql || null,
     pageHtml: fixtures.pageHtml || `<!doctype html><html><body data-e2e-path="__PATH__">
       <nav>
         <a data-testid="AppTabBar_Home_Link" href="https://x.com/home">Home</a>
@@ -1324,4 +1340,49 @@ test('an X notification reply button opens the native detail and its reply goes 
   await detail.locator('.x-focal [data-x-action="reply"]').click();
   await page.locator('#x-reply-preview').waitFor();
   assert.match(await page.locator('#x-reply-preview').textContent(), /@alice/);
+});
+
+function notificationGraphql(notifications) {
+  return { data: { viewer_v2: { user_results: { result: { notification_timeline: { timeline: { instructions: [{
+    type: 'TimelineAddEntries',
+    entries: notifications.map((itemContent, index) => ({ entryId: `notification-${index}`, sortIndex: String(100 - index), content: { itemContent } })),
+  }] } } } } } } };
+}
+
+test('a native X notification Column draws X data and refreshes without reloading the page', { timeout: 40000 }, async t => {
+  const timeline = require('../tests/fixtures/x-home-timeline.json');
+  const tweet = timeline.data.home.home_timeline_urt.instructions[0].entries[0].content.itemContent.tweet_results.result;
+  const like = id => ({
+    itemType: 'TimelineNotification', id, notification_icon: 'heart_icon', timestamp_ms: String(1790000000000 + Number(id.slice(1))),
+    rich_message: { text: `Bob ${id} liked your post` },
+    template: {
+      target_objects: [{ tweet_results: { result: tweet } }],
+      from_users: [{ user_results: { result: { rest_id: '3', core: { name: 'Bob', screen_name: 'bob' }, legacy: {} } } }],
+    },
+  });
+  const mention = { itemType: 'TimelineTweet', tweet_results: { result: tweet } };
+  const { electronApp, page } = await launchApp(t, {
+    ...X_FIXTURES,
+    notificationsGraphql: notificationGraphql([like('n1'), mention]),
+  });
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod [data-action="add-column"][data-definition-id="x-notif-native"][data-account-index="0"]').click();
+  const column = page.locator('.col[data-definition-id="x-notif-native"]');
+  await column.locator('[data-x-notif-id="n1"]').waitFor({ state: 'attached', timeout: 15000 });
+  assert.match(await column.locator('[data-x-notif-id="n1"]').textContent(), /Bob n1 liked your post/);
+  assert.equal(await column.locator('.x-native-notif-post [data-x-id]').count(), 1, 'the mention is drawn as a post');
+  assert.equal(await column.locator('webview').count(), 0, 'no X page runs inside the Column');
+  const readers = page.locator('#notif-center-x-readers webview[partition="persist:x-0"]');
+  assert.equal(await readers.count(), 1);
+
+  // A reload would clear this mark; pressing X's tab keeps the page and loads again.
+  const before = await readers.first().evaluate(webview => webview.executeJavaScript('window.__kept = true; window.__loads'));
+  await electronApp.evaluate((_, json) => { global.__e2eNotificationsGraphql = json; },
+    notificationGraphql([like('n2'), like('n1'), mention]));
+  await page.locator('#rfr-' + (await column.getAttribute('id')).replace(/^col-/, '')).click();
+  await column.locator('[data-x-notif-id="n2"]').waitFor({ state: 'attached', timeout: 15000 });
+  assert.equal(await readers.count(), 1, 'the same notification page is kept');
+  const after = await readers.first().evaluate(webview => webview.executeJavaScript('({ kept: window.__kept === true, loads: window.__loads })'));
+  assert.equal(after.kept, true, 'the refresh did not reload the page');
+  assert.ok(after.loads > before, 'the refresh pressed the tab');
 });

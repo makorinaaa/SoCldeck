@@ -178,3 +178,23 @@ test('bootstrap is a no-op when DOM or IPC dependencies are unavailable', () => 
     ipcRendererLike: { sendToHost() {} },
   }), false);
 });
+
+test('page messages from X or its frames never reach the SocialDeck host', () => {
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'webview-preload.js'), 'utf8');
+  assert.doesNotMatch(source, /addEventListener\(\s*['"]message['"]/);
+});
+
+test('the new-posts fallback search skips the buttons inside posts', () => {
+  const selectors = [];
+  const banner = { textContent: 'Show 3 posts' };
+  const documentLike = {
+    querySelector: () => null,
+    querySelectorAll: selector => {
+      selectors.push(selector);
+      return [{ textContent: 'Reply' }, banner];
+    },
+  };
+  assert.equal(preload.findNewPostsBanner(documentLike), banner);
+  assert.deepEqual(selectors, [preload.NEW_POSTS_BUTTON_SELECTOR]);
+  assert.match(preload.NEW_POSTS_BUTTON_SELECTOR, /:not\(article /);
+});

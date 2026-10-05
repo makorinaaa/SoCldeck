@@ -70,6 +70,8 @@ function postNotification(post, { id = '', sortIndex = '' } = {}) {
     avatar: post.author?.avatar || '',
     indexedAt: post.createdAt || '',
     sortIndex: String(sortIndex || ''),
+    // Native notification Columns draw the post itself, with its actions.
+    post,
   };
 }
 
@@ -116,6 +118,7 @@ function createGraphqlReader({ normalizeTweet, normalizeUser, unwrapTweet }) {
       avatar: actor?.avatar || '',
       indexedAt: toIso(item.timestamp_ms),
       sortIndex: String(sortIndex || ''),
+      target: target || null,
     };
   }
 

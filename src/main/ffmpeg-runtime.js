@@ -17,7 +17,8 @@ function resolveFfmpegPath({
   appRoot = path.resolve(__dirname, '..', '..'),
   env = process.env,
 } = {}) {
-  const override = String(env.SOCIALDECK_FFMPEG_PATH || '').trim();
+  // Packaged builds only run the bundled binary, so the environment cannot swap it out.
+  const override = isPackaged ? '' : String(env.SOCIALDECK_FFMPEG_PATH || '').trim();
   if (override) return path.resolve(override);
   if (platform !== 'win32') return 'ffmpeg';
   return isPackaged

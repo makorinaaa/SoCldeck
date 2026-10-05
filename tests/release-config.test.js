@@ -16,7 +16,7 @@ test('the release workflow uploads every auto-update artifact explicitly', () =>
     'utf8'
   );
   assert.match(workflow, /npm run build-win/);
-  assert.match(workflow, /softprops\/action-gh-release@v2/);
+  assert.match(workflow, /softprops\/action-gh-release@[0-9a-f]{40} # v2/);
   assert.match(workflow, /dist\/\*\.exe/);
   assert.match(workflow, /dist\/\*\.exe\.blockmap/);
   assert.match(workflow, /dist\/latest\.yml/);
@@ -56,9 +56,9 @@ test('the release workflow preserves diagnostics and bounds E2E retries', () => 
     'utf8'
   );
 
-  assert.match(workflow, /actions\/checkout@v6/);
-  assert.match(workflow, /actions\/setup-node@v6/);
-  assert.match(workflow, /actions\/upload-artifact@v6/);
+  assert.match(workflow, /actions\/checkout@[0-9a-f]{40} # v6/);
+  assert.match(workflow, /actions\/setup-node@[0-9a-f]{40} # v6/);
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40} # v6/);
   assert.match(workflow, /if: always\(\)/);
   assert.match(workflow, /test-results/);
   assert.match(workflow, /e2e-attempt-\$attempt\.log/);
@@ -80,7 +80,7 @@ test('the release workflow verifies generated updater files before publishing', 
   assert.match(workflow, /\.exe\.blockmap/);
   assert.ok(
     workflow.indexOf('name: Verify release artifacts')
-      < workflow.indexOf('softprops/action-gh-release@v2')
+      < workflow.indexOf('softprops/action-gh-release@')
   );
 });
 
@@ -95,4 +95,30 @@ test('packaged builds disable Node.js entry points and only load the integrity-c
     enableEmbeddedAsarIntegrityValidation: true,
     enableCookieEncryption: true,
   });
+});
+
+test('only the publish job can write the release, and it never installs dependencies', () => {
+  const workflow = fs.readFileSync(
+    path.join(projectRoot, '.github', 'workflows', 'release.yml'),
+    'utf8'
+  );
+  const publishIndex = workflow.indexOf('\n  publish-release:');
+  assert.ok(publishIndex > 0);
+  const buildJob = workflow.slice(0, publishIndex);
+  const publishJob = workflow.slice(publishIndex);
+
+  assert.match(buildJob, /^permissions:\s*\n\s*contents:\s*read/m);
+  assert.doesNotMatch(buildJob, /contents:\s*write/);
+  assert.match(publishJob, /needs:\s*build-windows/);
+  assert.match(publishJob, /contents:\s*write/);
+  assert.doesNotMatch(publishJob, /npm|setup-node/);
+});
+
+test('workflows pin every action to a full commit SHA', () => {
+  for (const name of ['ci.yml', 'release.yml']) {
+    const workflow = fs.readFileSync(path.join(projectRoot, '.github', 'workflows', name), 'utf8');
+    const uses = [...workflow.matchAll(/uses:\s*(\S+)/g)].map(match => match[1]);
+    assert.ok(uses.length > 0);
+    for (const action of uses) assert.match(action, /@[0-9a-f]{40}$/, `${name}: ${action}`);
+  }
 });

@@ -554,3 +554,58 @@ test('Compose prefers the hidden Home page over a visible non-Home X Column', as
   await runtime.executeCompose({ accountId: '@alice' }, {}, async (request, context) => used.push(context.webview));
   assert.deepEqual(used, [reader]);
 });
+
+function createCaptureHarness(options = {}) {
+  const captured = [{ captured: true, reason: 'like', targetUrl: 'https://x.com/me/status/9', text: 'liked' }];
+  const waits = [];
+  let fresh = true;
+  const notificationCapture = {
+    attach: async () => true,
+    mode: () => 'captured',
+    wait: async (partition, since, timeoutMs) => { waits.push(timeoutMs); return fresh ? captured : null; },
+    last: () => captured,
+    hasCaptured: () => true,
+  };
+  const harness = createHarness({ notificationCapture, ...options });
+  harness.runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  const host = { appendChild(webview) { harness.elements.set(webview.id, webview); } };
+  const read = () => harness.runtime.listNotifications({ accountId: '@alice', host, script: 'extract', retainReader: true, refreshReader: true, forceHidden: true });
+  async function start() {
+    const reading = read();
+    const [reader] = harness.webviews;
+    reader.getWebContentsId = () => 31;
+    reader.emit('dom-ready');
+    await reading;
+    return reader;
+  }
+  return { ...harness, captured, waits, read, start, setFresh: value => { fresh = value; } };
+}
+
+test('a kept notification page refreshes by pressing the X tab instead of reloading', async () => {
+  const harness = createCaptureHarness();
+  const reader = await harness.start();
+  reader.executeJavaScript = async script => { reader.scripts.push(script); return 'notifications-clicked'; };
+  const result = await harness.read();
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), JSON.parse(JSON.stringify(harness.captured)));
+  assert.deepEqual(reader.scripts, ['refresh:notifications']);
+  assert.equal(reader.reloadCount, undefined);
+  assert.equal(harness.webviews.length, 1);
+});
+
+test('an account whose tab press brings no data falls back to reloading, then stops trying', async () => {
+  const harness = createCaptureHarness({ realTimers: true });
+  const reader = await harness.start();
+  reader.executeJavaScript = async script => { reader.scripts.push(script); return 'notifications-clicked'; };
+  // The page reloads, but X's data never arrives for the in-page attempts.
+  reader.reload = () => {
+    reader.reloadCount = (reader.reloadCount || 0) + 1;
+    reader.dataset.ready = 'true';
+    reader.emit('dom-ready');
+  };
+  harness.setFresh(false);
+  await harness.read();
+  await harness.read();
+  await harness.read();
+  assert.equal(reader.scripts.filter(script => script === 'refresh:notifications').length, 2);
+  assert.equal(reader.reloadCount, 3);
+});

@@ -16,6 +16,7 @@
     const SOURCE_KEY = 'socialdeck_x_notification_source_v1';
     // After this many loads without recognizable data, an account keeps reading the page.
     const MAX_MISSES = 2;
+    const MAX_ITEMS = 100;
     const partitions = new Map();
     const latest = new Map();
     const waiters = new Map();
@@ -31,13 +32,32 @@
       onFirstCapture(partition);
     }
 
+    // A continued page holds only newer or older notifications, not the newest list: it is
+    // merged into the list a first page started (newest first, the incoming copy winning).
+    function mergeItems(incoming, existing) {
+      const seen = new Set();
+      return [...incoming, ...existing]
+        .filter(item => {
+          const key = item?.id || '';
+          if (!key) return true;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => (Date.parse(b.indexedAt) || 0) - (Date.parse(a.indexedAt) || 0))
+        .slice(0, MAX_ITEMS);
+    }
+
     tap.onCaptured(payload => {
       const partition = partitions.get(payload?.webContentsId);
       if (!partition || payload.operation !== 'Notifications' || !Array.isArray(payload.notifications)) return;
-      // A continued page (older notifications) does not replace the newest list.
-      if (payload.requestCursor) return;
-      latest.set(partition, { at: now(), items: payload.notifications });
-      onItems(partition, payload.notifications);
+      const current = latest.get(partition);
+      if (payload.requestCursor && !current) return;
+      const items = payload.requestCursor
+        ? mergeItems(payload.notifications, current.items)
+        : payload.notifications.slice(0, MAX_ITEMS);
+      latest.set(partition, { at: now(), items });
+      onItems(partition, items);
       misses.delete(partition);
       rememberCaptured(partition);
       log('notifications captured', payload.notifications.length);
@@ -112,6 +132,11 @@
       return (misses.get(partition) || 0) >= MAX_MISSES ? 'page' : 'unknown';
     }
 
+    // The captured notifications as X sent them, with their posts (native Columns draw them).
+    function items(partition) {
+      return latest.get(partition)?.items || null;
+    }
+
     function last(partition) {
       const entry = latest.get(partition);
       return entry ? toRawItems(entry.items) : null;
@@ -131,7 +156,7 @@
       try { storage?.setItem(SOURCE_KEY, JSON.stringify(capturedSources)); } catch {}
     }
 
-    return { attach, detach, forget, hasCaptured, last, mode, wait };
+    return { attach, detach, forget, hasCaptured, items, last, mode, wait };
   }
 
   global.SocialDeckXNotificationCapture = { createXNotificationCapture };

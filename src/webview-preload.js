@@ -121,6 +121,7 @@ const VIDEO_URL_MARKERS = [
   'ext_tw_video_thumb',
   'tweet_video_thumb',
 ];
+const NEW_POSTS_BUTTON_SELECTOR = '[role="button"]:not(article [role="button"])';
 const NEW_POSTS_TEXT = /(?:\u65b0\u3057\u3044\u30dd\u30b9\u30c8|\u65b0\u3057\u3044\u30c4\u30a4\u30fc\u30c8|Show\s+\d+\s+posts?)/i;
 
 function isXHostname(hostname) {
@@ -244,7 +245,9 @@ function findNewPostsBanner(documentLike) {
   const banner = documentLike.querySelector('[data-testid$="-newTweetsButton"]');
   if (banner) return banner;
   if (typeof documentLike.querySelectorAll !== 'function') return null;
-  return Array.from(documentLike.querySelectorAll('[role="button"]'))
+  // This runs after every burst of DOM changes. The banner is never inside a post, so
+  // skip the action buttons of every post instead of reading all of their text.
+  return Array.from(documentLike.querySelectorAll(NEW_POSTS_BUTTON_SELECTOR))
     .find(button => NEW_POSTS_TEXT.test(String(button.textContent || ''))) || null;
 }
 
@@ -349,19 +352,6 @@ function installImageClickInterception(documentLike, windowLike, ipcRendererLike
   documentLike.addEventListener('click', handler, true);
 }
 
-function installMessageBridge(windowLike, ipcRendererLike) {
-  if (windowLike.__socialdeckXMessageBridge) return;
-  windowLike.__socialdeckXMessageBridge = true;
-  windowLike.addEventListener('message', event => {
-    try {
-      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-      if (data?._sdType === 'x-reply') {
-        ipcRendererLike.sendToHost('x-reply', JSON.stringify(data));
-      }
-    } catch {}
-  });
-}
-
 function runDomMaintenance(documentLike, windowLike) {
   injectCompactStyle(documentLike);
   updateComposerVisibility(documentLike);
@@ -391,7 +381,6 @@ function installXBehavior(documentLike, windowLike, ipcRendererLike) {
   runDomMaintenance(documentLike, windowLike);
   keepVisibleToX(documentLike, windowLike);
   installImageClickInterception(documentLike, windowLike, ipcRendererLike);
-  installMessageBridge(windowLike, ipcRendererLike);
   installMutationMaintenance(documentLike, windowLike);
   installPageDiagnostics(documentLike, windowLike, ipcRendererLike);
 }
@@ -464,6 +453,7 @@ module.exports = {
   collectXImageUrls,
   createImageClickHandler,
   createImageOpenPayload,
+  NEW_POSTS_BUTTON_SELECTOR,
   findNewPostsBanner,
   imageUrlKey,
   isReplyDialogOpen,

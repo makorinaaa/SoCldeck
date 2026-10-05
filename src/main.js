@@ -15,6 +15,7 @@ const {
 } = require('./main/desktop-notification-service');
 const { createXVideoFileService } = require('./main/x-video-file');
 const { denyWebviewPermissions } = require('./main/webview-permission-policy');
+const { createWebviewBrowserIdentityPolicy } = require('./main/webview-browser-identity');
 const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
 const { createAtprotoClient } = require('./main/bluesky-atproto-client');
 const { createBlueskyGateway } = require('./main/bluesky-gateway');
@@ -43,22 +44,25 @@ if (process.platform === 'win32') {
 
 // ── アドブロック（@cliqz/adblocker-electron）──
 const { ElectronBlocker } = require('@cliqz/adblocker-electron');
+const { loadAdBlocker } = require('./main/adblock-filter-cache');
 
 // フィルタールールのキャッシュパス
 const ADBLOCK_CACHE = path.join(app.getPath('userData'), 'adblocker-cache.bin');
 
 let blocker = null;
+const X_PAGE_DIAGNOSTICS_PATH = path.join(app.getPath('userData'), 'x-page-diagnostics.json');
 const xPageDiagnostics = createXPageDiagnostics({
-  save: data => fs.writeFileSync(path.join(app.getPath('userData'), 'x-page-diagnostics.json'), JSON.stringify(data, null, 2)),
+  save: data => fs.promises.writeFile(X_PAGE_DIAGNOSTICS_PATH, JSON.stringify(data)),
+  saveSync: data => fs.writeFileSync(X_PAGE_DIAGNOSTICS_PATH, JSON.stringify(data)),
 });
 app.on('before-quit', () => xPageDiagnostics.flush());
 
-const X_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const webviewBrowserIdentity = createWebviewBrowserIdentityPolicy();
 const INDEX_PATH = path.join(__dirname, 'index.html');
 const APP_PRELOAD_PATH = path.join(__dirname, 'preload.js');
 const WEBVIEW_PRELOAD_PATH = path.join(__dirname, 'webview-preload.js');
-const isDevelopment = process.argv.includes('--dev');
+// Installed builds never open DevTools, even when started with --dev.
+const isDevelopment = !app.isPackaged && process.argv.includes('--dev');
 
 function handleTrustedIpc(channel, handler) {
   return registerTrustedIpcHandler({
@@ -89,18 +93,19 @@ async function initAdBlocker() {
     // ipcMain のリスナー上限を引き上げ（セッション数分のリスナーが登録されるため）
     ipcMain.setMaxListeners(50);
 
-    // キャッシュがあれば即ロード、なければダウンロード
-    if (fs.existsSync(ADBLOCK_CACHE)) {
-      const buf = fs.readFileSync(ADBLOCK_CACHE);
-      blocker = ElectronBlocker.deserialize(new Uint8Array(buf));
-      console.log('[AdBlock] キャッシュからロードしました');
-    } else {
-      console.log('[AdBlock] フィルタールールをダウンロード中...');
-      blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking((...args) => net.fetch(...args));
-      const serialized = blocker.serialize();
-      fs.writeFileSync(ADBLOCK_CACHE, Buffer.from(serialized));
-      console.log('[AdBlock] ルールをキャッシュしました');
-    }
+    // キャッシュがあれば即ロード（古ければ裏で更新）、なければダウンロード
+    const loaded = await loadAdBlocker({
+      cachePath: ADBLOCK_CACHE,
+      deserialize: bytes => ElectronBlocker.deserialize(bytes),
+      download: () => ElectronBlocker.fromPrebuiltAdsAndTracking((...args) => net.fetch(...args)),
+      // セッションのフックは毎回 blocker を参照するため、差し替えるだけで新しいルールが効く
+      onRefresh: fresh => {
+        blocker = fresh;
+        console.log('[AdBlock] フィルタールールを更新しました');
+      },
+    });
+    blocker = loaded.blocker;
+    console.log(`[AdBlock] ルールを読み込みました (${loaded.source})`);
     console.log('[AdBlock] 有効化しました');
 
     // ブロック可能なルール数をログ表示（動作確認用）
@@ -263,6 +268,16 @@ function createWindow() {
     if (config.maximized) mainWindow.maximize();
   });
 
+  // backgroundThrottling is off so notifications keep polling while minimized, which
+  // also keeps the page "visible". Tell the renderer directly when nobody can see it.
+  const sendWindowVisibility = hidden => {
+    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('window-visibility', { hidden });
+  };
+  mainWindow.on('minimize', () => sendWindowVisibility(true));
+  mainWindow.on('hide', () => sendWindowVisibility(true));
+  mainWindow.on('restore', () => sendWindowVisibility(false));
+  mainWindow.on('show', () => sendWindowVisibility(false));
+
   mainWindow.on('close', () => {
     updateConfig({
       windowBounds: mainWindow.getBounds(),
@@ -284,15 +299,7 @@ app.on('web-contents-created', (_, contents) => {
     xPageDiagnostics.attachContents(contents);
     denyWebviewPermissions(contents.session);
     secureWebviewContents(contents, { openExternalUrl });
-
-    contents.session.webRequest.onBeforeSendHeaders((details, callback) => {
-      details.requestHeaders['User-Agent'] = X_USER_AGENT;
-      details.requestHeaders['sec-ch-ua'] = '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"';
-      details.requestHeaders['sec-ch-ua-mobile'] = '?0';
-      details.requestHeaders['sec-ch-ua-platform'] = '"Windows"';
-      callback({ requestHeaders: details.requestHeaders });
-    });
-
+    webviewBrowserIdentity.apply(contents);
   }
 });
 
@@ -432,7 +439,6 @@ handleTrustedIpc('clear-memory', async () => {
     await session.defaultSession.clearCache();
     await session.fromPartition('persist:bsky').clearCache();
     await xAccountRuntime.clearCaches();
-    if (global.gc) global.gc();
     return true;
   } catch (e) { return false; }
 });
@@ -447,14 +453,6 @@ handleTrustedIpc('read-file-base64', (_, filePath) => xVideoFiles.readDataUrl(fi
 
 // ── アプリ起動 ──
 app.whenReady().then(async () => {
-  const xSession = session.fromPartition('persist:x');
-
-  xSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['User-Agent'] =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-    callback({ requestHeaders: details.requestHeaders });
-  });
-
   // ── アドブロック初期化 ──
   // 初期化後にXの全セッションへネットワークブロックを適用
   if (process.env.SOCIALDECK_E2E !== '1') {

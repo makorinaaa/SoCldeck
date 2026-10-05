@@ -8,7 +8,7 @@ const { normalizeTimelineResponse } = require('../src/main/x-timeline-normalizer
 
 function load() {
   const context = { window: {}, URL };
-  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-timeline-runtime.js', 'x-status-actions.js', 'x-status-runtime.js']) {
+  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-posts.js', 'x-native-page-scripts.js', 'x-native-column-view.js', 'x-native-detail.js', 'x-native-reactions.js', 'x-native-notifications.js', 'x-native-readers.js', 'x-native-timeline-runtime.js', 'x-status-actions.js', 'x-status-runtime.js']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', name), 'utf8'), context);
   }
   return context.window;
@@ -173,7 +173,7 @@ test('the status page is released after it sits idle', async () => {
 });
 
 test('a first page removes posts deleted within its range but keeps older and just-sent posts', () => {
-  const { reconcileFirstPage } = load().SocialDeckXNativeTimelineRuntime;
+  const { reconcileFirstPage } = load().SocialDeckXNativePosts;
   const post = (id, sortIndex, extra = {}) => ({ id, sortIndex, ...extra });
   const shown = [post('mine', '900', { local: true }), post('a', '500'), post('deleted', '450'), post('b', '400'), post('older', '100')];
   const firstPage = [post('a', '500'), post('b', '400')];

@@ -100,3 +100,27 @@ test('uses dedicated host capabilities for login and logout', async () => {
     ['clear'],
   ]);
 });
+
+test('reads use the 128px avatar thumbnails everywhere an avatar appears', async () => {
+  const avatar = id => `https://cdn.bsky.app/img/avatar/plain/did:plc:${id}/bafk${id}`;
+  const thumbnail = id => `https://cdn.bsky.app/img/avatar_thumbnail/plain/did:plc:${id}/bafk${id}`;
+  const adapter = loadModule().createBlueskyGatewayAdapter({
+    invoke: async () => ({
+      ok: true,
+      data: {
+        feed: [{
+          post: { author: { avatar: avatar('a') }, embed: { record: { author: { avatar: avatar('b') } } } },
+          reason: { by: { avatar: avatar('c') } },
+        }],
+        banner: avatar('d'),
+        other: { avatar: 'https://example.com/img/avatar/plain/x' },
+      },
+    }),
+  });
+  const data = await adapter.getTimeline();
+  assert.equal(data.feed[0].post.author.avatar, thumbnail('a'));
+  assert.equal(data.feed[0].post.embed.record.author.avatar, thumbnail('b'));
+  assert.equal(data.feed[0].reason.by.avatar, thumbnail('c'));
+  assert.equal(data.banner, avatar('d'), 'only avatar fields change');
+  assert.equal(data.other.avatar, 'https://example.com/img/avatar/plain/x', 'only the Bluesky CDN is rewritten');
+});

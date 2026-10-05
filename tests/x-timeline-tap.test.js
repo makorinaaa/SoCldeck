@@ -80,6 +80,7 @@ test('marks continued timeline pages by the cursor in the request', async () => 
   assert.equal(requestCursor({ url: `https://x.com/i/api/graphql/q/HomeLatestTimeline?variables=${vars({ cursor: 'BOTTOM' })}` }), 'BOTTOM');
   assert.equal(requestCursor({ url: 'https://x.com/i/api/graphql/q/HomeTimeline', postData: JSON.stringify({ variables: { cursor: 'TOP' } }) }), 'TOP');
   assert.equal(requestCursor({ url: 'https://x.com/i/api/graphql/q/HomeTimeline', postData: 'not json' }), '');
+  assert.equal(requestCursor({ url: 'https://x.com/i/api/2/notifications/all.json?count=20&cursor=NEWER' }), 'NEWER');
 
   const contents = createContents({ bodies: { first: { body: JSON.stringify(fixture), base64Encoded: false }, next: { body: JSON.stringify(fixture), base64Encoded: false } } });
   const tap = createXTimelineTap({ resolveContents: () => contents });

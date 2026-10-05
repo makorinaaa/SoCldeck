@@ -25,8 +25,8 @@ test('CI runs unit and Electron suites without publishing and retains E2E logs',
   const workflow = fs.readFileSync(workflowPath, 'utf8');
 
   assert.match(workflow, /runs-on:\s*windows-latest/);
-  assert.match(workflow, /actions\/checkout@v6/);
-  assert.match(workflow, /actions\/setup-node@v6/);
+  assert.match(workflow, /actions\/checkout@[0-9a-f]{40} # v6/);
+  assert.match(workflow, /actions\/setup-node@[0-9a-f]{40} # v6/);
   assert.match(workflow, /node-version:\s*22/);
   assert.match(workflow, /cache:\s*npm/);
   assert.match(workflow, /run:\s*npm ci/);
@@ -35,6 +35,6 @@ test('CI runs unit and Electron suites without publishing and retains E2E logs',
   assert.match(workflow, /npm\.cmd run test:e2e/);
   assert.match(workflow, /exit \$LASTEXITCODE/);
   assert.match(workflow, /if: always\(\)/);
-  assert.match(workflow, /actions\/upload-artifact@v6/);
+  assert.match(workflow, /actions\/upload-artifact@[0-9a-f]{40} # v6/);
   assert.doesNotMatch(workflow, /build-win|electron-builder/);
 });

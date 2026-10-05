@@ -24,10 +24,15 @@ function requestKind(request = {}) {
     }
   };
   let variables = {};
+  let queryCursor = '';
   try {
-    variables = read(new URL(request.url).searchParams.get('variables'));
+    const { searchParams } = new URL(request.url);
+    variables = read(searchParams.get('variables'));
+    // X's older REST notification endpoint takes the cursor as its own query parameter.
+    queryCursor = searchParams.get('cursor') || '';
   } catch {}
   if (!variables.cursor && request.postData) variables = read(request.postData).variables || {};
+  if (!variables.cursor && queryCursor) variables = { ...variables, cursor: queryCursor };
   return {
     cursor: typeof variables.cursor === 'string' ? variables.cursor : '',
     partial: Array.isArray(variables.seenTweetIds) && variables.seenTweetIds.length > 0,
