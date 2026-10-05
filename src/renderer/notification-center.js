@@ -47,9 +47,11 @@
     const profilePath = String(raw?.profileUrl || '')
       .replace(/^https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)/i, '')
       .split(/[?#]/)[0];
-    const handle = decodeURIComponent(profilePath.replace(/^\//, '').split('/')[0] || '');
+    const handle = String(raw?.actorHandle || '')
+      || decodeURIComponent(profilePath.replace(/^\//, '').split('/')[0] || '');
     const text = String(raw?.text || '').trim();
-    const reason = classifyXNotification(text);
+    // Notifications read from X's data carry their kind; page text is classified by wording.
+    const reason = raw?.reason || classifyXNotification(text);
     return {
       id: `x:${accountIndex}:${targetUrl || profileUrl || text}|${profileUrl}|${indexedAt}|${reason}`,
       networkId: 'x',
@@ -65,6 +67,7 @@
       },
       targetUrl: targetUrl || profileUrl || 'https://x.com/notifications',
       text,
+      postText: String(raw?.postText || ''),
       raw,
     };
   }
@@ -76,6 +79,7 @@
   // X's notification cell text is every visible line of the cell: author name, @handle,
   // separators, time and the "Replying to" header. Keep only the post body for display.
   function extractXNotificationBody(item = {}) {
+    if (item.postText || item.raw?.postText) return String(item.postText || item.raw.postText);
     const lines = String(item.text || '').split('\n').map(line => line.trim()).filter(Boolean);
     const timeIndex = lines.findIndex(line => X_TIME_LINE.test(line));
     if (timeIndex < 0) {

@@ -56,6 +56,7 @@ import {
   SocialDeckXComposePreparation,
   SocialDeckXLoginGate,
   SocialDeckXNativeTimelineRuntime,
+  SocialDeckXNotificationCapture,
   SocialDeckXPostConfirmation,
   SocialDeckXPostView,
   SocialDeckXStatusActions,
@@ -680,7 +681,26 @@ async function initWvPreloadPath() {
 const refreshScheduler = SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
 const ANIME_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
+  ? {
+      attach: id => window.electronAPI.attachXTimelineTap(id),
+      detach: id => window.electronAPI.detachXTimelineTap(id),
+      onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
+    }
+  : null;
+const xNotificationCapture = xTimelineTap
+  ? SocialDeckXNotificationCapture.createXNotificationCapture({
+      tap: xTimelineTap,
+      log: window.electronAPI?.devToolsEnabled ? (...args) => console.info('[XNative]', ...args) : () => {},
+      onFirstCapture: partition => {
+        const account = getXAccountByPartition(partition);
+        if (account) replyNotificationRuntime?.rebaseline(account);
+        desktopNotificationRuntime?.rebaseline?.();
+      },
+    })
+  : null;
 xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
+  notificationCapture: xNotificationCapture,
   documentRef: document,
   storage: localStorage,
   isElectron: IS_ELECTRON,
@@ -701,13 +721,6 @@ const xPostView = SocialDeckXPostView.createXPostView({
   relTime,
   getPendingReaction: (kind, id, partition) => xNativeTimelineRuntime?.getPendingReaction(kind, id, partition) || null,
 });
-const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
-  ? {
-      attach: id => window.electronAPI.attachXTimelineTap(id),
-      detach: id => window.electronAPI.detachXTimelineTap(id),
-      onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
-    }
-  : null;
 const xStatusRuntime = xTimelineTap
   ? SocialDeckXStatusRuntime.createXStatusRuntime({
       documentRef: document,
@@ -910,12 +923,14 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       : Promise.resolve(false),
     clear: partition => {
       xNativeTimelineRuntime?.forgetAccount(partition);
+      xNotificationCapture?.forget(partition);
       return IS_ELECTRON
         ? window.electronAPI?.clearXSession?.(partition)
         : Promise.resolve(false);
     },
     clearAll: () => {
       xNativeTimelineRuntime?.forgetAccount();
+      xNotificationCapture?.forget();
       return IS_ELECTRON
         ? window.electronAPI?.clearAllXSessions?.()
         : Promise.resolve(false);

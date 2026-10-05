@@ -219,7 +219,7 @@ test('retains activation targets only for the bounded notification history', asy
       rules: { enabled: true, onlyWhenUnfocused: true },
       baselined: true,
       knownIds: [],
-      knownIdsVersion: 2,
+      knownIdsVersion: 3,
     }),
     fetchItems: async () => items,
     isAppFocused: () => true,
@@ -362,7 +362,7 @@ test('reports polling failures without losing the existing baseline', async () =
     rules: { enabled: true },
     baselined: true,
     knownIds: ['b:old'],
-    knownIdsVersion: 2,
+    knownIdsVersion: 3,
   });
   const runtime = loadModule().createDesktopNotificationRuntime({
     storage,
@@ -383,7 +383,7 @@ test('rebaseline before start keeps the persisted rules intact', async () => {
     rules: { enabled: true, onlyWhenUnfocused: false },
     knownIds: ['b:n1'],
     baselined: true,
-    knownIdsVersion: 2,
+    knownIdsVersion: 3,
   });
   const runtime = loadModule().createDesktopNotificationRuntime({
     storage,
@@ -403,7 +403,7 @@ test('reports last check time and per-network item counts', async () => {
     rules: { enabled: true, onlyWhenUnfocused: false },
     knownIds: ['b:known'],
     baselined: true,
-    knownIdsVersion: 2,
+    knownIdsVersion: 3,
   });
   const runtime = loadModule().createDesktopNotificationRuntime({
     storage,
@@ -441,7 +441,7 @@ test('rebaselines legacy notification identities without replaying existing item
   const saved = storage.read('socialdeck_desktop_notification_rules');
   assert.deepEqual(shown, []);
   assert.equal(saved.baselined, true);
-  assert.equal(saved.knownIdsVersion, 2);
+  assert.equal(saved.knownIdsVersion, 3);
   assert.deepEqual(saved.knownIds, ['x:current-x-item']);
 });
 

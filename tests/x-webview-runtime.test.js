@@ -47,7 +47,7 @@ function createWebView({ id = '', partition = '', src = '' } = {}) {
   };
 }
 
-function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false } = {}) {
+function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false, notificationCapture = null } = {}) {
   const elements = new Map();
   const webviews = [];
   const columns = [];
@@ -97,6 +97,7 @@ function createHarness({ loginPending = false, loginGate = null, allowDevTools =
     allowDevTools,
     setTimeoutFn: deferTimers ? () => 1 : realTimers ? setTimeout : fn => { fn(); return 1; },
     clearTimeoutFn: realTimers ? clearTimeout : () => {},
+    notificationCapture,
   });
   return { runtime, elements, webviews, columns };
 }
@@ -511,4 +512,34 @@ test('Compose prefers visible X Columns, falls back to the Home reader, and neve
   webviews.length = 0;
   webviews.push(status);
   await assert.rejects(runtime.executeCompose({ accountId: '@alice' }, {}, async () => {}), /Home Column/);
+});
+
+test('a tapped notification reader attaches before loading X and returns X data', async () => {
+  const attached = [];
+  const captured = [{ captured: true, reason: 'like', targetUrl: 'https://x.com/me/status/9', text: 'liked' }];
+  let mode = 'captured';
+  const notificationCapture = {
+    attach: async (id, partition) => { attached.push(partition); return true; },
+    mode: () => mode,
+    wait: async () => captured,
+    last: () => captured,
+    hasCaptured: () => mode === 'captured',
+  };
+  const { runtime, webviews } = createHarness({ notificationCapture });
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  const reading = runtime.listNotifications({ accountId: '@alice', host: { appendChild() {} }, script: 'extract', retainReader: true, refreshReader: true, forceHidden: true });
+  const [reader] = webviews;
+  assert.equal(reader.src, 'about:blank');
+  reader.getWebContentsId = () => 31;
+  reader.emit('dom-ready');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(attached, ['persist:x-0']);
+  assert.deepEqual(reader.loads, ['https://x.com/notifications']);
+  assert.deepEqual(JSON.parse(JSON.stringify(await reading)), captured);
+  assert.equal(reader.scripts.includes('extract'), false, 'the page text is not read');
+
+  // An account whose data never arrived keeps reading the page.
+  mode = 'page';
+  await runtime.listNotifications({ accountId: '@alice', host: { appendChild() {} }, script: 'extract', retainReader: true, forceHidden: true });
+  assert.equal(webviews.at(-1).scripts.includes('extract'), true);
 });

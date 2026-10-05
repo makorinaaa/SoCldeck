@@ -315,3 +315,15 @@ test('X notification activation matches cell text regardless of line wrapping', 
     assert.deepEqual(clicked, ['alice']);
   });
 });
+
+test('notifications read from X data keep their kind, handle and post text', () => {
+  const { normalizeXNotification, extractXNotificationBody } = loadNotificationCenterForBody();
+  const item = normalizeXNotification({
+    captured: true, reason: 'like', text: 'shunさんがあなたのポストをいいねしました\nいい更新だ', postText: 'いい更新だ',
+    targetUrl: 'https://x.com/me/status/9', profileUrl: 'https://x.com/shun', actorHandle: 'shun', actorName: 'shun', indexedAt: '2026-10-05T00:00:00.000Z',
+  }, { accountIndex: 0, account: {} });
+  assert.equal(item.reason, 'like');
+  assert.equal(item.author.handle, 'shun');
+  assert.equal(item.targetUrl, 'https://x.com/me/status/9');
+  assert.equal(extractXNotificationBody(item), 'いい更新だ');
+});

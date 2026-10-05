@@ -4,10 +4,14 @@
 // CreateTweet is read so the account's own new post appears at once: X's client marks it
 // as seen and leaves it out of later timeline responses.
 // TweetDetail is fetched when a status page opens; it feeds the post detail view.
+const { createNotificationNormalizer, isNotificationOperation, notificationOperation } = require('./x-notification-normalizer');
+
 const TIMELINE_OPERATIONS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'CreateTweet', 'TweetDetail']);
 const MAX_SEGMENTS = 400;
 
 function timelineOperation(url) {
+  const notifications = notificationOperation(url);
+  if (notifications) return notifications;
   try {
     const parsed = new URL(url);
     if (!['x.com', 'twitter.com', 'api.x.com'].includes(parsed.hostname)) return null;
@@ -303,7 +307,13 @@ function normalizeTweetDetailResponse(json, url = '') {
   return { operation: 'TweetDetail', focalId, thread, replies };
 }
 
+let normalizeNotificationsResponse = null;
+
 function normalizeCapturedResponse(json, operation, url = '') {
+  if (isNotificationOperation(operation)) {
+    normalizeNotificationsResponse ||= createNotificationNormalizer({ normalizeTweet, normalizeUser, unwrapTweet });
+    return normalizeNotificationsResponse(json);
+  }
   if (operation === 'CreateTweet') return normalizeCreateTweetResponse(json);
   if (operation === 'TweetDetail') return normalizeTweetDetailResponse(json, url);
   return normalizeTimelineResponse(json, operation);
@@ -316,5 +326,7 @@ module.exports = {
   normalizeTimelineResponse,
   normalizeTweet,
   normalizeTweetDetailResponse,
+  normalizeUser,
   timelineOperation,
+  unwrapTweet,
 };

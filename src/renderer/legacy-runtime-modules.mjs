@@ -54,6 +54,7 @@ import './x-composer-dom.js';
 import './x-compose-preparation.js';
 import './x-login-gate.js';
 import './x-native-timeline-runtime.js';
+import './x-notification-capture.js';
 import './x-post-confirmation.js';
 import './x-post-view.js';
 import './x-status-actions.js';
@@ -115,6 +116,7 @@ export const {
   SocialDeckXComposePreparation,
   SocialDeckXLoginGate,
   SocialDeckXNativeTimelineRuntime,
+  SocialDeckXNotificationCapture,
   SocialDeckXPostConfirmation,
   SocialDeckXPostView,
   SocialDeckXStatusActions,
