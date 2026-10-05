@@ -171,3 +171,14 @@ test('removing the Column stops its listeners and frees the account', async () =
   assert.equal(harness.runtime.hasNotificationColumn('persist:x-0'), false);
   assert.equal((harness.host.listeners.click || []).length, 0);
 });
+
+test('a forced refresh during a running load loads again after it', async () => {
+  const harness = createHarness();
+  // Mounting starts a load that is still running when the refreshes are requested.
+  harness.runtime.mountNotifications({ id: 'n', partition: 'persist:x-0', host: harness.host });
+  harness.loads.length = 0;
+  const first = harness.runtime.refreshNotifications('n');
+  const forced = harness.runtime.refreshNotifications('n', { force: true });
+  await Promise.all([first, forced]);
+  assert.deepEqual(harness.loads, [['persist:x-0', true]], 'only the forced refresh loads again');
+});

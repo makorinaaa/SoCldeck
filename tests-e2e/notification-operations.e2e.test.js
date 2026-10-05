@@ -1375,11 +1375,14 @@ test('a native X notification Column draws X data and refreshes without reloadin
   const readers = page.locator('#notif-center-x-readers webview[partition="persist:x-0"]');
   assert.equal(await readers.count(), 1);
 
+  // A reload would clear this mark; pressing X's tab keeps the page and loads again.
+  const before = await readers.first().evaluate(webview => webview.executeJavaScript('window.__kept = true; window.__loads'));
   await electronApp.evaluate((_, json) => { global.__e2eNotificationsGraphql = json; },
     notificationGraphql([like('n2'), like('n1'), mention]));
   await page.locator('#rfr-' + (await column.getAttribute('id')).replace(/^col-/, '')).click();
   await column.locator('[data-x-notif-id="n2"]').waitFor({ state: 'attached', timeout: 15000 });
   assert.equal(await readers.count(), 1, 'the same notification page is kept');
-  const loads = await readers.first().evaluate(webview => webview.executeJavaScript('window.__loads'));
-  assert.equal(loads, 2, 'the refresh pressed the tab instead of reloading the page');
+  const after = await readers.first().evaluate(webview => webview.executeJavaScript('({ kept: window.__kept === true, loads: window.__loads })'));
+  assert.equal(after.kept, true, 'the refresh did not reload the page');
+  assert.ok(after.loads > before, 'the refresh pressed the tab');
 });

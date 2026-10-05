@@ -710,8 +710,10 @@ const xNotificationLoads = new Map();
 function loadXNotifications(account, accountIndex, { force = false } = {}) {
   const partition = account.partition || `persist:x-${accountIndex}`;
   const running = xNotificationLoads.get(partition);
-  if (running) return running;
+  if (running && !force) return running;
   const load = (async () => {
+    // A forced load must not reuse one that started earlier: it runs after it instead.
+    if (running) await running.catch(() => {});
     const cached = xNotificationCache.get(partition);
     const badge = await xNativeTimelineRuntime?.readNotificationBadge(partition) ?? null;
     const recent = cached && Date.now() - cached.at < X_NOTIFICATION_MAX_AGE_MS;

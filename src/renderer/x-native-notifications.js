@@ -175,8 +175,12 @@
       const column = columns.get(id);
       if (!column) return { status: 'deferred', detail: 'unavailable' };
       const account = accountOf(column.partition);
-      if (account.loading) return account.loading;
-      account.loading = (async () => {
+      // A load already running may have started before what the person wants to see:
+      // a forced refresh waits for it and then loads again.
+      if (account.loading && !force) return account.loading;
+      const previous = account.loading;
+      const loading = (async () => {
+        if (previous) await previous.catch(() => {});
         try {
           const raw = await loadNotifications(column.partition, { force });
           const latest = getNotifications(column.partition);
@@ -197,11 +201,12 @@
             : `通知を読み込めませんでした: ${error?.message || ''}`;
           return { status: 'failed', error };
         } finally {
-          account.loading = null;
+          if (account.loading === loading) account.loading = null;
           renderPartition(column.partition);
         }
       })();
-      return account.loading;
+      account.loading = loading;
+      return loading;
     }
 
     function openItem(column, element) {
