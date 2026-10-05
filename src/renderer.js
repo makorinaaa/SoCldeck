@@ -691,7 +691,7 @@ const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
 const xNotificationCapture = xTimelineTap
   ? SocialDeckXNotificationCapture.createXNotificationCapture({
       tap: xTimelineTap,
-      log: window.electronAPI?.devToolsEnabled ? (...args) => console.info('[XNative]', ...args) : () => {},
+      log: (...args) => console.debug('[XNative]', ...args),
       onFirstCapture: partition => {
         const account = getXAccountByPartition(partition);
         if (account) replyNotificationRuntime?.rebaseline(account);
@@ -747,7 +747,7 @@ const xNativeTimelineRuntime = xTimelineTap
       isBusy: () => xWebViewRuntime.isPosting(),
       createRefreshScript: (destination, options) => SocialDeckXTimelineRefresh.createRefreshScript(destination, options),
       createToggleScript: options => SocialDeckXStatusActions.createToggleScript(options),
-      log: window.electronAPI?.devToolsEnabled ? (...args) => console.info('[XNative]', ...args) : () => {},
+      log: (...args) => console.debug('[XNative]', ...args),
       intents: {
         openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
         openExternal: ({ url }) => window.open(url, '_blank', 'noopener'),
