@@ -136,3 +136,20 @@ test('hidden pages block X media but never X scripts or API calls', async () => 
   assert.equal(await tap.attach(8, () => {}), true);
   assert.equal(tap.isAttached(8), true);
 });
+
+test('media blocking can be lifted for a post with attachments and restored', async () => {
+  const { HIDDEN_PAGE_BLOCKED_URLS } = require('../src/main/x-timeline-tap');
+  const contents = createContents();
+  const sent = [];
+  const original = contents.debugger.sendCommand;
+  contents.debugger.sendCommand = async (method, params) => {
+    if (method === 'Network.setBlockedURLs') sent.push(params.urls.length);
+    return original(method, params);
+  };
+  const tap = createXTimelineTap({ resolveContents: () => contents });
+  await tap.attach(9, () => {});
+  assert.equal(await tap.setMediaBlocked(9, false), true);
+  assert.equal(await tap.setMediaBlocked(9, true), true);
+  assert.deepEqual(sent, [HIDDEN_PAGE_BLOCKED_URLS.length, 0, HIDDEN_PAGE_BLOCKED_URLS.length]);
+  assert.equal(await tap.setMediaBlocked(10, false), false, 'unknown pages are ignored');
+});

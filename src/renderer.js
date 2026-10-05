@@ -1542,6 +1542,22 @@ function fmtSec(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+// Hidden X pages do not load X's media; a post with attachments needs it for the upload
+// previews, so it is allowed for the duration of that delivery only.
+async function withXMediaAllowed(webview, delivery, task) {
+  const hasMedia = Boolean(delivery.video) || (delivery.imageFiles?.length || 0) > 0;
+  const hidden = /^x-(?:home|status)-reader-/.test(webview?.id || '');
+  const setBlocked = window.electronAPI?.setXTimelineMediaBlocked;
+  if (!hasMedia || !hidden || !setBlocked) return task();
+  const webContentsId = webview.getWebContentsId?.();
+  await setBlocked(webContentsId, false).catch(() => false);
+  try {
+    return await task();
+  } finally {
+    setBlocked(webContentsId, true).catch(() => false);
+  }
+}
+
 function executeXComposeDelivery(delivery, context = {}) {
   // 返信はそのポストのページを操作用ビューで開き、ページ内の返信欄から送る
   if (delivery.replyTo) {
@@ -1553,14 +1569,15 @@ function executeXComposeDelivery(delivery, context = {}) {
       if (composer?.status !== 'ready') {
         throw new Error(`X の返信画面を開けませんでした（${composer?.status || 'unknown'}）`);
       }
-      return networkAdapters.executeComposeDelivery(delivery, { ...context, webview });
+      return withXMediaAllowed(webview, delivery, () =>
+        networkAdapters.executeComposeDelivery(delivery, { ...context, webview }));
     }));
   }
   return xWebViewRuntime.executeCompose(
     delivery,
     context,
-    (preparedDelivery, preparedContext) =>
-      networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext),
+    (preparedDelivery, preparedContext) => withXMediaAllowed(preparedContext.webview, preparedDelivery, () =>
+      networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext)),
   );
 }
 

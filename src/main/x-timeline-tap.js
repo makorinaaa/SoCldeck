@@ -44,6 +44,18 @@ function requestCursor(request = {}) {
 function createXTimelineTap({ resolveContents, logger = console } = {}) {
   const taps = new Map();
 
+  // Posting with media needs X's media hosts: the composer previews uploads from them.
+  async function setMediaBlocked(webContentsId, blocked) {
+    const tap = taps.get(webContentsId);
+    if (!tap) return false;
+    try {
+      await tap.contents.debugger.sendCommand('Network.setBlockedURLs', { urls: blocked ? HIDDEN_PAGE_BLOCKED_URLS : [] });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function detach(webContentsId) {
     const tap = taps.get(webContentsId);
     if (!tap) return false;
@@ -139,6 +151,7 @@ function createXTimelineTap({ resolveContents, logger = console } = {}) {
     attach,
     detach,
     isAttached: webContentsId => taps.has(webContentsId),
+    setMediaBlocked,
   };
 }
 

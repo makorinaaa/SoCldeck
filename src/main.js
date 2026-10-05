@@ -353,6 +353,10 @@ handleTrustedIpc('x-timeline-attach', (event, webContentsId) => {
     if (!host.isDestroyed()) host.send('x-timeline-captured', { webContentsId: contents.id, ...timeline });
   });
 });
+handleTrustedIpc('x-timeline-media', (event, webContentsId, blocked) => {
+  const contents = resolveOwnedXWebview(event.sender, webContentsId);
+  return contents ? xTimelineTap.setMediaBlocked(contents.id, blocked !== false) : false;
+});
 handleTrustedIpc('x-timeline-detach', (event, webContentsId) => {
   const contents = resolveOwnedXWebview(event.sender, webContentsId);
   return contents ? xTimelineTap.detach(contents.id) : false;
