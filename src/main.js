@@ -42,7 +42,6 @@ if (process.platform === 'win32') {
 
 // ── アドブロック（@cliqz/adblocker-electron）──
 const { ElectronBlocker } = require('@cliqz/adblocker-electron');
-const fetch = (...args) => import('node-fetch').then(m => m.default(...args)).catch(() => null);
 
 // フィルタールールのキャッシュパス
 const ADBLOCK_CACHE = path.join(app.getPath('userData'), 'adblocker-cache.bin');
@@ -87,7 +86,6 @@ function openExternalUrl(value) {
 async function initAdBlocker() {
   try {
     // ipcMain のリスナー上限を引き上げ（セッション数分のリスナーが登録されるため）
-    const { ipcMain } = require('electron');
     ipcMain.setMaxListeners(50);
 
     // キャッシュがあれば即ロード、なければダウンロード
@@ -97,7 +95,7 @@ async function initAdBlocker() {
       console.log('[AdBlock] キャッシュからロードしました');
     } else {
       console.log('[AdBlock] フィルタールールをダウンロード中...');
-      blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(fetch);
+      blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking((...args) => net.fetch(...args));
       const serialized = blocker.serialize();
       fs.writeFileSync(ADBLOCK_CACHE, Buffer.from(serialized));
       console.log('[AdBlock] ルールをキャッシュしました');
