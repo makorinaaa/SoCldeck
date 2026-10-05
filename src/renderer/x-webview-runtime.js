@@ -324,7 +324,8 @@
         if (/x\.com\/home|twitter\.com\/home/.test(source)) home = webview;
         else if (!fallback && /x\.com|twitter\.com/.test(source)) fallback = webview;
       });
-      return home || fallback || reader;
+      // Home pages have X's composer; other X pages (notifications, search) usually do not.
+      return home || reader || fallback;
     }
 
     async function executeCompose(delivery, context, execute) {

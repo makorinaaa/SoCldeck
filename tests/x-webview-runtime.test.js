@@ -543,3 +543,14 @@ test('a tapped notification reader attaches before loading X and returns X data'
   await runtime.listNotifications({ accountId: '@alice', host: { appendChild() {} }, script: 'extract', retainReader: true, forceHidden: true });
   assert.equal(webviews.at(-1).scripts.includes('extract'), true);
 });
+
+test('Compose prefers the hidden Home page over a visible non-Home X Column', async () => {
+  const { runtime, webviews } = createHarness();
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  const notifications = createWebView({ id: 'wv-x-notif', partition: 'persist:x-0', src: 'https://x.com/notifications' });
+  const reader = createWebView({ id: 'x-home-reader-persist_x-0', partition: 'persist:x-0', src: 'https://x.com/home' });
+  webviews.push(notifications, reader);
+  const used = [];
+  await runtime.executeCompose({ accountId: '@alice' }, {}, async (request, context) => used.push(context.webview));
+  assert.deepEqual(used, [reader]);
+});

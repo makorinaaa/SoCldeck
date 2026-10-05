@@ -1,4 +1,12 @@
 (function (global) {
+  const COMPOSER_WAIT_SCRIPT = `(async () => {
+    for (let check = 0; check < 40; check += 1) {
+      if (document.querySelector('[data-testid="tweetTextarea_0"]')) return true;
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    return false;
+  })()`;
+
   function createXComposeDelivery({
     createSubmissionScript,
     createPreparationScript,
@@ -15,6 +23,12 @@
       videoDuration = 0,
     } = {}) {
       if (!webview) throw new Error('X compose delivery requires a WebView');
+      // The page may still be loading (a refresh or a reset of the hidden page): wait for
+      // X's composer instead of failing at once.
+      const composerShown = await webview.executeJavaScript(COMPOSER_WAIT_SCRIPT).catch(() => false);
+      if (composerShown === false) {
+        throw new Error('Xの投稿欄が表示されませんでした。Xのページを確認して再試行してください');
+      }
       const preparation = await webview.executeJavaScript(createPreparationScript());
       if (preparation.status !== 'ready') {
         throw new Error('Xの投稿欄を初期化できませんでした。Xカラムを確認して再試行してください');
