@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Xホーム（ネイティブ表示）: 非表示WebViewのタイムライン応答を受け取る
   attachXTimelineTap: webContentsId => ipcRenderer.invoke('x-timeline-attach', toFiniteNumber(webContentsId, -1)),
   detachXTimelineTap: webContentsId => ipcRenderer.invoke('x-timeline-detach', toFiniteNumber(webContentsId, -1)),
+  setXTimelineMediaBlocked: (webContentsId, blocked) =>
+    ipcRenderer.invoke('x-timeline-media', toFiniteNumber(webContentsId, -1), blocked !== false),
   onXTimelineCaptured: fn => {
     if (typeof fn !== 'function') return () => {};
     const listener = (_, payload) => fn(payload);

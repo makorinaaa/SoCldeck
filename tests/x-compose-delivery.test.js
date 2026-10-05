@@ -19,6 +19,7 @@ test('executes an X image delivery through one WebView adapter', async () => {
   const scripts = [];
   const webview = {
     async executeJavaScript(script) {
+      if (String(script).includes('check < 40')) return true;
       scripts.push(script);
       if (scripts.length === 1) return { status: 'ready' };
       if (scripts.length === 3) return { status: 'succeeded' };
@@ -51,7 +52,8 @@ test('owns X video trimming and temporary file cleanup', async () => {
   const calls = [];
   let execution = 0;
   const webview = {
-    async executeJavaScript() {
+    async executeJavaScript(script) {
+      if (String(script).includes('check < 40')) return true;
       execution += 1;
       if (execution === 1) return { status: 'ready' };
       if (execution === 3) return { status: 'succeeded' };
@@ -121,7 +123,8 @@ test('preserves sub-second trim edges for X delivery', async () => {
     },
   }, {
     webview: {
-      async executeJavaScript() {
+      async executeJavaScript(script) {
+        if (String(script).includes('check < 40')) return true;
         execution += 1;
         if (execution === 1) return { status: 'ready' };
         if (execution === 3) return { status: 'succeeded' };
@@ -150,4 +153,30 @@ test('stops X delivery when the WebView composer is not ready', async () => {
     }),
     /Xの投稿欄を初期化できませんでした/,
   );
+});
+
+test('waits for the composer of a page that is still loading and fails clearly without one', async () => {
+  const createDelivery = loadFactory();
+  const options = {
+    createSubmissionScript: () => 'submit',
+    createPreparationScript: () => 'prepare-script',
+    createConfirmationScript: () => 'confirm',
+    readFileAsDataUrl: async () => '',
+  };
+  const order = [];
+  const result = await createDelivery(options).execute({ text: 'hi', imageFiles: [], video: null }, {
+    webview: {
+      async executeJavaScript(script) {
+        if (script.includes('check < 40')) { order.push('wait'); return true; }
+        order.push(script);
+        return script === 'prepare-script' ? { status: 'ready' } : script === 'confirm' ? { status: 'succeeded' } : 'ok';
+      },
+    },
+  });
+  assert.deepEqual(result, { status: 'succeeded' });
+  assert.deepEqual(order, ['wait', 'prepare-script', 'submit', 'confirm']);
+
+  await assert.rejects(createDelivery(options).execute({ text: 'hi', imageFiles: [], video: null }, {
+    webview: { executeJavaScript: async script => (script.includes('check < 40') ? false : { status: 'ready' }) },
+  }), /投稿欄が表示されませんでした/);
 });

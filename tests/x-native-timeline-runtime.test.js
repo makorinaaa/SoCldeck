@@ -350,6 +350,7 @@ test('switching tabs clicks the tab, reloads, and takes only that tab\'s first p
   // If X reopened the old tab, the tab is selected again instead of showing it.
   const selectsBefore = reader.scripts.filter(script => script === 'select').length;
   harness.emit({ webContentsId: 41, ...forYou });
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(reader.scripts.filter(script => script === 'select').length, selectsBefore + 1);
   harness.emit({ webContentsId: 41, ...following, posts: following.posts.slice(0, 1), firstPage: true });
   assert.equal(await switching, true);
@@ -377,4 +378,136 @@ test('a restored subtitle does not repeat the tab label', async () => {
   await harness.webviews[0].dispatch('dom-ready');
   harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture, 'HomeTimeline'), firstPage: true });
   assert.equal(subtitle.textContent, 'X · @sub · おすすめ');
+});
+
+test('selectFollowingRecent picks Recent from the Following tab menu', async () => {
+  const { selectFollowingRecent } = load().SocialDeckXNativeTimelineRuntime;
+  const immediate = fn => fn();
+  const make = ({ selected = 'フォロー中', recentChecked = false, menu = true } = {}) => {
+    const clicks = [];
+    let open = false;
+    const tabs = [
+      { textContent: 'おすすめ', getAttribute: () => String(selected === 'おすすめ'), click() {} },
+      { textContent: 'フォロー中', getAttribute: () => String(selected === 'フォロー中'), click() { clicks.push('tab'); open = menu; } },
+    ];
+    const items = [
+      { textContent: '人気順', getAttribute: () => null, querySelector: () => null, click() { clicks.push('popular'); } },
+      { textContent: '最新順', getAttribute: name => (name === 'aria-checked' ? String(recentChecked) : null), querySelector: () => null, click() { clicks.push('recent'); } },
+    ];
+    const documentLike = {
+      querySelectorAll: selector => (selector === '[role="tab"]' ? tabs : (open ? items : [])),
+      dispatchEvent() { clicks.push('escape'); },
+    };
+    return { documentLike, clicks };
+  };
+  const popular = make();
+  assert.equal(await selectFollowingRecent(popular.documentLike, immediate), 'selected');
+  assert.deepEqual(popular.clicks, ['tab', 'recent']);
+  assert.equal(await selectFollowingRecent(make({ recentChecked: true }).documentLike, immediate), 'already');
+  assert.equal(await selectFollowingRecent(make({ menu: false }).documentLike, immediate), 'no-menu');
+  assert.equal(await selectFollowingRecent(make({ selected: 'おすすめ' }).documentLike, immediate), 'not-following');
+});
+
+test('Following switches to Recent once and the list is replaced by the Recent page', async () => {
+  const harness = createHarness();
+  const host = harness.createHost();
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
+  const [reader] = harness.webviews;
+  await reader.dispatch('dom-ready');
+  const base = reader.executeJavaScript.bind(reader);
+  let sortRuns = 0;
+  reader.executeJavaScript = script => {
+    if (script.includes('selectFollowingRecent')) {
+      sortRuns += 1;
+      return Promise.resolve('selected');
+    }
+    return base(script);
+  };
+  const following = normalizeTimelineResponse(fixture, 'HomeLatestTimeline');
+  // The Popular page arrives first.
+  harness.emit({ webContentsId: 41, ...following, firstPage: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sortRuns, 1);
+  // X answers the sort change with a Recent first page: Popular-only posts are gone.
+  harness.emit({ webContentsId: 41, ...following, posts: following.posts.slice(2), firstPage: true });
+  assert.equal((host.innerHTML.match(/data-x-id=/g) || []).length, 1);
+  // Later pages do not trigger the check again.
+  harness.emit({ webContentsId: 41, ...following, firstPage: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(sortRuns, 1);
+});
+
+test('the selected tab on X decides which list a response belongs to', async () => {
+  const { readSelectedTab } = load().SocialDeckXNativeTimelineRuntime;
+  const tab = (text, selected) => ({ textContent: text, getAttribute: () => String(selected) });
+  assert.equal(readSelectedTab({ querySelectorAll: () => [tab('おすすめ', false), tab('フォロー中', true)] }), 'following');
+  assert.equal(readSelectedTab({ querySelectorAll: () => [tab('For you', true), tab('Following', false)] }), 'for-you');
+  assert.equal(readSelectedTab({ querySelectorAll: () => [] }), null);
+
+  // A Following sort may arrive through an operation that is not HomeLatestTimeline.
+  const harness = createHarness();
+  const host = harness.createHost();
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
+  const [reader] = harness.webviews;
+  await reader.dispatch('dom-ready');
+  const base = reader.executeJavaScript.bind(reader);
+  reader.executeJavaScript = script => (script.includes('readSelectedTab') ? Promise.resolve('following') : base(script));
+  const unknown = { ...normalizeTimelineResponse(fixture, 'HomeTimeline'), operation: 'HomeFollowingTimeline', timeline: null, firstPage: true };
+  harness.emit({ webContentsId: 41, ...unknown });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(host.innerHTML, /data-x-timeline="following" class="on"/);
+
+  // Switching back to Following accepts a first page whatever its operation, once X shows that tab.
+  reader.executeJavaScript = script => {
+    if (script.includes('readSelectedTab')) return Promise.resolve('for-you');
+    if (script.includes('selectHomeTab')) return Promise.resolve('clicked');
+    return base(script);
+  };
+  const toForYou = harness.runtime.switchTimeline('persist:x-0', 'for-you');
+  await new Promise(resolve => setImmediate(resolve));
+  harness.emit({ webContentsId: 41, ...unknown });
+  assert.equal(await toForYou, true);
+  assert.match(host.innerHTML, /data-x-timeline="for-you" class="on"/);
+});
+
+test('while X polls on its own, the automatic refresh does not click Home', async () => {
+  let clock = 1_000_000;
+  const harness = createHarness({ now: () => clock, refreshResult: 'home-clicked' });
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-0', host: harness.createHost() });
+  const [reader] = harness.webviews;
+  await reader.dispatch('dom-ready');
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), firstPage: true });
+  const clicks = () => reader.scripts.filter(script => script.includes('REFRESH:home')).length;
+
+  // A response 30 seconds after SocialDeck last made the page fetch came from X itself.
+  clock += 30_000;
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
+  clock += 30_000;
+  assert.deepEqual(plain(await harness.runtime.refresh('a')), { status: 'succeeded', detail: 'x-polling' });
+  assert.equal(clicks(), 0);
+
+  // A manual refresh still asks X right away.
+  const manual = harness.runtime.refresh('a', { force: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(clicks(), 1);
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
+  await manual;
+
+  // Once X has not polled for a while, the automatic refresh clicks Home again.
+  clock += 151_000;
+  const automatic = harness.runtime.refresh('a');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(clicks(), 2);
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
+  await automatic;
+});
+
+test('reads the unread count from X notification tab badge', () => {
+  const { readNotificationBadge } = load().SocialDeckXNativeTimelineRuntime;
+  const link = (label, text = '') => ({ getAttribute: () => label, textContent: text });
+  const doc = found => ({ querySelector: selector => (selector.includes('AppTabBar_Notifications_Link') ? found : null) });
+  assert.equal(readNotificationBadge(doc(link('通知 (3件の未読通知)'))), 3);
+  assert.equal(readNotificationBadge(doc(link(null, '通知12'))), 12);
+  assert.equal(readNotificationBadge(doc(link('Notifications', 'Notifications'))), 0);
+  assert.equal(readNotificationBadge({ querySelector: () => null }), null);
 });

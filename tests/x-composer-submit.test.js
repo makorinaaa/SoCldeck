@@ -18,7 +18,8 @@ async function composer({ ticks = [], fileInput = true, characterCounter = false
       if (selector.includes('alert')) return state.error ? { textContent: state.error } : null;
       return null;
     },
-    querySelectorAll: selector => selector.includes('tweetPhoto') ? Array(state.photos).fill({}) : [],
+    querySelectorAll: selector => selector.includes('tweetPhoto') ? Array(state.photos).fill({})
+      : selector.includes('blob:') ? Array(state.blobPreviews || 0).fill({}) : [],
   };
   const box = {
     parentElement: scope, isConnected: true, style, textContent: '', click() {}, focus() {}, setAttribute() {},
@@ -109,4 +110,18 @@ test('text-only X post ignores the character counter too', async () => {
   await submit({ text: '本文のみ' });
   assert.equal(state.clicks, 1);
   assert.equal(state.polls, 0);
+});
+
+test('counts upload previews shown as blob images when X omits its test ids', async () => {
+  const { state, submit } = await composer({ ticks: [
+    state => { state.blobPreviews = 2; },
+  ] });
+  await submit({ text: 'hello', images: [photo, photo] });
+  assert.equal(state.clicks, 1);
+});
+
+test('reports which condition kept a post with media from being sent', async () => {
+  const { state, submit } = await composer({ ticks: [state => { state.photos = 1; state.disabled = true; }] });
+  await assert.rejects(submit({ text: 'hello', images: [photo, photo] }), /添付 1\/2・アップロード中 なし・投稿ボタン disabled/);
+  assert.equal(state.clicks, 0);
 });

@@ -16,6 +16,8 @@
     openImage = () => {},
     setTimeoutFn = global.setTimeout,
     clearTimeoutFn = global.clearTimeout,
+    notificationCapture = null,
+    now = () => Date.now(),
   } = {}) {
     let accounts = [];
     let postingDepth = 0;
@@ -322,7 +324,8 @@
         if (/x\.com\/home|twitter\.com\/home/.test(source)) home = webview;
         else if (!fallback && /x\.com|twitter\.com/.test(source)) fallback = webview;
       });
-      return home || fallback || reader;
+      // Home pages have X's composer; other X pages (notifications, search) usually do not.
+      return home || reader || fallback;
     }
 
     async function executeCompose(delivery, context, execute) {
@@ -391,7 +394,12 @@
           cleanup();
           reject(new Error(message));
         }, 15000);
-        const ready = () => { cleanup(); resolve(); };
+        const ready = () => {
+          // A tapped reader first opens about:blank to attach the tap before X loads.
+          if (/^about:/.test(webview.getURL?.() || '')) return;
+          cleanup();
+          resolve();
+        };
         const failed = event => {
           if (event.errorCode === -3) return;
           cleanup();
@@ -402,7 +410,7 @@
           webview.removeEventListener('dom-ready', ready);
           webview.removeEventListener('did-fail-load', failed);
         };
-        webview.addEventListener('dom-ready', ready, { once: true });
+        webview.addEventListener('dom-ready', ready);
         webview.addEventListener('did-fail-load', failed);
       });
     }
@@ -442,9 +450,27 @@
       webview.setAttribute('webpreferences', 'backgroundThrottling=false');
       const preloadPath = getPreloadPath();
       if (preloadPath) webview.setAttribute('preload', preloadPath);
-      webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
       webview.addEventListener('did-start-loading', () => { webview.dataset.ready = 'false'; });
-      webview.src = 'https://x.com/notifications';
+      if (notificationCapture) {
+        // Attach the tap first, then load X, so the notification request itself is read.
+        webview.addEventListener('dom-ready', () => {
+          if (webview.dataset.sdTapped) {
+            if (!/^about:/.test(webview.getURL?.() || '')) webview.dataset.ready = 'true';
+            return;
+          }
+          webview.dataset.sdTapped = 'pending';
+          notificationCapture.attach(webview.getWebContentsId(), account.partition)
+            .catch(() => false)
+            .then(() => {
+              webview.dataset.sdTapped = 'true';
+              webview.loadURL('https://x.com/notifications').catch(() => {});
+            });
+        });
+        webview.src = 'about:blank';
+      } else {
+        webview.addEventListener('dom-ready', () => { webview.dataset.ready = 'true'; });
+        webview.src = 'https://x.com/notifications';
+      }
       host.appendChild(webview);
       return webview;
     }
@@ -477,6 +503,7 @@
     async function listNotifications({ accountId, host, script, retainReader = false, refreshReader = false, forceHidden = false }) {
       const account = findAccount(accountId);
       if (!account) return [];
+      const since = now();
       const webview = getNotificationReader(host, account, forceHidden);
       if (!webview) return [];
       const hiddenReader = /^x-notif-reader-\d+$/.test(webview.id || '');
@@ -494,6 +521,15 @@
         const currentUrl = webview.getURL?.() || webview.src || '';
         if (/\/i\/flow\/login|\/login(?:[/?#]|$)/.test(currentUrl)) {
           throw Object.assign(new Error('Xへのログインが必要です'), { code: 'X_LOGIN_REQUIRED' });
+        }
+        const source = hiddenReader && notificationCapture ? notificationCapture.mode(account.partition) : 'page';
+        if (source !== 'page') {
+          // X's data (with post ids) once it is known to arrive; the page text otherwise.
+          const captured = await notificationCapture.wait(account.partition, since, source === 'captured' ? 8000 : 4000);
+          if (captured || source === 'captured') {
+            extractedReaders.add(webview);
+            return captured || notificationCapture.last(account.partition) || [];
+          }
         }
         const items = await webview.executeJavaScript(script) || [];
         extractedReaders.add(webview);

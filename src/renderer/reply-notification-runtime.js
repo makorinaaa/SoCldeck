@@ -1,6 +1,9 @@
 (function (global) {
   function createReplyNotificationRuntime({ storage = global.localStorage, view = {}, openItem = async () => false } = {}) {
     const key = 'socialdeck_x_reply_notifications_v1';
+    // Bumped when notification identities change format: the next observation is taken as
+    // already seen instead of announcing every notification again.
+    const IDENTITY_VERSION = 2;
     let accounts = {};
     try { accounts = JSON.parse(storage?.getItem(key) || '{}') || {}; } catch {}
     if (typeof accounts !== 'object' || Array.isArray(accounts)) accounts = {};
@@ -45,17 +48,25 @@
       const fresh = [];
       for (const item of replies) {
         const itemId = identity(item);
-        const baselined = previous && (item.reason !== 'like' || previous.likesBaselined === true);
+        const baselined = previous && previous.identityVersion === IDENTITY_VERSION
+          && (item.reason !== 'like' || previous.likesBaselined === true);
         if (baselined && !seen.has(itemId)) fresh.push({ ...item, account, accountIndex });
         seen.add(itemId);
       }
       accounts[id] = {
         seen: [...seen].slice(-2000),
         likesBaselined: true,
+        identityVersion: IDENTITY_VERSION,
         unread: [...(previous?.unread || []), ...fresh],
       };
       save();
       if (fresh.length) view.notify?.(fresh);
+    }
+    // The next observation of this account is taken as already seen.
+    function rebaseline(account) {
+      const entry = accounts[accountKey(account || {})];
+      if (entry) entry.identityVersion = 0;
+      save();
     }
     function isRead(item) {
       return !unreadIndex.get(accountKey(item.account || {}))?.has(identity(item));
@@ -73,7 +84,7 @@
       if (await openItem(item) === false) return;
       markRead(item);
     }
-    return { observe, syncAccounts, isRead, activate, markRead, markAllRead, unreadItems, getItemKey, render: save };
+    return { observe, syncAccounts, isRead, activate, markRead, markAllRead, rebaseline, unreadItems, getItemKey, render: save };
   }
 
   function createReplyNotificationDomView({ documentRef = global.document, activate, openUnread, onBadge = () => {} } = {}) {

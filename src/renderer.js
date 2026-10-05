@@ -56,6 +56,7 @@ import {
   SocialDeckXComposePreparation,
   SocialDeckXLoginGate,
   SocialDeckXNativeTimelineRuntime,
+  SocialDeckXNotificationCapture,
   SocialDeckXPostConfirmation,
   SocialDeckXPostView,
   SocialDeckXStatusActions,
@@ -680,7 +681,59 @@ async function initWvPreloadPath() {
 const refreshScheduler = SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
 const ANIME_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
+  ? {
+      attach: id => window.electronAPI.attachXTimelineTap(id),
+      detach: id => window.electronAPI.detachXTimelineTap(id),
+      onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
+    }
+  : null;
+// Notifications fetched per account, reused while X's badge shows nothing new. They are
+// fetched again at least this often in case the badge cannot be read.
+const xNotificationCache = new Map();
+const X_NOTIFICATION_MAX_AGE_MS = 5 * 60 * 1000;
+
+// X accounts are told apart by their real @handle, learned from the account's own posts
+// (matched by the user id in the session cookie). The display name stays as entered.
+const xAccountIds = new Map();
+function refreshXAccountIds(accounts = state.xs || []) {
+  accounts.forEach((account, index) => {
+    const partition = account.partition || `persist:x-${index}`;
+    window.electronAPI?.getXAccountId?.(partition)
+      .then(id => { if (id) xAccountIds.set(partition, String(id)); })
+      .catch(() => {});
+  });
+}
+function learnXHandle(partition, author) {
+  const id = xAccountIds.get(partition);
+  if (!id || !author?.handle || String(author.id || '') !== id) return;
+  const account = getXAccountByPartition(partition);
+  if (!account || account.handle === author.handle) return;
+  account.handle = author.handle;
+  saveState();
+}
+function learnXHandlesFromPosts(partition, posts = []) {
+  posts.forEach(post => {
+    learnXHandle(partition, post?.author);
+    learnXHandle(partition, post?.quoted?.author);
+  });
+}
+
+const xNotificationCapture = xTimelineTap
+  ? SocialDeckXNotificationCapture.createXNotificationCapture({
+      tap: xTimelineTap,
+      log: (...args) => console.debug('[XNative]', ...args),
+      onItems: (partition, items) => items.forEach(item =>
+        learnXHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle })),
+      onFirstCapture: partition => {
+        const account = getXAccountByPartition(partition);
+        if (account) replyNotificationRuntime?.rebaseline(account);
+        desktopNotificationRuntime?.rebaseline?.();
+      },
+    })
+  : null;
 xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
+  notificationCapture: xNotificationCapture,
   documentRef: document,
   storage: localStorage,
   isElectron: IS_ELECTRON,
@@ -701,13 +754,6 @@ const xPostView = SocialDeckXPostView.createXPostView({
   relTime,
   getPendingReaction: (kind, id, partition) => xNativeTimelineRuntime?.getPendingReaction(kind, id, partition) || null,
 });
-const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
-  ? {
-      attach: id => window.electronAPI.attachXTimelineTap(id),
-      detach: id => window.electronAPI.detachXTimelineTap(id),
-      onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
-    }
-  : null;
 const xStatusRuntime = xTimelineTap
   ? SocialDeckXStatusRuntime.createXStatusRuntime({
       documentRef: document,
@@ -734,11 +780,12 @@ const xNativeTimelineRuntime = xTimelineTap
       isBusy: () => xWebViewRuntime.isPosting(),
       createRefreshScript: (destination, options) => SocialDeckXTimelineRefresh.createRefreshScript(destination, options),
       createToggleScript: options => SocialDeckXStatusActions.createToggleScript(options),
-      log: window.electronAPI?.devToolsEnabled ? (...args) => console.info('[XNative]', ...args) : () => {},
+      log: (...args) => console.debug('[XNative]', ...args),
       intents: {
         openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
         openExternal: ({ url }) => window.open(url, '_blank', 'noopener'),
         reply: target => openXReply(target),
+        postsSeen: (partition, posts) => learnXHandlesFromPosts(partition, posts),
         loginCompleted: partition => completeXLogin(partition),
         quote: target => openXQuote(target),
         onOutcome: outcome => {
@@ -775,7 +822,8 @@ const replyNotificationView = SocialDeckReplyNotifications.createReplyNotificati
 });
 const replyNotificationRuntime = SocialDeckReplyNotifications.createReplyNotificationRuntime({
   storage: localStorage, view: replyNotificationView,
-  openItem: item => openXNotificationCenterItem(item),
+  // Desktop notifications and reply toasts open the post like the notification center does.
+  openItem: item => openXNotificationNatively(item) || openXNotificationCenterItem(item),
 });
 const notificationReplyRuntime = SocialDeckNotificationReply.createNotificationReplyRuntime({
   documentRef: document,
@@ -816,14 +864,24 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
           (Number(item.accountIndex) || 0) === accountIndex
         );
       }
-      return xWebViewRuntime.listNotifications({
+      // With a native Home Column, X's own notification badge on its hidden page says when
+      // something new arrived. The notification page is then loaded only for that, and
+      // closed right after, instead of staying open and reloading every 30 seconds.
+      const partition = account.partition || `persist:x-${accountIndex}`;
+      const cached = xNotificationCache.get(partition);
+      const badge = await xNativeTimelineRuntime?.readNotificationBadge(partition) ?? null;
+      const recent = cached && Date.now() - cached.at < X_NOTIFICATION_MAX_AGE_MS;
+      if (badge !== null && recent && (badge === 0 || badge === cached.badge)) return cached.items;
+      const items = await xWebViewRuntime.listNotifications({
         accountId: account.username || account.partition || `persist:x-${accountIndex}`,
         host: document.getElementById('notif-center-x-readers'),
         script: notificationCenter.buildXNotificationExtractionScript(40),
-        retainReader: desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
+        retainReader: badge === null && desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
         refreshReader: true,
         forceHidden: true,
       });
+      xNotificationCache.set(partition, { items, badge, at: Date.now() });
+      return items;
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
   },
@@ -910,18 +968,23 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       : Promise.resolve(false),
     clear: partition => {
       xNativeTimelineRuntime?.forgetAccount(partition);
+      xNotificationCache.delete(partition);
+      xNotificationCapture?.forget(partition);
       return IS_ELECTRON
         ? window.electronAPI?.clearXSession?.(partition)
         : Promise.resolve(false);
     },
     clearAll: () => {
       xNativeTimelineRuntime?.forgetAccount();
+      xNotificationCache.clear();
+      xNotificationCapture?.forget();
       return IS_ELECTRON
         ? window.electronAPI?.clearAllXSessions?.()
         : Promise.resolve(false);
     },
     sync: accounts => {
       xWebViewRuntime.syncAccounts(accounts);
+      refreshXAccountIds(accounts);
       if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
         return Promise.resolve([]);
       }
@@ -1479,6 +1542,22 @@ function fmtSec(s) {
   return `${m}:${String(sec).padStart(2, '0')}`;
 }
 
+// Hidden X pages do not load X's media; a post with attachments needs it for the upload
+// previews, so it is allowed for the duration of that delivery only.
+async function withXMediaAllowed(webview, delivery, task) {
+  const hasMedia = Boolean(delivery.video) || (delivery.imageFiles?.length || 0) > 0;
+  const hidden = /^x-(?:home|status)-reader-/.test(webview?.id || '');
+  const setBlocked = window.electronAPI?.setXTimelineMediaBlocked;
+  if (!hasMedia || !hidden || !setBlocked) return task();
+  const webContentsId = webview.getWebContentsId?.();
+  await setBlocked(webContentsId, false).catch(() => false);
+  try {
+    return await task();
+  } finally {
+    setBlocked(webContentsId, true).catch(() => false);
+  }
+}
+
 function executeXComposeDelivery(delivery, context = {}) {
   // 返信はそのポストのページを操作用ビューで開き、ページ内の返信欄から送る
   if (delivery.replyTo) {
@@ -1490,14 +1569,15 @@ function executeXComposeDelivery(delivery, context = {}) {
       if (composer?.status !== 'ready') {
         throw new Error(`X の返信画面を開けませんでした（${composer?.status || 'unknown'}）`);
       }
-      return networkAdapters.executeComposeDelivery(delivery, { ...context, webview });
+      return withXMediaAllowed(webview, delivery, () =>
+        networkAdapters.executeComposeDelivery(delivery, { ...context, webview }));
     }));
   }
   return xWebViewRuntime.executeCompose(
     delivery,
     context,
-    (preparedDelivery, preparedContext) =>
-      networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext),
+    (preparedDelivery, preparedContext) => withXMediaAllowed(preparedContext.webview, preparedDelivery, () =>
+      networkAdapters.executeComposeDelivery(preparedDelivery, preparedContext)),
   );
 }
 

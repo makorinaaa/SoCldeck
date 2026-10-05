@@ -4,15 +4,21 @@
 // CreateTweet is read so the account's own new post appears at once: X's client marks it
 // as seen and leaves it out of later timeline responses.
 // TweetDetail is fetched when a status page opens; it feeds the post detail view.
+const { createNotificationNormalizer, isNotificationOperation, notificationOperation } = require('./x-notification-normalizer');
+
 const TIMELINE_OPERATIONS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'CreateTweet', 'TweetDetail']);
 const MAX_SEGMENTS = 400;
 
 function timelineOperation(url) {
+  const notifications = notificationOperation(url);
+  if (notifications) return notifications;
   try {
     const parsed = new URL(url);
     if (!['x.com', 'twitter.com', 'api.x.com'].includes(parsed.hostname)) return null;
     const name = parsed.pathname.match(/\/graphql\/[^/]+\/([A-Za-z]+)$/)?.[1];
-    return TIMELINE_OPERATIONS.has(name) ? name : null;
+    // X can serve the home tabs (and the Following sort orders) through other Home*Timeline
+    // operations; the renderer decides which tab a response belongs to from the page itself.
+    return TIMELINE_OPERATIONS.has(name) || /^Home[A-Za-z]*Timeline$/.test(name || '') ? name : null;
   } catch {
     return null;
   }
@@ -169,6 +175,7 @@ function normalizeTweetBody(tweet) {
     segments,
     media,
     replyTo: legacy.in_reply_to_screen_name || null,
+    replyToId: legacy.in_reply_to_user_id_str ? String(legacy.in_reply_to_user_id_str) : null,
   };
 }
 
@@ -248,7 +255,7 @@ function normalizeTimelineResponse(json, operation = 'HomeTimeline') {
   }
   return {
     operation,
-    timeline: operation === 'HomeLatestTimeline' ? 'following' : 'for-you',
+    timeline: { HomeLatestTimeline: 'following', HomeTimeline: 'for-you' }[operation] || null,
     posts,
     cursors,
   };
@@ -300,7 +307,13 @@ function normalizeTweetDetailResponse(json, url = '') {
   return { operation: 'TweetDetail', focalId, thread, replies };
 }
 
+let normalizeNotificationsResponse = null;
+
 function normalizeCapturedResponse(json, operation, url = '') {
+  if (isNotificationOperation(operation)) {
+    normalizeNotificationsResponse ||= createNotificationNormalizer({ normalizeTweet, normalizeUser, unwrapTweet });
+    return normalizeNotificationsResponse(json);
+  }
   if (operation === 'CreateTweet') return normalizeCreateTweetResponse(json);
   if (operation === 'TweetDetail') return normalizeTweetDetailResponse(json, url);
   return normalizeTimelineResponse(json, operation);
@@ -313,5 +326,7 @@ module.exports = {
   normalizeTimelineResponse,
   normalizeTweet,
   normalizeTweetDetailResponse,
+  normalizeUser,
   timelineOperation,
+  unwrapTweet,
 };

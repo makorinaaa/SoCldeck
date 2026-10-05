@@ -987,3 +987,29 @@ test('X replies and quotes from a native Column use that Column account', () => 
   assert.equal(quoting.text, ' https://x.com/bob/status/7');
   assert.equal(runtime.open('x', { appendText: 'https://x.com/bob/status/7' }).text, ' https://x.com/bob/status/7');
 });
+
+test('X account chips show the learned @handle and keep the entered name as a tooltip', () => {
+  const elements = Object.fromEntries(
+    ['xPostMod', 'compMod', 'x-acc-select', 'x-compose-preview'].map(id => [id, createElement()]),
+  );
+  const view = loadView().createComposeModalDomView({ documentRef: { activeElement: null, getElementById: id => elements[id] || null } });
+  const snapshot = {
+    networkId: 'x',
+    xAccounts: [
+      { username: '@unko', handle: 'real_unko', initials: 'UN', bg: '#111' },
+      { username: '@sub', initials: 'SU', bg: '#222' },
+    ],
+    blueskyAccount: null, selectedAccount: { username: '@unko', initials: 'UN' },
+    selectedXAccountIndex: 0, text: '', crossPost: false, crossPostAvailable: false,
+    media: { images: [], video: null }, reply: null, busy: false, locked: false,
+    actionLabel: 'ポスト', characterCount: 0, characterLimit: 280, canSubmit: false,
+    previewOpen: false, targets: ['X'],
+  };
+  view.render(snapshot);
+  const html = elements['x-acc-select'].innerHTML;
+  assert.match(html, /title="@unko"[\s\S]*@real_unko/);
+  assert.match(html, /@sub/, 'an account whose handle is not known yet keeps its entered name');
+  // Learning a handle later rebuilds the chips.
+  view.render({ ...snapshot, xAccounts: [snapshot.xAccounts[0], { ...snapshot.xAccounts[1], handle: 'real_sub' }] });
+  assert.match(elements['x-acc-select'].innerHTML, /@real_sub/);
+});

@@ -27,7 +27,7 @@ async function submitXComposer({ text, images = [], videoDataUrl = null, timeout
       const error = scope.querySelector('[role="alert"]');
       if (error?.textContent?.trim()) throw new Error(error.textContent.trim());
       if (check()) return;
-      if (Date.now() >= deadline) throw new Error(message);
+      if (Date.now() >= deadline) throw new Error(typeof message === 'function' ? message() : message);
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
   }
@@ -59,19 +59,31 @@ async function submitXComposer({ text, images = [], videoDataUrl = null, timeout
       throw new Error('ファイル入力欄が見つかりません');
     }
   }
-  function isReady() {
-    // Only media within this composer counts, never timeline media.
-    const attached = videoDataUrl
-      ? Boolean(scope.querySelector('[data-testid="attachments"] [data-testid="videoPlayer"], [data-testid="attachments"] video'))
-      : scope.querySelectorAll('[data-testid="attachments"] [data-testid="tweetPhoto"]').length === images.length;
-    // The toolbar's character counter is also a permanent progressbar.
-    // Only attachment progress blocks delivery; the post button gates other work.
-    const busy = scope.querySelector('[data-testid="attachments"] [role="progressbar"], [data-testid="attachments"] [aria-busy="true"]');
-    const button = scope.querySelector(buttonSelector);
-    return (!attachments.length || attached) && !busy && button
-      && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+  // Only media within this composer counts, never timeline media. X marks previews with
+  // test ids in some layouts only, so local upload previews (blob: URLs) count as well.
+  function attachedCount() {
+    if (videoDataUrl) {
+      return scope.querySelector('[data-testid="attachments"] [data-testid="videoPlayer"], [data-testid="attachments"] video, video[src^="blob:"]') ? 1 : 0;
+    }
+    return Math.max(
+      scope.querySelectorAll('[data-testid="attachments"] [data-testid="tweetPhoto"]').length,
+      scope.querySelectorAll('img[src^="blob:"]').length,
+    );
   }
-  await waitFor(isReady, '添付の完了または送信可能な状態を確認できませんでした。Xの投稿欄を確認してください');
+  // The toolbar's character counter is also a permanent progressbar.
+  // Only attachment progress blocks delivery; the post button gates other work.
+  function isBusy() {
+    return Boolean(scope.querySelector('[data-testid="attachments"] [role="progressbar"], [data-testid="attachments"] [aria-busy="true"]'));
+  }
+  function buttonState() {
+    const button = scope.querySelector(buttonSelector);
+    if (!button) return 'missing';
+    return button.disabled || button.getAttribute('aria-disabled') === 'true' ? 'disabled' : 'enabled';
+  }
+  function isReady() {
+    return (!attachments.length || attachedCount() >= attachments.length) && !isBusy() && buttonState() === 'enabled';
+  }
+  await waitFor(isReady, () => `添付の完了または送信可能な状態を確認できませんでした（添付 ${attachedCount()}/${attachments.length}・アップロード中 ${isBusy() ? 'あり' : 'なし'}・投稿ボタン ${buttonState()}）。Xの投稿欄を確認してください`);
   box.setAttribute('data-sd-compose-submit', 'pending');
   scope.querySelector(buttonSelector).click();
   return 'ok';

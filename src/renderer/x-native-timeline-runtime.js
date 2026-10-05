@@ -11,15 +11,16 @@
   const LOAD_TIMEOUT_MS = 30000;
   // A long-lived x.com page slowly grows; memory cleanup reloads readers older than this.
   const READER_REFRESH_AGE_MS = 30 * 60 * 1000;
-  // The newest posts are kept per account so a restart shows them at once.
-  const SNAPSHOT_POSTS = 40;
-  const SNAPSHOT_SAVE_DELAY_MS = 2000;
-  const SNAPSHOT_KEY_PREFIX = 'socialdeck_x_native_snapshot_';
-  const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+  // Earlier builds kept the newest posts in storage to show at startup; those are removed.
+  const LEGACY_SNAPSHOT_KEY_PREFIX = 'socialdeck_x_native_snapshot_';
   // Columns load more on their own when scrolled this close to the end.
   const AUTO_LOAD_MORE_PX = 800;
   // Below this scroll offset a Column counts as "at the top" for the new-post badge.
   const AT_TOP_PX = 40;
+  // A timeline response this long after SocialDeck last made the page fetch came from X's
+  // own polling. While X keeps polling, the automatic refresh does not click Home itself.
+  const DRIVEN_RESPONSE_MS = 8000;
+  const X_POLLING_WINDOW_MS = 150 * 1000;
   const BADGE_AT_TOP_MS = 5000;
   const TIMELINE_LABELS = { 'for-you': 'おすすめ', following: 'フォロー中' };
 
@@ -37,7 +38,13 @@
       if (!post?.id) return;
       const previous = byId.get(post.id);
       // Keep the original position for posts already shown; re-ranking would make them jump.
-      byId.set(post.id, previous ? { ...post, sortIndex: previous.sortIndex, local: previous.local && !post.sortIndex } : post);
+      if (!previous) {
+        byId.set(post.id, post);
+        return;
+      }
+      const next = { ...post, sortIndex: previous.sortIndex, local: previous.local && !post.sortIndex };
+      // Unchanged posts keep their object, so their rendered HTML is reused.
+      byId.set(post.id, JSON.stringify(next) === JSON.stringify(previous) ? previous : next);
     });
     return [...byId.values()].sort(compareSortIndex).slice(0, limit);
   }
@@ -53,12 +60,10 @@
   // A timeline's first page is the truth for the range it covers: posts shown in that range
   // but missing from it were deleted (or hidden) and go away. Older posts loaded with
   // "load more" stay. A ranked feed (for you) is replaced, since its order changes anyway.
-  // Posts this account just sent stay: X can leave them out of its own refreshes. Posts
-  // restored from the saved snapshot always give way, wherever they sit.
+  // Posts this account just sent stay: X can leave them out of its own refreshes.
   function reconcileFirstPage(existing, firstPage, timeline) {
     if (!firstPage.length) return existing;
     const ids = new Set(firstPage.map(post => post.id));
-    existing = existing.filter(post => !post.cached || ids.has(post.id));
     if (timeline === 'for-you') return existing.filter(post => ids.has(post.id) || post.local);
     const oldest = firstPage.reduce((min, post) => {
       const value = sortValue(post);
@@ -121,6 +126,75 @@
     return `(window.scrollTo(0, 0), (${selectHomeTab.toString()})(document, ${JSON.stringify(timeline)}, setTimeout, 20))`;
   }
 
+  // Serialized into X's home page: X's Following tab can sort by "Popular" or "Recent".
+  // Pressing the selected Following tab opens that menu; SocialDeck picks Recent.
+  async function selectFollowingRecent(documentLike, schedule) {
+    const wait = ms => new Promise(resolve => schedule(resolve, ms));
+    const close = () => {
+      if (typeof KeyboardEvent === 'function') {
+        documentLike.dispatchEvent?.(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      }
+    };
+    const following = Array.from(documentLike.querySelectorAll('[role="tab"]'))
+      .find(tab => /フォロー中|Following/i.test(String(tab.textContent || '')));
+    if (!following || following.getAttribute('aria-selected') !== 'true') return 'not-following';
+    following.click();
+    let items = [];
+    for (let check = 0; check < 20 && !items.length; check += 1) {
+      await wait(100);
+      items = Array.from(documentLike.querySelectorAll('[role="menuitem"], [role="menuitemradio"]'));
+    }
+    if (!items.length) return 'no-menu';
+    const recent = items.find(item => /最新|Recent|Latest/i.test(String(item.textContent || '')));
+    if (!recent) {
+      close();
+      return 'no-recent';
+    }
+    const checked = recent.getAttribute('aria-checked') === 'true'
+      || Boolean(recent.querySelector('[data-testid="check"], svg[aria-label*="選択"], svg[aria-label*="Selected"]'));
+    if (checked) {
+      close();
+      return 'already';
+    }
+    recent.click();
+    return 'selected';
+  }
+
+  function createFollowingRecentScript() {
+    return `(window.scrollTo(0, 0), (${selectFollowingRecent.toString()})(document, setTimeout))`;
+  }
+
+  // Serialized into X's home page: the unread count on X's own Notifications tab.
+  // Returns null when the tab is not on the page, 0 when it shows no count.
+  function readNotificationBadge(documentLike) {
+    const link = documentLike.querySelector('[data-testid="AppTabBar_Notifications_Link"]')
+      || documentLike.querySelector('a[href="/notifications"]');
+    if (!link) return null;
+    const label = /(\d+)/.exec(String(link.getAttribute('aria-label') || ''));
+    if (label) return Number(label[1]);
+    const text = String(link.textContent || '').replace(/\s+/g, '');
+    const count = /(\d+)\+?$/.exec(text);
+    return count ? Number(count[1]) : 0;
+  }
+
+  function createNotificationBadgeScript() {
+    return `(${readNotificationBadge.toString()})(document)`;
+  }
+
+  // Serialized into X's home page: which tab is selected right now.
+  function readSelectedTab(documentLike) {
+    const selected = Array.from(documentLike.querySelectorAll('[role="tab"]'))
+      .find(tab => tab.getAttribute('aria-selected') === 'true');
+    const text = String(selected?.textContent || '');
+    if (/フォロー中|Following/i.test(text)) return 'following';
+    if (/おすすめ|For you/i.test(text)) return 'for-you';
+    return null;
+  }
+
+  function createReadTabScript() {
+    return `(${readSelectedTab.toString()})(document)`;
+  }
+
   function isLoginUrl(value) {
     if (/\/i\/flow\/(?:login|signup)|\/login(?:[/?#]|$)|\/logout(?:[/?#]|$)/.test(value || '')) return true;
     // A signed-out session is sent from /home to X's landing page.
@@ -162,6 +236,7 @@
 
     const readers = new Map();
     const columns = new Map();
+    removeLegacySnapshots();
     const pendingReactions = new Map();
     let activeDetail = null;
     let activeMenu = null;
@@ -169,6 +244,20 @@
     const recentDetails = new Map();
     const accountIds = new Map();
     const deleting = new Set();
+
+    // The home timeline leaves out replies to other people, including this account's own
+    // replies to others. Threads (replies to oneself) and replies to this account stay;
+    // conversations remain available in the post detail view.
+    function isReplyToOthers(post, partition) {
+      if (!post?.replyTo) return false;
+      const authorId = post.author?.id;
+      if (post.replyToId) return post.replyToId !== authorId && post.replyToId !== accountIds.get(partition);
+      return String(post.replyTo).toLowerCase() !== String(post.author?.handle || '').toLowerCase();
+    }
+
+    function showsInTimeline(post, partition) {
+      return !isReplyToOthers(post, partition) && !blocksPost(toMuteShape(post));
+    }
 
     // The account's own posts (and only those) can be deleted from SocialDeck.
     function postOptions(post, partition) {
@@ -201,26 +290,33 @@
       if (!reader || !Array.isArray(payload.posts)) return;
       if (reader.switching) {
         if (payload.operation === 'CreateTweet' || !payload.firstPage) return;
-        if (payload.timeline !== reader.switching) {
-          // The reload opened the other tab: X did not keep the click, so select it again.
-          if (!reader.reselected) {
-            reader.reselected = true;
-            reader.webview.executeJavaScript(createSelectTabScript(reader.switching)).catch(() => {});
-          }
-          return;
-        }
-        reader.posts = [];
-      } else if (reader.desiredTimeline && payload.timeline && payload.timeline !== reader.desiredTimeline) {
+        verifySwitchCapture(reader, payload);
         return;
+      }
+      // The page's selected tab decides which list a response belongs to; the operation
+      // name is only a fallback until the tab is known.
+      processCapture(reader, { ...payload, timeline: reader.pageTab || payload.timeline });
+      if (payload.firstPage && !reader.pageTab) learnPageTab(reader);
+    });
+
+    function processCapture(reader, payload, { replace = false } = {}) {
+      if (replace || (reader.sorting && payload.firstPage && payload.timeline === 'following' && payload.operation !== 'CreateTweet')) {
+        reader.sorting = false;
+        clearTimeoutFn(reader.sortingTimer);
+        reader.posts = [];
       }
       const incoming = payload.operation === 'CreateTweet'
         ? placeOnTop(payload.posts.filter(post => !reader.posts.some(shown => shown.id === post.id)), reader.posts)
         : payload.posts;
-      const wasSwitching = Boolean(reader.switching);
       const shownBefore = new Set(reader.posts.map(post => post.id));
       const previousTop = reader.posts.reduce((max, post) => (post.local ? max : (sortValue(post) > max ? sortValue(post) : max)), 0n);
       const isFirstPage = payload.operation !== 'CreateTweet' && payload.firstPage === true;
-      log('captured', payload.operation, payload.posts.length, isFirstPage ? 'first page' : 'partial');
+      intents.postsSeen?.(reader.partition, payload.posts);
+      if (payload.operation !== 'CreateTweet' && now() - (reader.lastDrivenAt || 0) > DRIVEN_RESPONSE_MS) {
+        reader.lastPolledAt = now();
+        log('x polled', payload.operation, payload.posts.length);
+      }
+      log('captured', payload.operation, payload.timeline, payload.posts.length, isFirstPage ? 'first page' : 'partial');
       const base = isFirstPage ? reconcileFirstPage(reader.posts, payload.posts, payload.timeline) : reader.posts;
       reader.posts = mergePosts(base, incoming);
       reader.timeline = payload.timeline || reader.timeline;
@@ -229,12 +325,63 @@
       const waiters = reader.waiters.splice(0);
       waiters.forEach(resolve => resolve({ status: 'succeeded', detail: 'captured' }));
       renderReader(reader);
-      saveSnapshotSoon(reader);
-      if (shownBefore.size && !wasSwitching && payload.operation !== 'CreateTweet') {
-        const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local && sortValue(post) > previousTop);
+      if (shownBefore.size && !replace && payload.operation !== 'CreateTweet') {
+        const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local
+          && sortValue(post) > previousTop && showsInTimeline(post, reader.partition));
         if (arrived.length) announceNewPosts(reader, arrived.length);
       }
-    });
+      if (isFirstPage && reader.timeline === 'following' && !reader.sortChecked && !reader.switching) {
+        ensureRecentSort(reader);
+      }
+    }
+
+    async function readPageTab(reader) {
+      const tab = await reader.webview.executeJavaScript(createReadTabScript()).catch(() => null);
+      return tab === 'following' || tab === 'for-you' ? tab : null;
+    }
+
+    async function learnPageTab(reader) {
+      const tab = await readPageTab(reader);
+      if (!tab || reader.pageTab || reader.switching) return;
+      reader.pageTab = tab;
+      if (reader.timeline !== tab) {
+        reader.timeline = tab;
+        renderReader(reader);
+        if (tab === 'following' && !reader.sortChecked) ensureRecentSort(reader);
+      }
+    }
+
+    // While switching, a first page counts only if X's page really shows the chosen tab.
+    async function verifySwitchCapture(reader, payload) {
+      const target = reader.switching;
+      const tab = (await readPageTab(reader)) || payload.timeline;
+      if (reader.switching !== target) return;
+      log('switch capture', payload.operation, tab);
+      if (tab === target) {
+        reader.pageTab = target;
+        processCapture(reader, { ...payload, timeline: target }, { replace: true });
+        return;
+      }
+      // The reload reopened the other tab: X did not keep the click, so select it again.
+      if (!reader.reselected) {
+        reader.reselected = true;
+        reader.webview.executeJavaScript(createSelectTabScript(target)).catch(() => {});
+      }
+    }
+
+    // Following defaults to Recent. X remembers the choice, so this runs once per Column
+    // start and after switching to Following.
+    async function ensureRecentSort(reader) {
+      if (isBusy()) return;
+      reader.sortChecked = true;
+      markDriven(reader);
+      const result = await reader.webview.executeJavaScript(createFollowingRecentScript()).catch(() => 'failed');
+      log('following sort', result);
+      if (result !== 'selected') return;
+      reader.sorting = true;
+      clearTimeoutFn(reader.sortingTimer);
+      reader.sortingTimer = setTimeoutFn(() => { reader.sorting = false; }, CAPTURE_TIMEOUT_MS);
+    }
 
     // Shows "+N" on the Column header. While the reader is scrolled down the count adds up
     // and stays until they return to the top; at the top it fades like Bluesky's.
@@ -270,44 +417,21 @@
       renderReader(reader);
     }
 
-    function snapshotKey(partition) {
-      return SNAPSHOT_KEY_PREFIX + partition;
-    }
-
-    function readSnapshot(partition) {
+    // Removes posts saved by earlier builds for the startup preview.
+    function removeLegacySnapshots() {
       try {
-        const snapshot = JSON.parse(storage?.getItem(snapshotKey(partition)) || 'null');
-        if (!Array.isArray(snapshot?.posts)) return null;
-        // An old snapshot would show a timeline from long ago: start empty instead.
-        if (!(now() - Number(snapshot.savedAt) < SNAPSHOT_MAX_AGE_MS)) return null;
-        return {
-          timeline: ['for-you', 'following'].includes(snapshot.timeline) ? snapshot.timeline : null,
-          // Saved posts only bridge the wait: X's first page replaces them (see reconcileFirstPage).
-          posts: snapshot.posts.filter(post => post && typeof post.id === 'string')
-            .slice(0, SNAPSHOT_POSTS).map(post => ({ ...post, cached: true, local: false })),
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    function saveSnapshotSoon(reader) {
-      clearTimeoutFn(reader.snapshotTimer);
-      reader.snapshotTimer = setTimeoutFn(() => {
-        try {
-          storage?.setItem(snapshotKey(reader.partition), JSON.stringify({
-            savedAt: now(),
-            timeline: reader.timeline,
-            posts: reader.posts.slice(0, SNAPSHOT_POSTS).map(({ local, cached, ...post }) => post),
-          }));
-        } catch { /* Storage may be full or unavailable: the snapshot is only a head start. */ }
-      }, SNAPSHOT_SAVE_DELAY_MS);
+        const keys = [];
+        for (let index = 0; index < (storage?.length || 0); index += 1) {
+          const key = storage.key(index);
+          if (key?.startsWith(LEGACY_SNAPSHOT_KEY_PREFIX)) keys.push(key);
+        }
+        keys.forEach(key => storage.removeItem(key));
+      } catch {}
     }
 
     function createReader(partition) {
       const host = getReaderHost();
       if (!host) return null;
-      const snapshot = readSnapshot(partition);
       const webview = documentRef.createElement('webview');
       webview.id = `x-home-reader-${partition.replace(/[^a-z0-9-]/gi, '_')}`;
       webview.setAttribute('partition', partition);
@@ -318,15 +442,15 @@
         partition,
         webview,
         webContentsId: null,
-        posts: snapshot?.posts || [],
-        timeline: snapshot?.timeline || null,
+        posts: [],
+        timeline: null,
         status: 'loading',
         message: '',
         loadingMore: false,
         lastLoadAt: now(),
         waiters: [],
         switching: null,
-        desiredTimeline: null,
+        pageTab: null,
       };
 
       const onNavigate = event => {
@@ -360,8 +484,13 @@
 
     // Loads X's home in the reader; if no timeline arrives the Column stops spinning and
     // offers the refresh button instead of waiting forever.
+    function markDriven(reader) {
+      reader.lastDrivenAt = now();
+    }
+
     function loadHome(reader) {
       reader.lastLoadAt = now();
+      markDriven(reader);
       reader.webview.loadURL(HOME_URL).catch(() => {});
       clearTimeoutFn(reader.loadWatchdog);
       reader.loadWatchdog = setTimeoutFn(() => {
@@ -373,11 +502,33 @@
 
     function disposeReader(reader) {
       clearTimeoutFn(reader.loadWatchdog);
-      clearTimeoutFn(reader.snapshotTimer);
+      clearTimeoutFn(reader.sortingTimer);
       readers.delete(reader.partition);
       reader.waiters.splice(0).forEach(resolve => resolve({ status: 'deferred', detail: 'disposed' }));
       if (reader.webContentsId !== null) tap.detach?.(reader.webContentsId)?.catch?.(() => {});
       reader.webview.remove();
+    }
+
+    // Posts are immutable objects (an update makes a new one), so a post's HTML is kept until
+    // the post, its account view, or a pending reaction on it changes.
+    const postHtmlCache = new WeakMap();
+    function postHtml(post, options) {
+      const like = getPendingReaction('like', post.id, options.partition);
+      const repost = getPendingReaction('repost', post.id, options.partition);
+      const key = [options.partition, options.own ? 1 : 0, options.deleting ? 1 : 0,
+        like ? like.active : '-', repost ? repost.active : '-'].join('|');
+      let variants = postHtmlCache.get(post);
+      if (!variants) {
+        variants = new Map();
+        postHtmlCache.set(post, variants);
+      }
+      let html = variants.get(key);
+      if (html === undefined) {
+        if (variants.size >= 4) variants.clear();
+        html = renderPost(post, options);
+        variants.set(key, html);
+      }
+      return html;
     }
 
     function keyOf(element) {
@@ -442,7 +593,7 @@
         const label = TIMELINE_LABELS[reader.timeline];
         column.subtitle.textContent = label ? `${column.baseSubtitle} · ${label}` : column.baseSubtitle;
       }
-      const visible = reader.switching ? [] : reader.posts.filter(post => !blocksPost(toMuteShape(post)));
+      const visible = reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, column.partition));
       if (reader.status === 'login' && !visible.length) {
         const html = loginHtml(reader);
         if (column.signature !== html) host.innerHTML = html;
@@ -465,7 +616,7 @@
       else if (reader.status === 'error') {
         entries.push({ key: 'notice', html: `<div class="x-native-notice">${escapeHtml(reader.message)}</div>` });
       }
-      visible.forEach(post => entries.push({ key: `post:${post.id}`, html: renderPost(post, postOptions(post, column.partition)) }));
+      visible.forEach(post => entries.push({ key: `post:${post.id}`, html: postHtml(post, postOptions(post, column.partition)) }));
       entries.push({
         key: 'more',
         html: `<button type="button" class="x-native-more" data-x-native-more${reader.loadingMore ? ' disabled' : ''}>${reader.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>`,
@@ -475,6 +626,8 @@
       if (column.signature === signature) return;
       column.signature = signature;
       patchColumn(column, entries);
+      // Cached HTML may carry an older relative time: refresh the visible labels.
+      refreshTimes(column.host);
     }
 
     function renderReader(reader) {
@@ -948,6 +1101,7 @@
     }
 
     function handleStatusCapture(partition, payload) {
+      intents.postsSeen?.(partition, [...(payload.thread || []), ...(payload.posts || [])]);
       log('status captured', payload.operation, payload.focalId || '', activeDetail?.focalId || '');
       if (payload.operation === 'TweetDetail') {
         recentDetails.set(partition, [payload, ...(recentDetails.get(partition) || [])].slice(0, 5));
@@ -1070,7 +1224,11 @@
 
       // Like a WebView Home Column, ask X for new posts by clicking Home: one light request.
       // The refresh button instead reloads the page so X sends a fresh first page.
+      if (!force && reader.lastPolledAt && now() - reader.lastPolledAt < X_POLLING_WINDOW_MS) {
+        return { status: 'succeeded', detail: 'x-polling' };
+      }
       if (!reload && reader.status === 'ready' && createRefreshScript) {
+        markDriven(reader);
         const captured = waitForCapture(reader);
         let result = 'failed';
         try {
@@ -1104,17 +1262,19 @@
       renderReader(reader);
       // Clicking only changes X's remembered tab: X may show that tab from its cache without
       // a request. Reloading right after makes X fetch the chosen tab's first page.
+      markDriven(reader);
       const result = await reader.webview.executeJavaScript(createSelectTabScript(timeline)).catch(() => 'failed');
       log('switch timeline', timeline, result);
       let succeeded = false;
       if (result === 'clicked' || result === 'already') {
-        reader.desiredTimeline = timeline;
+        reader.pageTab = null;
         const captured = waitForCapture(reader);
         loadHome(reader);
         succeeded = (await captured).status === 'succeeded' && reader.timeline === timeline;
       }
       reader.switching = null;
       renderReader(reader);
+      if (succeeded && timeline === 'following') ensureRecentSort(reader);
       if (!succeeded) {
         intents.onOutcome?.({ kind: 'timeline', status: 'failed', error: new Error(result === 'clicked' || result === 'already'
           ? 'X からタイムラインを受け取れませんでした。更新ボタンで再試行してください'
@@ -1169,6 +1329,7 @@
       if (!reader || reader.loadingMore || reader.webContentsId === null || isBusy()) return false;
       reader.loadingMore = true;
       renderReader(reader);
+      markDriven(reader);
       const captured = waitForCapture(reader);
       try {
         await reader.webview.executeJavaScript('window.scrollTo(0, document.documentElement.scrollHeight); true');
@@ -1190,14 +1351,17 @@
       columns.get(id)?.host?.scrollTo?.({ top: 0, behavior: 'smooth' });
     }
 
+    function refreshTimes(host) {
+      host?.querySelectorAll?.('.p-time[data-created-at]').forEach(element => {
+        const label = relTime(element.dataset.createdAt);
+        if (element.textContent !== label) element.textContent = label;
+      });
+    }
+
     function updateRelativeTimes() {
       const hosts = [...columns.values()].map(column => column.host);
       if (activeDetail) hosts.push(activeDetail.overlay);
-      hosts.forEach(host => {
-        host.querySelectorAll('.p-time[data-created-at]').forEach(element => {
-          element.textContent = relTime(element.dataset.createdAt);
-        });
-      });
+      hosts.forEach(refreshTimes);
     }
 
     function rerenderAll() {
@@ -1225,19 +1389,10 @@
       }
     }
 
-    // A removed account's saved posts must never show up for whoever uses the slot next.
+    // A removed account's posts and caches must never show up for whoever uses the slot next.
     function forgetAccount(partition = null) {
-      try {
-        const keys = [];
-        for (let index = 0; index < (storage?.length || 0); index += 1) {
-          const key = storage.key(index);
-          if (key?.startsWith(SNAPSHOT_KEY_PREFIX) && (!partition || key === snapshotKey(partition))) keys.push(key);
-        }
-        keys.forEach(key => storage.removeItem(key));
-      } catch {}
       [...readers.values()].forEach(reader => {
         if (partition && reader.partition !== partition) return;
-        clearTimeoutFn(reader.snapshotTimer);
         reader.posts = [];
         accountIds.delete(reader.partition);
         recentDetails.delete(reader.partition);
@@ -1261,6 +1416,15 @@
       return { readersReloaded, statusReadersDisposed };
     }
 
+    // The hidden home page's notification badge tells whether X has new notifications, so
+    // the notification page only needs loading when the count changes.
+    async function readNotificationBadgeFor(partition) {
+      const reader = readers.get(partition);
+      if (!reader || reader.status !== 'ready' || reader.webContentsId === null) return null;
+      const count = await reader.webview.executeJavaScript(createNotificationBadgeScript()).catch(() => null);
+      return Number.isInteger(count) && count >= 0 ? count : null;
+    }
+
     function getMemoryStats() {
       return {
         readers: readers.size,
@@ -1278,6 +1442,7 @@
       dispose,
       forgetAccount,
       getMemoryStats,
+      readNotificationBadge: readNotificationBadgeFor,
       trim,
       getPendingReaction,
       has,
@@ -1296,9 +1461,15 @@
 
   global.SocialDeckXNativeTimelineRuntime = {
     createXNativeTimelineRuntime,
+    createFollowingRecentScript,
+    createNotificationBadgeScript,
+    createReadTabScript,
     createSelectTabScript,
     mergePosts,
     placeOnTop,
+    readNotificationBadge,
+    readSelectedTab,
+    selectFollowingRecent,
     selectHomeTab,
     reconcileFirstPage,
     toMuteShape,

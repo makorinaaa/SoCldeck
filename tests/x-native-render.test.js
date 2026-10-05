@@ -234,32 +234,6 @@ function createSnapshotRuntime(window, storage, timers) {
   return { runtime, ready: () => Promise.all((listeners['dom-ready'] || []).map(fn => fn())), emit: payload => captured({ webContentsId: 41, ...payload }) };
 }
 
-test('the newest posts are saved and shown at once on the next start', async () => {
-  const window = load();
-  const storage = createStorage();
-  const timers = [];
-  const first = createSnapshotRuntime(window, storage, timers);
-  first.runtime.mount({ id: 'a', partition: 'persist:x-0', host: createHost() });
-  await first.ready();
-  first.emit({ ...normalizeTimelineResponse(fixture, 'HomeLatestTimeline'), firstPage: true });
-  timers.forEach(fn => fn());
-  const saved = JSON.parse(storage.getItem('socialdeck_x_native_snapshot_persist:x-0'));
-  assert.equal(saved.timeline, 'following');
-  assert.equal(saved.posts.length, 3);
-
-  // A new start renders the saved posts before X has answered.
-  const second = createSnapshotRuntime(window, storage, []);
-  const host = createHost();
-  second.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
-  assert.deepEqual(host.children.map(node => node.dataset.xId || (node.html.includes('data-x-native-tabs') ? 'tabs' : 'more')),
-    ['tabs', ...saved.posts.map(post => post.id), 'more']);
-
-  // Removing the account forgets its saved posts.
-  second.runtime.forgetAccount('persist:x-0');
-  assert.equal(storage.getItem('socialdeck_x_native_snapshot_persist:x-0'), null);
-  assert.equal(host.children.some(node => node.dataset.xId), false);
-});
-
 test('scrolling near the end of a Column loads more posts automatically', async () => {
   const window = load();
   const { runtime, ready, emit } = createRuntime(window);
@@ -280,36 +254,6 @@ test('scrolling near the end of a Column loads more posts automatically', async 
   scrollListeners.forEach(fn => fn());
   await new Promise(resolve => setImmediate(resolve));
   assert.match(moreButton().html, /読み込み中…/);
-});
-
-test('saved posts only bridge the wait: the first page from X replaces all of them', async () => {
-  const window = load();
-  const timeline = normalizeTimelineResponse(fixture, 'HomeLatestTimeline');
-  const old = { ...timeline.posts[0], id: '1000', sortIndex: '1000', url: 'https://x.com/alice/status/1000' };
-  const storage = createStorage({
-    'socialdeck_x_native_snapshot_persist:x-0': JSON.stringify({ savedAt: Date.now(), timeline: 'following', posts: [...timeline.posts, old] }),
-  });
-  const runtime = createSnapshotRuntime(window, storage, []);
-  const host = createHost();
-  runtime.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
-  assert.ok(host.children.some(node => node.dataset.xId === '1000'), 'the saved post shows while waiting');
-  await runtime.ready();
-  // X's first page covers only the newer posts; the old saved post must not linger below it.
-  runtime.emit({ ...timeline, firstPage: true });
-  assert.equal(host.children.some(node => node.dataset.xId === '1000'), false);
-  assert.equal(host.children.filter(node => node.dataset.xId).length, timeline.posts.length);
-});
-
-test('a snapshot older than 12 hours is not shown', () => {
-  const window = load();
-  const timeline = normalizeTimelineResponse(fixture, 'HomeLatestTimeline');
-  const storage = createStorage({
-    'socialdeck_x_native_snapshot_persist:x-0': JSON.stringify({ savedAt: Date.now() - 13 * 60 * 60 * 1000, timeline: 'following', posts: timeline.posts }),
-  });
-  const runtime = createSnapshotRuntime(window, storage, []);
-  const host = createHost();
-  runtime.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
-  assert.equal(host.children.some(node => node.dataset.xId), false);
 });
 
 function createBadge() {
@@ -375,4 +319,99 @@ test('new posts above the top raise a badge that stays until the reader returns 
   badge.click();
   assert.equal(host.scrollTop, 0);
   assert.equal(badge.style.display, 'none');
+});
+
+test('the home timeline leaves out replies to other people but keeps threads and replies to the account', async () => {
+  const window = load();
+  const { runtime, ready, emit } = createRuntime(window);
+  const host = createHost();
+  runtime.mount({ id: 'a', partition: 'persist:x-0', host });
+  await ready();
+  const timeline = normalizeTimelineResponse(fixture);
+  const base = timeline.posts[0];
+  const post = (id, extra) => ({ ...base, id, sortIndex: `19000000000000000${id}`, url: `https://x.com/alice/status/${id}`, ...extra });
+  emit({ ...timeline, firstPage: true, posts: [
+    post('1', { replyTo: 'kate', replyToId: '77' }),
+    post('2', { replyTo: 'alice', replyToId: base.author.id }),
+    post('3', {}),
+    post('4', { replyTo: 'kate' }),
+  ] });
+  const ids = host.children.map(node => node.dataset.xId).filter(Boolean);
+  assert.deepEqual(ids.sort(), ['2', '3']);
+});
+
+test('startup shows no saved posts and removes posts saved by earlier builds', () => {
+  const window = load();
+  const timeline = normalizeTimelineResponse(fixture, 'HomeLatestTimeline');
+  const storage = createStorage({
+    'socialdeck_x_native_snapshot_persist:x-0': JSON.stringify({ savedAt: Date.now(), timeline: 'following', posts: timeline.posts }),
+    'other-setting': 'kept',
+  });
+  const runtime = createSnapshotRuntime(window, storage, []);
+  const host = createHost();
+  runtime.runtime.mount({ id: 'a', partition: 'persist:x-0', host });
+  assert.equal(host.children.some(node => node.dataset.xId), false);
+  assert.equal(storage.getItem('socialdeck_x_native_snapshot_persist:x-0'), null);
+  assert.equal(storage.getItem('other-setting'), 'kept');
+});
+
+test('unchanged posts reuse their rendered HTML across renders', async () => {
+  const window = load();
+  let renders = 0;
+  const listeners = {};
+  const webview = { setAttribute() {}, addEventListener(type, fn) { (listeners[type] ||= []).push(fn); }, getWebContentsId: () => 41, loadURL: () => Promise.resolve(), executeJavaScript: () => Promise.resolve(true), remove() {} };
+  let captured = null;
+  const view = window.SocialDeckXPostView.createXPostView({});
+  const runtime = window.SocialDeckXNativeTimelineRuntime.createXNativeTimelineRuntime({
+    documentRef: { hidden: false, createElement: () => webview },
+    getReaderHost: () => ({ appendChild() {} }),
+    tap: { attach: async () => true, onCaptured: fn => { captured = fn; } },
+    renderPost: (post, options) => { renders += 1; return view.renderPost(post, options); },
+    createElementFromHtml: html => new FakeElement(html),
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {},
+  });
+  runtime.mount({ id: 'a', partition: 'persist:x-0', host: createHost() });
+  await Promise.all((listeners['dom-ready'] || []).map(fn => fn()));
+  const timeline = normalizeTimelineResponse(fixture);
+  captured({ webContentsId: 41, ...timeline, firstPage: true });
+  const first = renders;
+  assert.equal(first, timeline.posts.length);
+  // A refresh that only adds a new post renders just that post.
+  const newer = { ...timeline.posts[0], id: '1900000000000000009', sortIndex: '1900000000000000009', url: 'https://x.com/alice/status/1900000000000000009' };
+  captured({ webContentsId: 41, ...timeline, posts: [newer], requestCursor: 'TOP' });
+  assert.equal(renders, first + 1);
+  // Muting rules re-render everything visible without rebuilding unchanged posts.
+  runtime.rerenderAll();
+  assert.equal(renders, first + 1);
+});
+
+test('a refresh that sends the same posts again renders nothing', async () => {
+  const window = load();
+  let renders = 0;
+  const listeners = {};
+  const webview = { setAttribute() {}, addEventListener(type, fn) { (listeners[type] ||= []).push(fn); }, getWebContentsId: () => 41, loadURL: () => Promise.resolve(), executeJavaScript: () => Promise.resolve(true), remove() {} };
+  let captured = null;
+  const view = window.SocialDeckXPostView.createXPostView({});
+  const runtime = window.SocialDeckXNativeTimelineRuntime.createXNativeTimelineRuntime({
+    documentRef: { hidden: false, createElement: () => webview },
+    getReaderHost: () => ({ appendChild() {} }),
+    tap: { attach: async () => true, onCaptured: fn => { captured = fn; } },
+    renderPost: (post, options) => { renders += 1; return view.renderPost(post, options); },
+    createElementFromHtml: html => new FakeElement(html),
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {},
+  });
+  runtime.mount({ id: 'a', partition: 'persist:x-0', host: createHost() });
+  await Promise.all((listeners['dom-ready'] || []).map(fn => fn()));
+  captured({ webContentsId: 41, ...normalizeTimelineResponse(fixture), firstPage: true });
+  const first = renders;
+  // X sends fresh objects with the same content (as after JSON parsing).
+  captured({ webContentsId: 41, ...normalizeTimelineResponse(fixture), firstPage: true });
+  assert.equal(renders, first);
+  // A changed count re-renders only that post.
+  const changed = normalizeTimelineResponse(fixture);
+  changed.posts[1] = { ...changed.posts[1], counts: { ...changed.posts[1].counts, like: 1234 } };
+  captured({ webContentsId: 41, ...changed, firstPage: true });
+  assert.equal(renders, first + 1);
 });

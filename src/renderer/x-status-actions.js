@@ -73,13 +73,21 @@
     };
     const summary = status => ({ status, boxes: boxes().length });
     let box = null;
-    const article = find(documentLike, statusId);
-    const replyButton = article?.querySelector('[data-testid="reply"]');
-    if (!replyButton) return summary(article ? 'reply-button-missing' : 'post-missing');
-    replyButton.click();
-    for (let check = 0; check < 40 && !box; check += 1) {
-      await wait(200);
-      box = boxes().find(isUsable) || null;
+    if (!find(documentLike, statusId)) return summary('post-missing');
+    // On a freshly loaded page a click can land before X is interactive and open nothing:
+    // press Reply again when no dialog appears.
+    for (let attempt = 0; attempt < 3 && !box; attempt += 1) {
+      const replyButton = find(documentLike, statusId)?.querySelector('[data-testid="reply"]');
+      if (!replyButton) {
+        if (attempt === 0) return summary('reply-button-missing');
+        await wait(300);
+        continue;
+      }
+      replyButton.click();
+      for (let check = 0; check < 15 && !box; check += 1) {
+        await wait(200);
+        box = boxes().find(isUsable) || null;
+      }
     }
     if (!box) return summary('composer-missing');
     // Compose scripts take the first X textarea in the page: retire any other reply box.
