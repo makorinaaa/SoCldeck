@@ -29,4 +29,13 @@ async function isXSessionAuthenticated(targetSession) {
   return cookies.length > 0;
 }
 
-module.exports = { ensureDefaultXDarkTheme, isXSessionAuthenticated };
+// X stores the signed-in user's numeric id in the twid cookie ("u=123"). Only the id
+// leaves this function; it identifies the account's own posts.
+async function getXSessionUserId(targetSession) {
+  const [cookie] = await targetSession.cookies.get({ url: X_THEME_URL, name: 'twid' });
+  let value = String(cookie?.value || '');
+  try { value = decodeURIComponent(value); } catch {}
+  return /^"?u=(\d+)"?$/.exec(value)?.[1] || null;
+}
+
+module.exports = { ensureDefaultXDarkTheme, getXSessionUserId, isXSessionAuthenticated };

@@ -1,11 +1,11 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net, webContents } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
 const { createAppConfigStore } = require('./main/app-config-store');
 const { createXPageDiagnostics } = require('./main/x-page-diagnostics');
 const { pathToFileURL } = require('node:url');
-const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-session-theme');
+const { ensureDefaultXDarkTheme, getXSessionUserId, isXSessionAuthenticated } = require('./main/x-session-theme');
 const { createAppUpdater } = require('./main/app-updater');
 const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
 const { createAnimeScheduleService } = require('./main/anime-schedule');
@@ -21,6 +21,7 @@ const { createBlueskyGateway } = require('./main/bluesky-gateway');
 const { executeBlueskyOperation } = require('./main/bluesky-operation-result');
 const { createBlueskyVideoFileService } = require('./main/bluesky-video-file');
 const { createMemoryMetricsService } = require('./main/memory-metrics');
+const { createXTimelineTap } = require('./main/x-timeline-tap');
 const {
   registerTrustedIpcHandler,
   secureApplicationWebContents,
@@ -131,6 +132,9 @@ function applyAdBlockToSession(targetSession) {
 const xAccountRuntime = createXAccountRuntime({
   getSession: partition => session.fromPartition(partition),
   applyAdBlock: applyAdBlockToSession,
+});
+const xTimelineTap = createXTimelineTap({
+  resolveContents: id => webContents.fromId(id) || null,
 });
 const animeScheduleService = createAnimeScheduleService();
 const memoryMetricsService = createMemoryMetricsService({
@@ -323,6 +327,35 @@ handleTrustedIpc('initialize-x-session-theme', async (_, partition) => {
 handleTrustedIpc('is-x-session-authenticated', async (_, partition) => {
   if (!xAccountRuntime.register(partition)) return false;
   return isXSessionAuthenticated(session.fromPartition(partition));
+});
+handleTrustedIpc('get-x-account-id', async (_, partition) => {
+  if (!xAccountRuntime.register(partition)) return null;
+  return getXSessionUserId(session.fromPartition(partition));
+});
+
+// Hidden X WebViews owned by this window may expose their timeline responses.
+function resolveOwnedXWebview(sender, webContentsId) {
+  const id = Number(webContentsId);
+  if (!Number.isInteger(id)) return null;
+  const contents = webContents.fromId(id);
+  if (!contents || contents.isDestroyed() || contents.getType() !== 'webview') return null;
+  if (!contents.hostWebContents || contents.hostWebContents.id !== sender.id) return null;
+  const isXSession = xAccountRuntime.getPartitions()
+    .some(partition => session.fromPartition(partition) === contents.session);
+  return isXSession ? contents : null;
+}
+
+handleTrustedIpc('x-timeline-attach', (event, webContentsId) => {
+  const contents = resolveOwnedXWebview(event.sender, webContentsId);
+  if (!contents) return false;
+  const host = event.sender;
+  return xTimelineTap.attach(contents.id, timeline => {
+    if (!host.isDestroyed()) host.send('x-timeline-captured', { webContentsId: contents.id, ...timeline });
+  });
+});
+handleTrustedIpc('x-timeline-detach', (event, webContentsId) => {
+  const contents = resolveOwnedXWebview(event.sender, webContentsId);
+  return contents ? xTimelineTap.detach(contents.id) : false;
 });
 
 // webview-preloadのパスを返す（X画像ライトボックス用）

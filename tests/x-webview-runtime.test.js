@@ -497,3 +497,18 @@ test('promotes the next parked Column when the login owner is disposed', () => {
   assert.equal(notifications.dataset.sdLoginParked, 'false');
   assert.equal(notifications.src, 'https://x.com/notifications');
 });
+
+test('Compose prefers visible X Columns, falls back to the Home reader, and never uses a status page', async () => {
+  const { runtime, webviews } = createHarness();
+  runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
+  const status = createWebView({ id: 'x-status-reader-persist_x-0', partition: 'persist:x-0', src: 'https://x.com/bob/status/1' });
+  const reader = createWebView({ id: 'x-home-reader-persist_x-0', partition: 'persist:x-0', src: 'https://x.com/home' });
+  webviews.push(status, reader);
+  const used = [];
+  await runtime.executeCompose({ accountId: '@alice' }, {}, async (request, context) => used.push(context.webview));
+  assert.deepEqual(used, [reader]);
+
+  webviews.length = 0;
+  webviews.push(status);
+  await assert.rejects(runtime.executeCompose({ accountId: '@alice' }, {}, async () => {}), /Home Column/);
+});

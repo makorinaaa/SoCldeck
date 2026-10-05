@@ -50,3 +50,12 @@ test('detects whether an X session has an authentication token', async () => {
   assert.equal(await isXSessionAuthenticated(authenticatedSession), true);
   assert.equal(await isXSessionAuthenticated(anonymousSession), false);
 });
+
+test('reads only the signed-in user id from the twid cookie', async () => {
+  const { getXSessionUserId } = require('../src/main/x-session-theme');
+  const sessionWith = value => ({ cookies: { get: async () => (value === null ? [] : [{ value }]) } });
+  assert.equal(await getXSessionUserId(sessionWith('u%3D1234567890')), '1234567890');
+  assert.equal(await getXSessionUserId(sessionWith('"u=42"')), '42');
+  assert.equal(await getXSessionUserId(sessionWith('garbage')), null);
+  assert.equal(await getXSessionUserId(sessionWith(null)), null);
+});

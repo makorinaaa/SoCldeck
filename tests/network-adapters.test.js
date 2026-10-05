@@ -36,6 +36,7 @@ test('X compose capability prepares WebView delivery', () => {
     kind: 'x-webview',
     accountId: 'alice',
     text: 'hello',
+    replyTo: null,
     imageFiles: [{ name: 'photo.png' }],
     video: null,
   });
@@ -60,6 +61,7 @@ test('X compose capability preserves video trim settings', () => {
     kind: 'x-webview',
     accountId: 'alice',
     text: '',
+    replyTo: null,
     imageFiles: [],
     video: {
       file: { name: 'clip.mp4' },
@@ -364,4 +366,55 @@ test('creates and refreshes an account-free anime schedule Column', async () => 
     network: 'anime',
     definitionId: 'anime-today',
   }).id, 'anime-today');
+});
+
+test('native X Home definition creates an x-native plan bound to the account partition', () => {
+  const registry = createRegistry();
+  const plan = registry.createColumnPlan({
+    networkId: 'x',
+    definitionId: 'x-home-native',
+    id: 'x1-native',
+    account: { index: 1, username: 'alice', partition: 'persist:x-1' },
+  });
+  assert.deepEqual(plain(plan), {
+    kind: 'x-native',
+    refresh: { networkId: 'x', kind: 'x-native', definitionId: 'x-home-native' },
+    partition: 'persist:x-1',
+    config: {
+      id: 'x1-native',
+      title: 'Home（ネイティブ・試作）',
+      sub: 'X · alice',
+      icCls: 'ic-x',
+      icon: 'x',
+      network: 'x',
+      definitionId: 'x-home-native',
+    },
+  });
+});
+
+test('restores native X Home Columns and routes their refresh to the native runtime', async () => {
+  const registry = createRegistry();
+  const stored = { kind: 'x-native', id: 'x0-native', partition: 'persist:x-0', title: 'Home' };
+  assert.equal(registry.resolveColumnDefinition(stored).id, 'x-home-native');
+  assert.equal(registry.createColumnPlan({ storedColumn: stored }).partition, 'persist:x-0');
+  // Legacy WebView Home Columns keep resolving to the WebView definition.
+  assert.equal(registry.resolveColumnDefinition({ kind: 'wv', url: 'https://x.com/home' }).id, 'x-home-new');
+
+  const calls = [];
+  const result = await registry.executeColumnRefresh('x0-native', { networkId: 'x', kind: 'x-native' }, {
+    refreshXNativeTimeline: id => { calls.push(id); return { status: 'deferred', detail: 'throttled' }; },
+  });
+  assert.deepEqual(calls, ['x0-native']);
+  assert.deepEqual(plain(result), { status: 'deferred', detail: 'throttled' });
+});
+
+test('X compose capability carries a native Column reply target to delivery', () => {
+  const registry = createRegistry();
+  const delivery = registry.prepareComposeDelivery({
+    target: { networkId: 'x', accountId: 'alice' },
+    text: 'hi',
+    attachments: [],
+    replyTo: { root: null, parent: { id: '123', url: 'https://x.com/bob/status/123' } },
+  });
+  assert.deepEqual(plain(delivery.replyTo), { id: '123', url: 'https://x.com/bob/status/123' });
 });

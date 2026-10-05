@@ -69,6 +69,27 @@
     };
   }
 
+  const X_TIME_LINE = /^(?:\d+\s*(?:秒|分|時間|日|[smhd])|\d{1,2}月\d{1,2}日|\d{4}年\d{1,2}月\d{1,2}日|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?)$/;
+  const X_REPLY_HEADER = /^(?:返信先:?|Replying to)$/i;
+  const X_REPLY_TARGET = /^(?:@\S+|さん|と|、|,|and|他\d+人|\d+ others?)$/i;
+
+  // X's notification cell text is every visible line of the cell: author name, @handle,
+  // separators, time and the "Replying to" header. Keep only the post body for display.
+  function extractXNotificationBody(item = {}) {
+    const lines = String(item.text || '').split('\n').map(line => line.trim()).filter(Boolean);
+    const timeIndex = lines.findIndex(line => X_TIME_LINE.test(line));
+    if (timeIndex < 0) {
+      // Like / repost cells start with a sentence about the actor; the rest quotes the post.
+      return ['like', 'repost', 'follow'].includes(item.reason) ? lines.slice(1).join('\n') : lines.join('\n');
+    }
+    let index = timeIndex + 1;
+    if (X_REPLY_HEADER.test(lines[index] || '')) {
+      index += 1;
+      while (index < lines.length && X_REPLY_TARGET.test(lines[index])) index += 1;
+    }
+    return lines.slice(index).join('\n');
+  }
+
   function extractXNotificationsFromDocument(documentLike, locationLike, limit = 40) {
     const cells = Array.from(documentLike.querySelectorAll('[data-testid="cellInnerDiv"]'));
     return cells.map((cell, sourceIndex) => {
@@ -141,14 +162,15 @@
 
   function buildXNotificationActivationScript(raw = {}) {
     const sourceIndex = Number.isInteger(raw.sourceIndex) ? raw.sourceIndex : -1;
-    const expectedText = JSON.stringify(String(raw.text || '').trim().slice(0, 800));
+    // Line breaks in a cell's text depend on the page width, so compare collapsed text.
+    const expectedText = JSON.stringify(String(raw.text || '').replace(/\s+/g, ' ').trim().slice(0, 400));
     const expectedTime = JSON.stringify(String(raw.indexedAt || ''));
     return `(() => new Promise(resolve => {
       const startedAt = Date.now();
       const activate = () => {
         const cells = Array.from(document.querySelectorAll('[data-testid="cellInnerDiv"]'));
         const matchingCell = cells.find(cell => {
-          const textMatches = String(cell.innerText || '').trim().slice(0, 800) === ${expectedText};
+          const textMatches = String(cell.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 400) === ${expectedText};
           const time = cell.querySelector('time');
           const indexedAt = time?.dateTime || time?.getAttribute?.('datetime') || '';
           return textMatches && (!${expectedTime} || indexedAt === ${expectedTime});
@@ -197,6 +219,7 @@
     buildXNotificationActivationScript,
     buildXNotificationExtractionScript,
     classifyXNotification,
+    extractXNotificationBody,
     extractXNotificationsFromDocument,
     findBlueskyProfileColumn,
     findXNotificationColumn,

@@ -84,12 +84,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isXSessionAuthenticated: (partition) => isXPartition(partition)
     ? ipcRenderer.invoke('is-x-session-authenticated', partition)
     : Promise.resolve(false),
+  getXAccountId: (partition) => isXPartition(partition)
+    ? ipcRenderer.invoke('get-x-account-id', partition)
+    : Promise.resolve(null),
   clearAllXSessions: () => ipcRenderer.invoke('clear-all-x-sessions'),
   syncXNetworkAccounts: (partitions) => {
     const validPartitions = Array.isArray(partitions)
       ? partitions.filter(isXPartition).slice(0, 100)
       : [];
     return ipcRenderer.invoke('sync-x-network-accounts', validPartitions);
+  },
+
+  // Xホーム（ネイティブ表示）: 非表示WebViewのタイムライン応答を受け取る
+  attachXTimelineTap: webContentsId => ipcRenderer.invoke('x-timeline-attach', toFiniteNumber(webContentsId, -1)),
+  detachXTimelineTap: webContentsId => ipcRenderer.invoke('x-timeline-detach', toFiniteNumber(webContentsId, -1)),
+  onXTimelineCaptured: fn => {
+    if (typeof fn !== 'function') return () => {};
+    const listener = (_, payload) => fn(payload);
+    ipcRenderer.on('x-timeline-captured', listener);
+    return () => ipcRenderer.removeListener('x-timeline-captured', listener);
   },
 
   // メモリクリア

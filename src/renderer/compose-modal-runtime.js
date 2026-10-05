@@ -13,6 +13,7 @@
     let crossPostXAccountIndex = 0;
     let openNetworkId = null;
     let reply = null;
+    let xReply = null;
     const busy = { x: false, b: false };
     const locked = { x: false, b: false };
     const actionLabels = { x: 'ポスト', b: '投稿' };
@@ -47,7 +48,7 @@
         const media = mediaDrafts[networkId]?.getSnapshot?.();
         let results = locked[networkId] || busy[networkId] ? coordinator.getStatus?.(networkId)?.crossPost?.targets || [] : [];
         if (busy[networkId] && crossPost[networkId] && !results.length) results = ['x', 'b'].map(id => ({ id, status: 'unknown' }));
-        const draft = { text: text[networkId], reply: networkId === 'b' ? reply : null,
+        const draft = { text: text[networkId], reply: networkId === 'b' ? reply : xReply,
           crossPost: crossPost[networkId], crossPostXAccountIndex,
           deliveryAccounts: deliveryAccounts[networkId],
           results: results.map(target => ({ id: target.id, status: busy[networkId] && target.status !== 'succeeded' ? 'unknown' : target.status, error: target.error ? { message: target.error.message } : null })),
@@ -68,6 +69,7 @@
         if (!draft || typeof draft.text !== 'string') return;
         text[networkId] = draft.text;
         if (networkId === 'b') reply = draft.reply || null;
+        else xReply = draft.reply || null;
         reattachMedia[networkId] = draft.hasMedia === true
           && !(cached?.media?.images?.length || cached?.media?.video);
         if (cached?.media) {
@@ -117,7 +119,7 @@
         allowedMimeTypes: ['video/mp4'],
       })?.valid !== false;
       const crossPostAvailable = networkId === 'x'
-        ? Boolean(currentAccounts.b && crossPostVideoCompatible)
+        ? Boolean(currentAccounts.b && crossPostVideoCompatible && !xReply)
         : Boolean(currentAccounts.x.length > 0 && !reply);
       const crossPosting = crossPostAvailable && Boolean(crossPost[networkId]);
       const characterLimit = networkId === 'b' && !crossPosting ? 300 : 280;
@@ -138,7 +140,7 @@
         crossPostXAccountIndex,
         crossPostXAccount: currentAccounts.x[crossPostXAccountIndex] || null,
         media,
-        reply,
+        reply: networkId === 'x' ? xReply : reply,
         busy: Boolean(busy[networkId]),
         locked: Boolean(locked[networkId]),
         draftError: draftError[networkId],
@@ -158,7 +160,7 @@
       };
     }
 
-    function open(networkId, { reply: nextReply = null } = {}) {
+    function open(networkId, { reply: nextReply = null, accountIndex = null, appendText = '' } = {}) {
       if (disposed) return { status: 'ignored', detail: 'disposed' };
       if (!['x', 'b'].includes(networkId)) throw new Error('Unknown Compose network');
       const other = networkId === 'x' ? 'b' : 'x';
@@ -167,12 +169,23 @@
         return { status: 'blocked' };
       }
       const currentAccounts = accounts();
+      // Replies and quotes from a native X Column are sent from that Column's account.
+      if (networkId === 'x' && Number.isInteger(accountIndex) && currentAccounts.x[accountIndex]
+        && accountIndex !== selectedXAccountIndex) {
+        if (busy.x || locked.x) {
+          intents.toast?.('未完了の投稿を再試行するか下書きを削除してください');
+          return { status: 'blocked' };
+        }
+        if (initialized.x) saveDraft('x');
+        selectedXAccountIndex = accountIndex;
+      }
       if (selectedXAccountIndex >= currentAccounts.x.length) selectedXAccountIndex = 0;
       if (crossPostXAccountIndex >= currentAccounts.x.length) crossPostXAccountIndex = 0;
       if (initialized[networkId] && loadedKeys[networkId] !== draftKey(networkId)) {
         text[networkId] = '';
         mediaDrafts[networkId]?.clear?.();
         if (networkId === 'b') reply = null;
+        else xReply = null;
         initialized[networkId] = false;
         reattachMedia[networkId] = false;
         locked[networkId] = false;
@@ -185,6 +198,17 @@
         }
         if (text.b && intents.confirm?.('書きかけの下書きの返信先を変更しますか？') === false) return { status: 'cancelled' };
         reply = nextReply;
+      }
+      if (networkId === 'x' && nextReply && JSON.stringify(nextReply) !== JSON.stringify(xReply)) {
+        if (locked.x || busy.x) {
+          intents.toast?.('未完了の投稿を再試行するか下書きを削除してから返信してください');
+          return { status: 'blocked' };
+        }
+        if (text.x && intents.confirm?.('書きかけの下書きの返信先を変更しますか？') === false) return { status: 'cancelled' };
+        xReply = nextReply;
+      }
+      if (networkId === 'x' && appendText && !locked.x && !busy.x && !text.x.includes(appendText)) {
+        text.x = text.x ? `${text.x.replace(/\s+$/, '')} ${appendText}` : ` ${appendText}`;
       }
       const preferences = getPreferences() || {};
       if (!locked[networkId]) crossPost[networkId] = Boolean(networkId === 'x'
@@ -221,6 +245,7 @@
       crossPost[networkId] = false;
       previewOpen[networkId] = false;
       if (networkId === 'b') reply = null;
+      else xReply = null;
       saveDraft(networkId);
       if (openNetworkId === networkId) openNetworkId = null;
       view.setOpen?.(networkId, false);

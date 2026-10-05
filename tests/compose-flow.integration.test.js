@@ -68,6 +68,7 @@ test('X video compose flows from user intent to account refresh', async () => {
     kind: 'x-webview',
     accountId: 'alice',
     text: 'launch video',
+    replyTo: null,
     imageFiles: [],
     video: {
       file: { name: 'launch.mp4', type: 'video/mp4' },

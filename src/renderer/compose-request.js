@@ -3,6 +3,7 @@
 
   function copyPostReference(reference) {
     if (!reference) return null;
+    if (reference.id) return { id: String(reference.id), url: String(reference.url || '') };
     return { uri: reference.uri, cid: reference.cid };
   }
 

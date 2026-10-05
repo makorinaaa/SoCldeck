@@ -31,6 +31,22 @@
 
     const accountIndex = account?.index ?? 0;
     const accountLabel = account?.username ? ` · ${account.username}` : '';
+    if (definition.defaultParams.native) {
+      return {
+        kind: 'x-native',
+        refresh: { networkId: 'x', kind: 'x-native', definitionId: definition.id },
+        partition: getStoredValue(storedColumn, 'partition', account?.partition || `persist:x-${accountIndex}`),
+        config: {
+          id,
+          title: getStoredValue(storedColumn, 'title', params.title || definition.label),
+          sub: getStoredValue(storedColumn, 'sub', params.sub || `X${accountLabel}`),
+          icCls: getIconClass(definition.columnType, definition.network),
+          icon: definition.icon,
+          network: definition.network,
+          definitionId: definition.id,
+        },
+      };
+    }
     const url = definition.columnType === 'list'
       ? storedColumn?.url || params.url
       : definition.defaultParams.url || storedColumn?.url;
@@ -118,10 +134,12 @@
       throw new Error('X compose delivery cannot mix image and video attachments');
     }
 
+    const replyParent = request.replyTo?.parent;
     return {
       kind: 'x-webview',
       accountId: request.target.accountId,
       text: request.text,
+      replyTo: replyParent?.id ? { id: replyParent.id, url: replyParent.url } : null,
       imageFiles,
       video: videoAttachment
         ? {
@@ -186,6 +204,9 @@
   }
 
   async function refreshXColumn({ id, plan, operations }) {
+    if (plan.kind === 'x-native') {
+      return await operations.refreshXNativeTimeline(id) || { status: 'succeeded' };
+    }
     const destination = plan.definitionId === 'x-home-new'
       ? 'home'
       : plan.definitionId === 'x-notif-new'
@@ -248,6 +269,16 @@
               icon: icons.x,
               requiresAccount: true,
               defaultParams: { url: 'https://x.com/home' },
+            }),
+            createDefinition({
+              id: 'x-home-native',
+              network: 'x',
+              columnType: 'timeline',
+              label: 'Home（ネイティブ・試作）',
+              description: 'SocialDeck の表示で読む',
+              icon: icons.x,
+              requiresAccount: true,
+              defaultParams: { native: true },
             }),
             createDefinition({
               id: 'x-notif-new',
@@ -442,6 +473,7 @@
       if (storedColumn.network) return storedColumn.network;
       if (storedColumn.kind === 'schedule') return 'anime';
       if (storedColumn.kind === 'bsky') return 'b';
+      if (storedColumn.kind === 'x-native') return 'x';
       if (storedColumn.partition === 'persist:bsky') return 'b';
       return storedColumn.kind === 'wv' ? 'x' : null;
     }
@@ -469,6 +501,9 @@
 
       const definitions = getColumnDefinitions(networkId);
       if (networkId === 'x') {
+        if (storedColumn.kind === 'x-native') {
+          return definitions.find(definition => definition.defaultParams.native) || null;
+        }
         const columnType = getXColumnTypeFromUrl(storedColumn.url);
         return definitions.find(definition => definition.columnType === columnType) || null;
       }

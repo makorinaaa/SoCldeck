@@ -1,0 +1,253 @@
+{
+  "data": {
+    "home": {
+      "home_timeline_urt": {
+        "instructions": [
+          {
+            "type": "TimelineAddEntries",
+            "entries": [
+              {
+                "entryId": "tweet-1800000000000000003",
+                "sortIndex": "1900000000000000003",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1800000000000000003",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "11",
+                              "is_blue_verified": true,
+                              "avatar": { "image_url": "https://pbs.twimg.com/profile_images/1/alice_normal.jpg" },
+                              "core": { "name": "Alice", "screen_name": "alice" },
+                              "legacy": {}
+                            }
+                          }
+                        },
+                        "views": { "count": "12345", "state": "EnabledWithCount" },
+                        "legacy": {
+                          "created_at": "Mon Oct 05 03:00:00 +0000 2026",
+                          "full_text": "Tom &amp; Jerry with @bob #anime https://t.co/link1 https://t.co/media1",
+                          "favorite_count": 42,
+                          "retweet_count": 5,
+                          "reply_count": 3,
+                          "quote_count": 1,
+                          "favorited": true,
+                          "retweeted": false,
+                          "entities": {
+                            "hashtags": [{ "indices": [26, 32], "text": "anime" }],
+                            "user_mentions": [{ "indices": [21, 25], "screen_name": "bob", "name": "Bob", "id_str": "12" }],
+                            "urls": [{
+                              "url": "https://t.co/link1",
+                              "expanded_url": "https://example.com/article",
+                              "display_url": "example.com/article",
+                              "indices": [33, 56]
+                            }],
+                            "media": [{ "url": "https://t.co/media1", "indices": [57, 80] }]
+                          },
+                          "extended_entities": {
+                            "media": [
+                              {
+                                "type": "photo",
+                                "url": "https://t.co/media1",
+                                "media_url_https": "https://pbs.twimg.com/media/AAA.jpg",
+                                "ext_alt_text": "a cat"
+                              },
+                              {
+                                "type": "photo",
+                                "url": "https://t.co/media1",
+                                "media_url_https": "https://pbs.twimg.com/media/BBB.jpg"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-1800000000000000002",
+                "sortIndex": "1900000000000000002",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1800000000000000002",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "13",
+                              "legacy": {
+                                "name": "Carol",
+                                "screen_name": "carol",
+                                "profile_image_url_https": "https://pbs.twimg.com/profile_images/2/carol_normal.png"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "created_at": "Mon Oct 05 02:00:00 +0000 2026",
+                          "full_text": "RT @dave: original text",
+                          "favorite_count": 0,
+                          "retweet_count": 9,
+                          "reply_count": 0,
+                          "entities": {},
+                          "retweeted_status_result": {
+                            "result": {
+                              "__typename": "TweetWithVisibilityResults",
+                              "tweet": {
+                                "rest_id": "1700000000000000001",
+                                "core": {
+                                  "user_results": {
+                                    "result": {
+                                      "rest_id": "14",
+                                      "legacy": { "name": "Dave", "screen_name": "dave" }
+                                    }
+                                  }
+                                },
+                                "legacy": {
+                                  "created_at": "Sun Oct 04 12:00:00 +0000 2026",
+                                  "full_text": "original text",
+                                  "favorite_count": 100,
+                                  "retweet_count": 9,
+                                  "reply_count": 2,
+                                  "retweeted": true,
+                                  "entities": {},
+                                  "extended_entities": {
+                                    "media": [{
+                                      "type": "video",
+                                      "url": "https://t.co/vid",
+                                      "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/thumb.jpg",
+                                      "video_info": {
+                                        "variants": [
+                                          { "content_type": "application/x-mpegURL", "url": "https://video.twimg.com/ext_tw_video/1/pu/pl/list.m3u8" },
+                                          { "content_type": "video/mp4", "bitrate": 256000, "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/320x180/low.mp4" },
+                                          { "content_type": "video/mp4", "bitrate": 2176000, "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/1280x720/mid.mp4" },
+                                          { "content_type": "video/mp4", "bitrate": 10368000, "url": "https://video.twimg.com/ext_tw_video/1/pu/vid/1920x1080/high.mp4" }
+                                        ]
+                                      }
+                                    }]
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "promoted-tweet-1800000000000000099",
+                "sortIndex": "1900000000000000001",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "promotedMetadata": { "advertiser_results": {} },
+                    "tweet_results": { "result": { "__typename": "Tweet", "rest_id": "99" } }
+                  }
+                }
+              },
+              {
+                "entryId": "home-conversation-1800000000000000001",
+                "sortIndex": "1900000000000000000",
+                "content": {
+                  "entryType": "TimelineTimelineModule",
+                  "items": [
+                    {
+                      "entryId": "home-conversation-1800000000000000001-tweet-1800000000000000001",
+                      "item": {
+                        "itemContent": {
+                          "itemType": "TimelineTweet",
+                          "tweet_results": {
+                            "result": {
+                              "__typename": "Tweet",
+                              "rest_id": "1800000000000000001",
+                              "core": {
+                                "user_results": {
+                                  "result": { "rest_id": "15", "core": { "name": "Erin", "screen_name": "erin" }, "legacy": {} }
+                                }
+                              },
+                              "quoted_status_result": {
+                                "result": {
+                                  "__typename": "Tweet",
+                                  "rest_id": "1600000000000000001",
+                                  "core": {
+                                    "user_results": {
+                                      "result": { "rest_id": "16", "core": { "name": "Frank", "screen_name": "frank" }, "legacy": {} }
+                                    }
+                                  },
+                                  "legacy": {
+                                    "created_at": "Sat Oct 03 00:00:00 +0000 2026",
+                                    "full_text": "quoted <b>text</b>",
+                                    "entities": {}
+                                  }
+                                }
+                              },
+                              "note_tweet": {
+                                "note_tweet_results": {
+                                  "result": {
+                                    "text": "A long post that goes beyond the limit https://t.co/long",
+                                    "entity_set": {
+                                      "urls": [{ "url": "https://t.co/long", "expanded_url": "https://example.org/long", "display_url": "example.org/long" }]
+                                    }
+                                  }
+                                }
+                              },
+                              "legacy": {
+                                "created_at": "Mon Oct 05 01:00:00 +0000 2026",
+                                "full_text": "A long post that goes… https://t.co/short",
+                                "in_reply_to_screen_name": "frank",
+                                "favorite_count": 1,
+                                "retweet_count": 0,
+                                "reply_count": 0,
+                                "entities": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "entryId": "home-conversation-1800000000000000001-tombstone",
+                      "item": {
+                        "itemContent": {
+                          "itemType": "TimelineTweet",
+                          "tweet_results": { "result": { "__typename": "TweetTombstone" } }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "entryId": "cursor-top-1",
+                "sortIndex": "1900000000000000004",
+                "content": { "entryType": "TimelineTimelineCursor", "cursorType": "Top", "value": "TOPCURSOR" }
+              },
+              {
+                "entryId": "cursor-bottom-1",
+                "sortIndex": "1899999999999999999",
+                "content": { "entryType": "TimelineTimelineCursor", "cursorType": "Bottom", "value": "BOTTOMCURSOR" }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}
