@@ -69,8 +69,7 @@
     "asar": true,
     "asarUnpack": [
       "**/node_modules/@cliqz/adblocker-electron/**",
-      "**/node_modules/@cliqz/adblocker/**",
-      "**/node_modules/node-fetch/**"
+      "**/node_modules/@cliqz/adblocker/**"
     ],
     "electronFuses": {
       "runAsNode": false,
