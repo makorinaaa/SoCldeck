@@ -237,8 +237,34 @@
       <button class="settings-link" data-action="open-memory-settings"><strong>メモリ管理</strong><small>使用量の確認と自動整理</small></button>
       <button class="settings-link" data-action="settings-accounts"><strong>アカウント</strong><small>X・Blueskyの追加とログアウト</small></button>
       <button class="settings-link" data-action="open-backup"><strong>バックアップと復元</strong><small>カラム配置と各種設定の保存・復元</small></button>
+      <button class="settings-link" data-action="open-shortcuts"><strong>キーボードショートカット</strong><small>キー操作の一覧（<kbd>?</kbd> でも表示）</small></button>
     </div>
     <button class="btn-cancel" data-action="close-overlay" data-overlay-id="settingsMod">閉じる</button>
+  </div>
+</div>
+
+<div class="ov" id="shortcutsMod" data-action="close-overlay" data-overlay-id="shortcutsMod">
+  <div class="modal" style="width:420px" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+    <h2 id="shortcuts-title">キーボードショートカット</h2>
+    <table class="shortcut-table">
+      <tbody>
+        <tr><th scope="row"><kbd>j / k</kbd></th><td>次 / 前の投稿へ移動</td></tr>
+        <tr><th scope="row"><kbd>← / →</kbd></th><td>隣のカラムへ移動（投稿選択中）</td></tr>
+        <tr><th scope="row"><kbd>1〜9</kbd></th><td>N 番目のカラムへ移動</td></tr>
+        <tr><th scope="row"><kbd>l</kbd></th><td>いいね</td></tr>
+        <tr><th scope="row"><kbd>t</kbd></th><td>リポスト</td></tr>
+        <tr><th scope="row"><kbd>r</kbd></th><td>返信</td></tr>
+        <tr><th scope="row"><kbd>o / Enter</kbd></th><td>投稿を開く</td></tr>
+        <tr><th scope="row"><kbd>n</kbd></th><td>新規投稿</td></tr>
+        <tr><th scope="row"><kbd>Esc</kbd></th><td>選択を解除・モーダルを閉じる</td></tr>
+        <tr><th scope="row"><kbd>?</kbd></th><td>この一覧を表示</td></tr>
+        <tr><th scope="row"><kbd>Ctrl+N</kbd></th><td>カラムを追加</td></tr>
+        <tr><th scope="row"><kbd>Ctrl+R</kbd></th><td>すべて更新</td></tr>
+        <tr><th scope="row"><kbd>Ctrl+Enter</kbd></th><td>投稿を送信</td></tr>
+      </tbody>
+    </table>
+    <p class="shortcut-note">いいね・リポスト・返信は Bluesky カラムで使えます。X カラムでは X 自体のショートカットが働きます。</p>
+    <button class="btn-cancel" data-action="close-overlay" data-overlay-id="shortcutsMod">閉じる</button>
   </div>
 </div>
 

@@ -414,6 +414,49 @@ async function openXLikeNotification(page) {
   await item.click();
 }
 
+test('single-key shortcuts move through Bluesky posts, act on them, and open help', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#login-screen').waitFor({ state: 'hidden' });
+  // The main-process gateway is not fixture-backed, so render real post markup into a column directly.
+  await page.evaluate(() => {
+    const view = window.SocialDeckBlueskyPostView.createBlueskyPostView({});
+    const column = document.createElement('div');
+    column.className = 'col';
+    column.innerHTML = `<div class="feed">${[1, 2, 3].map(n => view.renderPost({ post: {
+      uri: `at://did:plc:alice/app.bsky.feed.post/${n}`, cid: `cid${n}`,
+      author: { did: 'did:plc:alice', handle: 'alice.test', displayName: 'Alice' },
+      record: { text: `post ${n}`, createdAt: '2026-07-15T00:00:00Z' },
+    } })).join('')}</div>`;
+    document.getElementById('cols').prepend(column);
+  });
+  const focusedUri = () => page.evaluate(() => document.activeElement?.dataset?.uri || null);
+
+  await page.keyboard.press('j');
+  assert.equal(await focusedUri(), 'at://did:plc:alice/app.bsky.feed.post/1');
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  await page.keyboard.press('k');
+  assert.equal(await focusedUri(), 'at://did:plc:alice/app.bsky.feed.post/2');
+
+  await page.evaluate(() => {
+    window.__likeClicks = [];
+    document.querySelectorAll('[data-bsky-action="like"]').forEach(button => button.addEventListener('click', event => {
+      window.__likeClicks.push(button.closest('.post').dataset.uri);
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+    }));
+  });
+  await page.keyboard.press('l');
+  assert.deepEqual(await page.evaluate(() => window.__likeClicks), ['at://did:plc:alice/app.bsky.feed.post/2']);
+
+  await page.keyboard.press('?');
+  await page.locator('#shortcutsMod.on').waitFor({ state: 'visible' });
+  await page.keyboard.press('j');
+  assert.equal(await focusedUri(), 'at://did:plc:alice/app.bsky.feed.post/2', 'help modal blocks navigation');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#shortcutsMod').evaluate(element => element.classList.contains('on')), false);
+});
+
 async function addXHomeColumn(page, accountIndex = 0) {
   await page.locator('button[data-action="open-add-column"]:visible').first().click();
   await page.locator('#addMod.on').waitFor();

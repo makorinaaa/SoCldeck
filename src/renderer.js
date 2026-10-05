@@ -1,4 +1,5 @@
 import { createAppShellRuntime } from './renderer/app-shell-runtime.mjs';
+import { createKeyboardNavigation } from './renderer/keyboard-navigation.mjs';
 import { icons as SVG } from './renderer/icons.mjs';
 import { createAppInfoRuntime } from './renderer/app-info-runtime.mjs';
 import { createPostMenuRuntime } from './renderer/post-menu-runtime.mjs';
@@ -1508,6 +1509,11 @@ function createUiActionHandlers() {
     'scroll-start': () => scrollToStart(),
     'open-x-post': () => openXPost(),
     'open-b-post': () => openComp(),
+    'open-compose': ({ network }) => {
+      if (network === 'x' || (!network && !state.b && state.xs?.length)) openXPost();
+      else openComp();
+    },
+    'open-shortcuts': () => document.getElementById('shortcutsMod').classList.add('on'),
     'open-ng-settings': () => settingsModals.openNgSettings(),
     'open-memory-settings': () => settingsModals.openMemorySettings(),
     'open-settings': () => document.getElementById('settingsMod').classList.add('on'),
@@ -1590,6 +1596,7 @@ appShellRuntime = createAppShellRuntime({
   cancelAppearance: () => appearanceRuntime.cancel(),
   closeOverlay: id => closeOv(id),
   closeQuote: () => composeQuote.close(),
+  keyboardNavigation: createKeyboardNavigation({ documentRef: document, actions: uiActions }),
 });
 appShellRuntime.attach();
 delegatedActionRuntime = SocialDeckDelegatedActionRuntime.createDelegatedActionRuntime({

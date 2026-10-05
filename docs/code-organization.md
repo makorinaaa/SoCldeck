@@ -27,6 +27,7 @@ XとBlueskyで異なる形式・サイズ・時間制限は各モジュールで
 | `src/renderer.js` | 状態と各モジュールの接続、ユーザー操作の登録 |
 | `src/renderer/icons.mjs` | 固定SVGアイコン |
 | `src/renderer/app-shell-runtime.mjs` | ショートカット、メニュー、トースト、ホストイベントと購読解除 |
+| `src/renderer/keyboard-navigation.mjs` | 1文字ショートカット（投稿・カラム間の移動、いいね／リポスト／返信、ヘルプ表示） |
 | `src/renderer/network-adapters.js` | X / Bluesky等の機能・カラム定義 |
 | `src/renderer/compose-*.js` | 共通の投稿画面、下書き、試行状態、同時投稿 |
 | `src/renderer/x-composer-submit.mjs` | Xページ内への入力、添付の準備確認、送信 |

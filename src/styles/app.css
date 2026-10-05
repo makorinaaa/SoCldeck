@@ -620,3 +620,9 @@ button:disabled{cursor:not-allowed}
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
 
+.shortcut-table{width:100%;border-collapse:collapse;margin:12px 0}
+.shortcut-table th,.shortcut-table td{padding:5px 0;text-align:left;border-bottom:1px solid var(--border);font-weight:400}
+.shortcut-table th{width:40%;white-space:nowrap}
+.shortcut-table kbd,.settings-link kbd{font-family:inherit;font-size:.9em;padding:1px 6px;border:1px solid var(--border2);border-radius:4px;background:var(--bg1)}
+.shortcut-note{font-size:.9em;color:var(--text2);margin-bottom:14px}
+.post:focus-visible,.notif:focus-visible{outline-offset:-2px}

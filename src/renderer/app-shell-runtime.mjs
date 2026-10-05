@@ -1,4 +1,4 @@
-function createAppShellRuntime({ documentRef, windowRef, api, actions, cancelAppearance, closeOverlay, closeQuote }) {
+function createAppShellRuntime({ documentRef, windowRef, api, actions, cancelAppearance, closeOverlay, closeQuote, keyboardNavigation }) {
   let attached = false;
   let toastTimer;
   const subscriptions = [];
@@ -34,6 +34,7 @@ function createAppShellRuntime({ documentRef, windowRef, api, actions, cancelApp
   }
 
   function onKeydown(event) {
+    if (keyboardNavigation?.onKeydown(event)) return;
     const visible = id => documentRef.getElementById(id)?.classList.contains('on');
     if (visible('lightbox')) {
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
