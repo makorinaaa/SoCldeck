@@ -469,3 +469,35 @@ test('the selected tab on X decides which list a response belongs to', async () 
   assert.equal(await toForYou, true);
   assert.match(host.innerHTML, /data-x-timeline="for-you" class="on"/);
 });
+
+test('while X polls on its own, the automatic refresh does not click Home', async () => {
+  let clock = 1_000_000;
+  const harness = createHarness({ now: () => clock, refreshResult: 'home-clicked' });
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-0', host: harness.createHost() });
+  const [reader] = harness.webviews;
+  await reader.dispatch('dom-ready');
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), firstPage: true });
+  const clicks = () => reader.scripts.filter(script => script.includes('REFRESH:home')).length;
+
+  // A response 30 seconds after SocialDeck last made the page fetch came from X itself.
+  clock += 30_000;
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
+  clock += 30_000;
+  assert.deepEqual(plain(await harness.runtime.refresh('a')), { status: 'succeeded', detail: 'x-polling' });
+  assert.equal(clicks(), 0);
+
+  // A manual refresh still asks X right away.
+  const manual = harness.runtime.refresh('a', { force: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(clicks(), 1);
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
+  await manual;
+
+  // Once X has not polled for a while, the automatic refresh clicks Home again.
+  clock += 151_000;
+  const automatic = harness.runtime.refresh('a');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(clicks(), 2);
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
+  await automatic;
+});

@@ -17,6 +17,10 @@
   const AUTO_LOAD_MORE_PX = 800;
   // Below this scroll offset a Column counts as "at the top" for the new-post badge.
   const AT_TOP_PX = 40;
+  // A timeline response this long after SocialDeck last made the page fetch came from X's
+  // own polling. While X keeps polling, the automatic refresh does not click Home itself.
+  const DRIVEN_RESPONSE_MS = 8000;
+  const X_POLLING_WINDOW_MS = 150 * 1000;
   const BADGE_AT_TOP_MS = 5000;
   const TIMELINE_LABELS = { 'for-you': 'おすすめ', following: 'フォロー中' };
 
@@ -290,6 +294,10 @@
       const shownBefore = new Set(reader.posts.map(post => post.id));
       const previousTop = reader.posts.reduce((max, post) => (post.local ? max : (sortValue(post) > max ? sortValue(post) : max)), 0n);
       const isFirstPage = payload.operation !== 'CreateTweet' && payload.firstPage === true;
+      if (payload.operation !== 'CreateTweet' && now() - (reader.lastDrivenAt || 0) > DRIVEN_RESPONSE_MS) {
+        reader.lastPolledAt = now();
+        log('x polled', payload.operation, payload.posts.length);
+      }
       log('captured', payload.operation, payload.timeline, payload.posts.length, isFirstPage ? 'first page' : 'partial');
       const base = isFirstPage ? reconcileFirstPage(reader.posts, payload.posts, payload.timeline) : reader.posts;
       reader.posts = mergePosts(base, incoming);
@@ -348,6 +356,7 @@
     async function ensureRecentSort(reader) {
       if (isBusy()) return;
       reader.sortChecked = true;
+      markDriven(reader);
       const result = await reader.webview.executeJavaScript(createFollowingRecentScript()).catch(() => 'failed');
       log('following sort', result);
       if (result !== 'selected') return;
@@ -457,8 +466,13 @@
 
     // Loads X's home in the reader; if no timeline arrives the Column stops spinning and
     // offers the refresh button instead of waiting forever.
+    function markDriven(reader) {
+      reader.lastDrivenAt = now();
+    }
+
     function loadHome(reader) {
       reader.lastLoadAt = now();
+      markDriven(reader);
       reader.webview.loadURL(HOME_URL).catch(() => {});
       clearTimeoutFn(reader.loadWatchdog);
       reader.loadWatchdog = setTimeoutFn(() => {
@@ -1191,7 +1205,11 @@
 
       // Like a WebView Home Column, ask X for new posts by clicking Home: one light request.
       // The refresh button instead reloads the page so X sends a fresh first page.
+      if (!force && reader.lastPolledAt && now() - reader.lastPolledAt < X_POLLING_WINDOW_MS) {
+        return { status: 'succeeded', detail: 'x-polling' };
+      }
       if (!reload && reader.status === 'ready' && createRefreshScript) {
+        markDriven(reader);
         const captured = waitForCapture(reader);
         let result = 'failed';
         try {
@@ -1225,6 +1243,7 @@
       renderReader(reader);
       // Clicking only changes X's remembered tab: X may show that tab from its cache without
       // a request. Reloading right after makes X fetch the chosen tab's first page.
+      markDriven(reader);
       const result = await reader.webview.executeJavaScript(createSelectTabScript(timeline)).catch(() => 'failed');
       log('switch timeline', timeline, result);
       let succeeded = false;
@@ -1291,6 +1310,7 @@
       if (!reader || reader.loadingMore || reader.webContentsId === null || isBusy()) return false;
       reader.loadingMore = true;
       renderReader(reader);
+      markDriven(reader);
       const captured = waitForCapture(reader);
       try {
         await reader.webview.executeJavaScript('window.scrollTo(0, document.documentElement.scrollHeight); true');
