@@ -293,7 +293,7 @@ async function launchApp(t, fixtures) {
                 ? '{"count":0}'
                 : url.pathname.endsWith('listNotifications')
                   ? '{"notifications":[]}'
-                  : '{"feed":[]}';
+                  : JSON.stringify({ feed: url.pathname.endsWith('getTimeline') ? fixture.blueskyFeed : [] });
           callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(body) });
           return;
         }
@@ -343,6 +343,7 @@ async function launchApp(t, fixtures) {
     authenticatedXPartitions: fixtures.authenticatedXPartitions || [],
     hasXAvatar: Boolean(fixtures.useNotificationReaders),
     hasBluesky: Boolean(fixtures.state.b),
+    blueskyFeed: fixtures.blueskyFeed || [],
     simulateXLogin: Boolean(fixtures.simulateXLogin),
     redirectNotifications: Boolean(fixtures.redirectNotifications),
     slowResourceDelay: fixtures.slowResourceDelay || 0,
@@ -415,20 +416,15 @@ async function openXLikeNotification(page) {
 }
 
 test('single-key shortcuts move through Bluesky posts, act on them, and open help', { timeout: 20000 }, async t => {
-  const { page } = await launchApp(t, BLUESKY_FIXTURES);
-  await page.locator('#login-screen').waitFor({ state: 'hidden' });
-  // The main-process gateway is not fixture-backed, so render real post markup into a column directly.
-  await page.evaluate(() => {
-    const view = window.SocialDeckBlueskyPostView.createBlueskyPostView({});
-    const column = document.createElement('div');
-    column.className = 'col';
-    column.innerHTML = `<div class="feed">${[1, 2, 3].map(n => view.renderPost({ post: {
-      uri: `at://did:plc:alice/app.bsky.feed.post/${n}`, cid: `cid${n}`,
-      author: { did: 'did:plc:alice', handle: 'alice.test', displayName: 'Alice' },
-      record: { text: `post ${n}`, createdAt: '2026-07-15T00:00:00Z' },
-    } })).join('')}</div>`;
-    document.getElementById('cols').prepend(column);
-  });
+  const post = n => ({ post: {
+    uri: `at://did:plc:alice/app.bsky.feed.post/${n}`, cid: `cid${n}`,
+    author: { did: 'did:plc:alice', handle: 'alice.test', displayName: 'Alice' },
+    record: { text: `post ${n}`, createdAt: '2026-07-15T00:00:00Z' },
+  } });
+  const { page } = await launchApp(t, { ...BLUESKY_FIXTURES, blueskyFeed: [post(1), post(2), post(3)] });
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod [data-action="add-column"][data-definition-id="b-timeline-new"]').click();
+  await page.locator('.col .post').nth(2).waitFor();
   const focusedUri = () => page.evaluate(() => document.activeElement?.dataset?.uri || null);
 
   await page.keyboard.press('j');
