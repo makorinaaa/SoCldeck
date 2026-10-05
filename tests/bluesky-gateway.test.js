@@ -37,7 +37,7 @@ test('logs in through the Gateway, stores credentials, and returns only public a
     async getProfile(jwt, actor) {
       assert.equal(jwt, SESSION.accessJwt);
       assert.equal(actor, SESSION.did);
-      return { displayName: 'Alice', avatar: 'https://cdn.example/alice.png' };
+      return { displayName: 'Alice', avatar: 'https://cdn.bsky.app/img/avatar/plain/did:plc:alice/bafkalice' };
     },
   };
   const gateway = createBlueskyGateway({ vault, client });
@@ -48,7 +48,7 @@ test('logs in through the Gateway, stores credentials, and returns only public a
     handle: 'alice.test',
     did: 'did:plc:alice',
     displayName: 'Alice',
-    avatar: 'https://cdn.example/alice.png',
+    avatar: 'https://cdn.bsky.app/img/avatar_thumbnail/plain/did:plc:alice/bafkalice',
   });
   assert.equal(JSON.stringify(account).includes('secret'), false);
   assert.deepEqual(vault.getSession(), SESSION);

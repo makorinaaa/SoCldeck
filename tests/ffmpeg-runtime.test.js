@@ -36,6 +36,15 @@ test('resolves the verified bundled Windows binary and supports an explicit over
     resolveFfmpegPath({ platform: 'linux', env: { SOCIALDECK_FFMPEG_PATH: '/opt/ffmpeg-safe' } }),
     path.resolve('/opt/ffmpeg-safe'),
   );
+  assert.equal(
+    resolveFfmpegPath({
+      platform: 'win32',
+      isPackaged: true,
+      resourcesPath: 'C:\\SocialDeck\\resources',
+      env: { SOCIALDECK_FFMPEG_PATH: 'C:\\Temp\\evil.exe' },
+    }),
+    path.join('C:\\SocialDeck\\resources', 'ffmpeg', 'ffmpeg.exe'),
+  );
 });
 
 test('builds a fixed FFmpeg argument vector without invoking a shell', async () => {

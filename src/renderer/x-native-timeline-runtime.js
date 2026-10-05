@@ -36,6 +36,10 @@
     createToggleScript = null,
     requestFrame = callback => (global.requestAnimationFrame ? global.requestAnimationFrame(callback) : callback()),
     createElementFromHtml,
+    // Native notification Columns: the shared loader of an account's notification page, and
+    // the notifications it captured last.
+    loadNotifications = async () => [],
+    getNotifications = () => null,
   } = {}) {
     if (!tap?.attach || !tap?.onCaptured) throw new Error('X native timeline requires a timeline tap');
     if (typeof renderPost !== 'function') throw new Error('X native timeline requires a post renderer');
@@ -94,6 +98,23 @@
       log,
       setTimeoutFn,
       clearTimeoutFn,
+    });
+    const notifications = global.SocialDeckXNativeNotifications.createXNativeNotifications({
+      documentRef,
+      renderPost,
+      postOptions,
+      handleInteractive,
+      openPost: (post, partition) => detail.open(post, partition),
+      icons,
+      relTime,
+      blocksPost: post => blocksPost(toMuteShape(post)),
+      loadNotifications,
+      getNotifications,
+      intents,
+      log,
+      setTimeoutFn,
+      clearTimeoutFn,
+      ...(createElementFromHtml ? { createElementFromHtml } : {}),
     });
     const view = createXNativeColumnView({
       documentRef,
@@ -198,7 +219,11 @@
     // Viewer state (liked / reposted) differs per account, so posts are looked up per account.
     function findPost(id, partition) {
       if (!id) return null;
-      const candidates = [...(readers.get(partition)?.posts || []), ...detail.postsOf(partition)];
+      const candidates = [
+        ...(readers.get(partition)?.posts || []),
+        ...detail.postsOf(partition),
+        ...notifications.postsOf(partition),
+      ];
       for (const post of candidates) {
         if (post?.id === id) return post;
         if (post?.quoted?.id === id) return post.quoted;
@@ -215,6 +240,7 @@
       const reader = readers.get(partition);
       if (reader) reader.posts = reader.posts.map(apply);
       detail.applyUpdate(apply, partition);
+      notifications.applyUpdate(apply, partition);
     }
 
     // A deleted post is gone for every account, so it leaves every Column, the open detail
@@ -222,10 +248,12 @@
     function removePost(id) {
       readers.all().forEach(reader => { reader.posts = reader.posts.filter(post => post?.id !== id); });
       detail.removePost(id);
+      notifications.removePost(id);
     }
 
     function rerenderEverything() {
       readers.all().forEach(renderReader);
+      notifications.renderAll();
       detail.render();
     }
 
@@ -233,6 +261,7 @@
     function renderPartition(partition) {
       const reader = readers.get(partition);
       if (reader) renderReader(reader);
+      notifications.renderPartition(partition);
       if (detail.isOpenFor(partition)) detail.render();
     }
 
@@ -413,17 +442,33 @@
     }
 
     function scrollTop(id) {
-      columns.get(id)?.host?.scrollTo?.({ top: 0, behavior: 'smooth' });
+      if (notifications.has(id)) notifications.scrollTop(id);
+      else columns.get(id)?.host?.scrollTo?.({ top: 0, behavior: 'smooth' });
     }
 
     function updateRelativeTimes() {
       const hosts = [...columns.values()].map(column => column.host);
+      hosts.push(...notifications.hosts());
       const overlay = detail.overlay();
       if (overlay) hosts.push(overlay);
       hosts.forEach(view.refreshTimes);
     }
 
+    // A native notification Column of an account with no Home Column leaves nothing behind.
+    function disposeNotifications(id) {
+      const partition = notifications.partitionOf(id);
+      notifications.dispose(id);
+      if (!partition || notifications.hasPartition(partition)) return;
+      if ([...columns.values()].some(column => column.partition === partition)) return;
+      statusRuntime?.dispose(partition);
+      detail.forget(partition, { closeOpen: true });
+    }
+
     function dispose(id) {
+      if (notifications.has(id)) {
+        disposeNotifications(id);
+        return;
+      }
       const column = columns.get(id);
       if (!column) return;
       column.login?.remove();
@@ -437,7 +482,7 @@
       const reader = readers.get(column.partition);
       if (reader && columnsFor(reader).length === 0) {
         readers.dispose(column.partition);
-        statusRuntime?.dispose(column.partition);
+        if (!notifications.hasPartition(column.partition)) statusRuntime?.dispose(column.partition);
         accountIds.delete(column.partition);
         detail.forget(column.partition, { closeOpen: true });
       }
@@ -445,6 +490,8 @@
 
     // A removed account's posts and caches must never show up for whoever uses the slot next.
     function forgetAccount(partition = null) {
+      notifications.forget(partition);
+      notifications.renderAll();
       readers.all().forEach(reader => {
         if (partition && reader.partition !== partition) return;
         reader.posts = [];
@@ -475,16 +522,23 @@
       forgetAccount,
       getMemoryStats,
       getPendingReaction: reactions.getPendingReaction,
-      has: id => columns.has(id),
+      has: id => columns.has(id) || notifications.has(id),
+      hasNotificationColumn: partition => notifications.hasPartition(partition),
       loadMore,
       mount,
+      mountNotifications: options => {
+        loadAccountId(options.partition);
+        return notifications.mount(options);
+      },
       openPost: detail.open,
       openPostFrom: detail.openFrom,
       readNotificationBadge: readers.readNotificationBadge,
       refresh,
+      refreshNotifications: (id, options) => notifications.refresh(id, options),
       refreshPartition,
       rerenderAll: rerenderEverything,
       scrollTop,
+      setNotifications: (partition, items) => notifications.setItems(partition, items),
       switchTimeline: readers.switchTimeline,
       trim,
       updateRelativeTimes,

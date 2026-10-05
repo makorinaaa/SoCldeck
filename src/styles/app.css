@@ -580,6 +580,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 :root[data-density="comfortable"]{--ui-font:15px;--post-pad:16px;--post-line:1.8;--control-size:36px}
 .feed{font-size:var(--ui-font)}
 .feed .post{padding:var(--post-pad)}
+/* Off-screen posts and notifications in API columns skip layout and paint, like native X posts. */
+.feed>.post,.feed>.notif{content-visibility:auto;contain-intrinsic-size:auto 160px}
 .feed .p-body{font-size:1em;line-height:var(--post-line)}
 .feed .p-name{font-size:.95em}
 .feed .p-handle,.feed .p-time{font-size:.85em}
@@ -639,6 +641,13 @@ button:disabled{cursor:not-allowed}
 .col[data-kind="x-native"] .cbadge{cursor:pointer}
 /* Off-screen posts skip layout and paint; the browser remembers each post's last size. */
 .x-native-feed>.x-native-post{content-visibility:auto;contain-intrinsic-size:auto 180px}
+/* Native X notification Column: replies, mentions and quotes are posts; the rest are rows. */
+.x-native-notif-feed>.x-native-notif{content-visibility:auto;contain-intrinsic-size:auto 120px}
+.x-native-notif-post{border-bottom:1px solid var(--border)}
+.x-native-notif-post>.ntype{padding:9px 12px 0;margin-bottom:0}
+.x-native-notif-post>.post{border-bottom:0}
+.x-native-notif .nwho{font-weight:500;line-height:1.4}
+.x-notif-target{font-size:11px;line-height:1.45;color:var(--text3);margin-top:3px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .x-native-post.x-deleting{opacity:.45;pointer-events:none}
 .bsky-repost-menu .x-menu-danger{color:var(--red)}
 .x-native-tabs{position:sticky;top:0;z-index:2;display:flex;background:var(--bg1);border-bottom:1px solid var(--border)}

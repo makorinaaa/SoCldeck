@@ -200,6 +200,9 @@ const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
     refreshXNativeTimeline: id => xNativeTimelineRuntime
       ? xNativeTimelineRuntime.refresh(id, { force: context?.force === true, reload: context?.force === true })
       : { status: 'deferred', detail: 'unavailable' },
+    refreshXNativeNotifications: id => xNativeTimelineRuntime
+      ? xNativeTimelineRuntime.refreshNotifications(id, { force: context?.force === true })
+      : { status: 'deferred', detail: 'unavailable' },
   }),
   applyWidth: (id, width) => columnShellRuntime.applyWidth(id, width),
   applyCollapsed: id => columnShellRuntime.setCollapsed(id, true),
@@ -254,6 +257,10 @@ function insertColumnPlan(plan) {
   }
   if (plan?.kind === 'schedule') {
     mountAnimeScheduleColumn(plan.config);
+    return true;
+  }
+  if (plan?.kind === 'x-native' && plan.config.definitionId === 'x-notif-native') {
+    mountXNativeNotificationColumn(plan.config, null, plan.partition);
     return true;
   }
   if (plan?.kind === 'x-native') {
@@ -692,6 +699,40 @@ const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
 // fetched again at least this often in case the badge cannot be read.
 const xNotificationCache = new Map();
 const X_NOTIFICATION_MAX_AGE_MS = 5 * 60 * 1000;
+const xNotificationLoads = new Map();
+
+// Every reader of an account's X notifications (the notification center, its 30-second
+// background check, native notification Columns) shares one hidden notification page.
+// With a native Home Column, X's own notification badge on its hidden page says when
+// something new arrived; the notification page is then loaded only for that, and closed
+// right after. Without a badge, or while a native notification Column shows the account,
+// the page is kept and refreshed in place, instead of being created for every check.
+function loadXNotifications(account, accountIndex, { force = false } = {}) {
+  const partition = account.partition || `persist:x-${accountIndex}`;
+  const running = xNotificationLoads.get(partition);
+  if (running) return running;
+  const load = (async () => {
+    const cached = xNotificationCache.get(partition);
+    const badge = await xNativeTimelineRuntime?.readNotificationBadge(partition) ?? null;
+    const recent = cached && Date.now() - cached.at < X_NOTIFICATION_MAX_AGE_MS;
+    if (!force && badge !== null && recent && (badge === 0 || badge === cached.badge)) return cached.items;
+    const items = await xWebViewRuntime.listNotifications({
+      accountId: account.username || account.partition || `persist:x-${accountIndex}`,
+      host: document.getElementById('notif-center-x-readers'),
+      script: notificationCenter.buildXNotificationExtractionScript(40),
+      retainReader: badge === null || xNativeTimelineRuntime?.hasNotificationColumn?.(partition) === true,
+      refreshReader: true,
+      forceHidden: true,
+    });
+    xNotificationCache.set(partition, { items, badge, at: Date.now() });
+    return items;
+  })();
+  xNotificationLoads.set(partition, load);
+  load.finally(() => {
+    if (xNotificationLoads.get(partition) === load) xNotificationLoads.delete(partition);
+  }).catch(() => {});
+  return load;
+}
 
 // X accounts are told apart by their real @handle, learned from the account's own posts
 // (matched by the user id in the session cookie). The display name stays as entered.
@@ -723,8 +764,10 @@ const xNotificationCapture = xTimelineTap
   ? SocialDeckXNotificationCapture.createXNotificationCapture({
       tap: xTimelineTap,
       log: (...args) => console.debug('[XNative]', ...args),
-      onItems: (partition, items) => items.forEach(item =>
-        learnXHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle })),
+      onItems: (partition, items) => {
+        items.forEach(item => learnXHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle }));
+        xNativeTimelineRuntime?.setNotifications(partition, items);
+      },
       onFirstCapture: partition => {
         const account = getXAccountByPartition(partition);
         if (account) replyNotificationRuntime?.rebaseline(account);
@@ -781,6 +824,13 @@ const xNativeTimelineRuntime = xTimelineTap
       createRefreshScript: (destination, options) => SocialDeckXTimelineRefresh.createRefreshScript(destination, options),
       createToggleScript: options => SocialDeckXStatusActions.createToggleScript(options),
       log: (...args) => console.debug('[XNative]', ...args),
+      loadNotifications: (partition, options) => {
+        const accountIndex = getXAccountIndexByPartition(partition);
+        const account = state.xs?.[accountIndex];
+        if (!account) return Promise.reject(new Error('X アカウントが見つかりません'));
+        return loadXNotifications(account, accountIndex, options);
+      },
+      getNotifications: partition => xNotificationCapture?.items(partition) || null,
       intents: {
         openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
         openExternal: ({ url }) => window.open(url, '_blank', 'noopener'),
@@ -864,24 +914,7 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
           (Number(item.accountIndex) || 0) === accountIndex
         );
       }
-      // With a native Home Column, X's own notification badge on its hidden page says when
-      // something new arrived. The notification page is then loaded only for that, and
-      // closed right after, instead of staying open and reloading every 30 seconds.
-      const partition = account.partition || `persist:x-${accountIndex}`;
-      const cached = xNotificationCache.get(partition);
-      const badge = await xNativeTimelineRuntime?.readNotificationBadge(partition) ?? null;
-      const recent = cached && Date.now() - cached.at < X_NOTIFICATION_MAX_AGE_MS;
-      if (badge !== null && recent && (badge === 0 || badge === cached.badge)) return cached.items;
-      const items = await xWebViewRuntime.listNotifications({
-        accountId: account.username || account.partition || `persist:x-${accountIndex}`,
-        host: document.getElementById('notif-center-x-readers'),
-        script: notificationCenter.buildXNotificationExtractionScript(40),
-        retainReader: badge === null && desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
-        refreshReader: true,
-        forceHidden: true,
-      });
-      xNotificationCache.set(partition, { items, badge, at: Date.now() });
-      return items;
+      return loadXNotifications(account, accountIndex);
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
   },
@@ -1370,6 +1403,43 @@ function mountXNativeColumn(columnConfig, before = null, partition = 'persist:x-
   return root;
 }
 
+// ─── X NOTIFICATIONS (NATIVE) COLUMN ────────────
+// 非表示の通知ページ（通知センターと共有）が取得した通知を SocialDeck の表示で描画する
+function mountXNativeNotificationColumn(columnConfig, before = null, partition = 'persist:x-0') {
+  const columnId = columnConfig.id;
+  const { root, hosts, badge } = columnShellRuntime.mount({
+    id: columnId,
+    kind: 'x-native',
+    network: columnConfig.network,
+    definitionId: columnConfig.definitionId,
+    metadata: { partition },
+    title: columnConfig.title,
+    subtitle: columnConfig.sub,
+    iconClass: columnConfig.icCls,
+    icon: columnConfig.icon,
+    indicatorColor: '#e7e9ea',
+    badge: true,
+    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'x-native' }, 'remove'],
+    hosts: [{
+      name: 'content',
+      id: `feed-${columnId}`,
+      className: 'feed x-native-feed x-native-notif-feed',
+      loadingText: 'X の通知を読み込み中…',
+    }],
+    before,
+  });
+  if (xNativeTimelineRuntime) {
+    xNativeTimelineRuntime.mountNotifications({ id: columnId, partition, host: hosts.content, badge });
+  } else {
+    hosts.content.innerHTML = '<div class="feed-empty">このカラムはデスクトップ版でのみ使えます</div>';
+  }
+  columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
+
+  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
+  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
+  return root;
+}
+
 async function loadBskyFeed(cid, type, feedUri = null, append = false) {
   if (!state.b) return;
   if (!['timeline', 'feed', 'notif'].includes(type)) {
@@ -1679,7 +1749,7 @@ async function openXNotificationCenterItem(item) {
     (account.partition || account.username) === (item.account?.partition || item.account?.username));
   const account = state.xs?.[accountIndex];
   if (!account) return false;
-  const targetCol = goToNotifCol('x', accountIndex);
+  const targetCol = goToNotifCol('x', accountIndex, { webView: true });
   const columnId = targetCol?.id?.replace(/^col-/, '');
   if (!columnId) return false;
 
@@ -1721,22 +1791,27 @@ async function refreshAll() {
 
 // ─── NOTIF SHORTCUTS & SCROLL ───────────────────
 
-function goToNotifCol(plat, xIdx) {
+// The native notification Column is preferred: it runs no X page of its own. Opening a
+// notification by its place on X's page (`webView`) needs the WebView Column.
+function goToNotifCol(plat, xIdx, { webView = false } = {}) {
   let targetCol = null;
 
   if (plat === 'x') {
     const acc = state.xs?.[xIdx];
     if (!acc) return;
     const xPart = acc.partition || `persist:x-${xIdx}`;
-    targetCol = notificationCenter.findXNotificationColumn(
+    const nativeCol = webView || !xNativeTimelineRuntime ? null : [...document.querySelectorAll('.col')].find(col =>
+      col.dataset.definitionId === 'x-notif-native' && col.dataset.partition === xPart) || null;
+    targetCol = nativeCol || notificationCenter.findXNotificationColumn(
       document.querySelectorAll('.col'),
       xPart
     );
     if (!targetCol) {
-      const id = `x${xIdx}-notif-auto`;
+      const native = !webView && Boolean(xNativeTimelineRuntime);
+      const id = native ? `x${xIdx}-notif-native-auto` : `x${xIdx}-notif-auto`;
       const result = columnLifecycle.create({
         networkId: 'x',
-        definitionId: 'x-notif-new',
+        definitionId: native ? 'x-notif-native' : 'x-notif-new',
         id,
         account: { ...acc, index: xIdx, partition: xPart },
       });
@@ -1964,8 +2039,13 @@ if (hasStoredAccounts) {
 }
 
 // ─── VISIBILITY-BASED REFRESH THROTTLE ──────────
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
+// The main window keeps background throttling off, so its page never reports itself
+// hidden; Main sends minimize/restore instead. The widget window uses visibilitychange.
+let windowHidden = false;
+function setWindowHidden(hidden) {
+  if (hidden === windowHidden) return;
+  windowHidden = hidden;
+  if (hidden) {
     // バックグラウンド: 全タイマーを一時停止
     columnLifecycle.pauseRefresh();
     notificationRuntime.stopPoll();
@@ -1977,7 +2057,9 @@ document.addEventListener('visibilitychange', () => {
     if (state.b) startNotifPoll();
     startMemoryCleaner();
   }
-});
+}
+document.addEventListener('visibilitychange', () => setWindowHidden(document.hidden));
+window.electronAPI?.onWindowVisibility?.(({ hidden }) => setWindowHidden(hidden));
 
 startMemoryCleaner();
 

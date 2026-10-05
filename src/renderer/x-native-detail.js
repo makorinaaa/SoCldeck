@@ -93,14 +93,15 @@
       return detail;
     }
 
+    // A cached status page shows at once, but it may predate newer replies, so the view
+    // still waits for X to fetch the page again (see loadDetail).
+    // A page fetched for the post itself carries its replies; prefer it to the page of a
+    // reply that only lists this post as an ancestor.
     function useCachedDetail(detail) {
-      for (const payload of recentDetails.get(detail.partition) || []) {
-        const shaped = shapeDetail(payload, detail.focalId);
-        if (shaped) {
-          detail.data = shaped;
-          return;
-        }
-      }
+      const shaped = (recentDetails.get(detail.partition) || [])
+        .map(payload => shapeDetail(payload, detail.focalId))
+        .filter(Boolean);
+      detail.data = shaped.find(data => data.ownsReplies) || shaped[0] || detail.data;
     }
 
     function createDetail(partition, post, { previewText = '' } = {}) {
@@ -114,7 +115,7 @@
           <div class="chead"><h2>ポスト</h2><button class="cbtn" type="button" data-x-detail-external title="X で開く">↗</button><button class="cbtn" type="button" data-x-detail-close title="閉じる">&times;</button></div>
           <div class="bsky-post-detail-body"></div>
         </div>`;
-      const detail = { overlay, partition, focalId: post?.id || null, fallback: post, data: null, error: '', previewText };
+      const detail = { overlay, partition, focalId: post?.id || null, fallback: post, data: null, fresh: false, error: '', previewText };
       detail.handleKeyDown = event => {
         if (event.key === 'Escape' && !isMenuOpen()) close();
       };
@@ -147,21 +148,23 @@
       const ownsReplies = !payload.focalId || payload.focalId === focalId;
       return {
         focalId,
+        ownsReplies,
         ancestors: thread.slice(0, index),
         focal: thread[index],
         replies: ownsReplies ? payload.replies || [] : [],
       };
     }
 
+    // Waits for a status page captured after the view opened, not a cached one.
     function waitForDetail(detail, timeoutMs) {
       return new Promise(resolve => {
-        if (detail.data) {
+        if (detail.fresh) {
           resolve(true);
           return;
         }
         const timer = setTimeoutFn(() => {
           detail.onData = null;
-          resolve(Boolean(detail.data));
+          resolve(detail.fresh);
         }, timeoutMs);
         detail.onData = () => {
           clearTimeoutFn(timer);
@@ -180,6 +183,8 @@
         log('detail reload', post.id);
         await statusRuntime.run(detail.partition, post, undefined, { reload: true });
         if (await waitForDetail(detail, DETAIL_WAIT_MS) || activeDetail !== detail) return;
+        // Keep showing a cached conversation rather than replacing it with an error.
+        if (detail.data) return;
         detail.error = '返信を読み込めませんでした';
       } catch (error) {
         if (activeDetail !== detail) return;
@@ -198,10 +203,14 @@
         });
         const detail = activeDetail?.partition === partition ? activeDetail : null;
         const shaped = detail && shapeDetail(payload, detail.focalId);
-        if (shaped) {
+        if (shaped?.ownsReplies) {
           detail.data = shaped;
+          detail.fresh = true;
           detail.error = '';
           detail.onData?.();
+        } else if (shaped && !detail.data) {
+          // Another post's page shows this one without its replies: a placeholder only.
+          detail.data = shaped;
         }
         renderPartition(partition);
         return;

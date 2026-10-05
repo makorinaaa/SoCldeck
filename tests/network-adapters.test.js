@@ -382,7 +382,7 @@ test('native X Home definition creates an x-native plan bound to the account par
     partition: 'persist:x-1',
     config: {
       id: 'x1-native',
-      title: 'Home（ネイティブ・試作）',
+      title: 'Home（ネイティブ）',
       sub: 'X · alice',
       icCls: 'ic-x',
       icon: 'x',
@@ -406,6 +406,30 @@ test('restores native X Home Columns and routes their refresh to the native runt
   });
   assert.deepEqual(calls, ['x0-native']);
   assert.deepEqual(plain(result), { status: 'deferred', detail: 'throttled' });
+});
+
+test('native X notification Columns save their definition and refresh through the notification runtime', async () => {
+  const registry = createRegistry();
+  const plan = registry.createColumnPlan({
+    networkId: 'x',
+    definitionId: 'x-notif-native',
+    id: 'x0-notif-native',
+    account: { index: 0, username: 'alice', partition: 'persist:x-0' },
+  });
+  assert.equal(plan.kind, 'x-native');
+  assert.equal(plan.config.definitionId, 'x-notif-native');
+  assert.deepEqual(plain(plan.refresh), { networkId: 'x', kind: 'x-native', definitionId: 'x-notif-native' });
+  const stored = { kind: 'x-native', definitionId: 'x-notif-native', id: 'x0-notif-native', partition: 'persist:x-0' };
+  assert.equal(registry.resolveColumnDefinition(stored).id, 'x-notif-native');
+  // WebView notification Columns keep their own definition.
+  assert.equal(registry.resolveColumnDefinition({ kind: 'wv', url: 'https://x.com/notifications' }).id, 'x-notif-new');
+
+  const calls = [];
+  await registry.executeColumnRefresh('x0-notif-native', plan.refresh, {
+    refreshXNativeTimeline: id => calls.push(['timeline', id]),
+    refreshXNativeNotifications: id => calls.push(['notifications', id]),
+  });
+  assert.deepEqual(calls, [['notifications', 'x0-notif-native']]);
 });
 
 test('X compose capability carries a native Column reply target to delivery', () => {

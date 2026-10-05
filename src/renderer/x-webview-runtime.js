@@ -25,6 +25,9 @@
     const silentReloading = new Set();
     const notificationReads = new Set();
     const extractedReaders = new WeakSet();
+    // Accounts where pressing X's Notifications tab did not bring new data: those reload.
+    const inPageRefreshMisses = new Map();
+    const MAX_IN_PAGE_REFRESH_MISSES = 2;
 
     function syncAccounts(nextAccounts = []) {
       accounts = nextAccounts.map((account, index) => ({
@@ -500,6 +503,20 @@
       return { columnWebViewCount, notificationReaderCount };
     }
 
+    // A kept notification page refreshes like a person would: pressing X's Notifications tab
+    // makes X fetch only the notification data, instead of reloading the whole page.
+    async function refreshInPage(webview, partition, since) {
+      if (!notificationCapture || !createRefreshScript || webview.dataset.ready !== 'true') return null;
+      if (notificationCapture.mode(partition) !== 'captured') return null;
+      if ((inPageRefreshMisses.get(partition) || 0) >= MAX_IN_PAGE_REFRESH_MISSES) return null;
+      const result = await webview.executeJavaScript(createRefreshScript('notifications')).catch(() => 'failed');
+      const captured = result === 'notifications-clicked'
+        ? await notificationCapture.wait(partition, since, 5000)
+        : null;
+      inPageRefreshMisses.set(partition, captured ? 0 : (inPageRefreshMisses.get(partition) || 0) + 1);
+      return captured;
+    }
+
     async function listNotifications({ accountId, host, script, retainReader = false, refreshReader = false, forceHidden = false }) {
       const account = findAccount(accountId);
       if (!account) return [];
@@ -510,6 +527,8 @@
       notificationReads.add(webview);
       try {
         if (hiddenReader && refreshReader && extractedReaders.has(webview)) {
+          const refreshed = await refreshInPage(webview, account.partition, since);
+          if (refreshed) return refreshed;
           // A retained reader needs a refresh; a new reader is already navigating via src.
           // reload() has no loadURL promise that can reject on X's client redirects.
           webview.dataset.ready = 'false';

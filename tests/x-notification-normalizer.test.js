@@ -77,6 +77,9 @@ test('reads the GraphQL format: aggregated actions and post notifications', () =
   const mention = result.notifications.find(item => item.id !== 'a');
   assert.equal(mention.reason, 'mention');
   assert.equal(mention.targetId, '1800000000000000003');
+  // Native notification Columns draw these posts themselves.
+  assert.equal(mention.post.id, '1800000000000000003');
+  assert.equal(repost.target.id, '1800000000000000003');
 });
 
 test('unknown notification data yields nothing, so the page is read instead', () => {

@@ -84,10 +84,26 @@ test('the first capture is remembered across restarts and re-baselines once', as
   assert.equal(restarted.capture.mode('persist:x-0'), 'unknown');
 });
 
-test('captures from other WebViews and continued pages are ignored', async () => {
+test('captures from other WebViews, and continued pages before a first page, are ignored', async () => {
   const { capture, emit } = setup();
   await capture.attach(7, 'persist:x-0');
   emit({ webContentsId: 8, notifications: [item] });
   emit({ webContentsId: 7, notifications: [item], requestCursor: 'OLDER' });
   assert.equal(capture.last('persist:x-0'), null);
+});
+
+test('a continued page merges newer notifications into the newest list', async () => {
+  const { capture, emit, tick } = setup();
+  await capture.attach(7, 'persist:x-0');
+  const older = { ...item, id: 'n1', indexedAt: '2026-10-06T10:00:00.000Z' };
+  emit({ webContentsId: 7, notifications: [older] });
+  tick(10);
+  const waiting = capture.wait('persist:x-0', 1005);
+  const newer = { ...item, id: 'n2', indexedAt: '2026-10-06T11:00:00.000Z' };
+  const updated = { ...older, text: 'liked by 2' };
+  emit({ webContentsId: 7, notifications: [newer, updated], requestCursor: 'TOP' });
+  const raw = await waiting;
+  const plain = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(raw.map(entry => entry.text)), ['liked', 'liked by 2']);
+  assert.deepEqual(plain(capture.last('persist:x-0').map(entry => entry.indexedAt)), [newer.indexedAt, older.indexedAt]);
 });

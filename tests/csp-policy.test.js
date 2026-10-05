@@ -19,6 +19,15 @@ test('enforces a renderer CSP without executable inline code or wildcard connect
   assert.doesNotMatch(policy, /connect-src[^;]*\*/);
 });
 
+test('remote post media cannot point at local files', () => {
+  const index = read('src/index.html');
+  const policy = index.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] || '';
+
+  // 'self' on a file:// page matches other file:// URLs, so media sources leave it out.
+  assert.match(policy, /img-src https: data: blob:;/);
+  assert.match(policy, /media-src https: blob:;/);
+});
+
 test('serves the application font locally instead of Google Fonts', () => {
   const index = read('src/index.html');
   const policy = index.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] || '';
@@ -51,6 +60,7 @@ test('blocks production DevTools', () => {
   const main = read('src/main.js');
   const preload = read('src/preload.js');
   assert.match(main, /if \(!isDevelopment\) return false;/);
+  assert.match(main, /const isDevelopment = !app\.isPackaged && /);
   assert.match(preload, /devToolsEnabled: isDevelopment/);
   assert.doesNotMatch(main, /lower === 'content-security-policy'/);
 });

@@ -58,6 +58,7 @@ import './x-native-page-scripts.js';
 import './x-native-column-view.js';
 import './x-native-detail.js';
 import './x-native-reactions.js';
+import './x-native-notifications.js';
 import './x-native-readers.js';
 import './x-native-timeline-runtime.js';
 import './x-notification-capture.js';

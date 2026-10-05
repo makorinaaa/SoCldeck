@@ -3,6 +3,39 @@
 
   const TIMELINE_LABELS = { 'for-you': 'おすすめ', following: 'フォロー中' };
 
+  // Updates a list in place: unchanged entries keep their DOM nodes (a playing video keeps
+  // playing, images are not decoded again) and only new or changed entries are built.
+  // Chromium's scroll anchoring keeps the reading position when entries are added above.
+  // `rendered` maps each element to the HTML it was built from; `keyOf` names an element.
+  function patchKeyedChildren({ host, entries, rendered, keyOf, createElementFromHtml }) {
+    if (typeof host.insertBefore !== 'function') {
+      host.innerHTML = entries.map(entry => entry.html).join('');
+      return;
+    }
+    const existing = new Map();
+    Array.from(host.children || []).forEach(element => {
+      const key = keyOf(element);
+      if (key && !existing.has(key) && rendered.has(element)) existing.set(key, element);
+      else element.remove();
+    });
+    let cursor = host.firstElementChild;
+    for (const entry of entries) {
+      let element = existing.get(entry.key);
+      existing.delete(entry.key);
+      if (element && rendered.get(element) !== entry.html) {
+        const fresh = createElementFromHtml(entry.html);
+        if (cursor === element) cursor = fresh;
+        element.replaceWith(fresh);
+        element = fresh;
+      }
+      if (!element) element = createElementFromHtml(entry.html);
+      rendered.set(element, entry.html);
+      if (element === cursor) cursor = cursor.nextElementSibling;
+      else host.insertBefore(element, cursor);
+    }
+    existing.forEach(element => element.remove());
+  }
+
   // Draws a native X Column from a reader's state. It owns only DOM work: rendered HTML is
   // cached per post and the Column is patched in place.
   function createXNativeColumnView({
@@ -49,37 +82,8 @@
       return null;
     }
 
-    // Updates a column in place: unchanged posts keep their DOM nodes (a playing video keeps
-    // playing, images are not decoded again) and only new or changed posts are built.
-    // Chromium's scroll anchoring keeps the reading position when posts are added above.
     function patchColumn(column, entries) {
-      const { host } = column;
-      if (typeof host.insertBefore !== 'function') {
-        host.innerHTML = entries.map(entry => entry.html).join('');
-        return;
-      }
-      const existing = new Map();
-      Array.from(host.children || []).forEach(element => {
-        const key = keyOf(element);
-        if (key && !existing.has(key) && column.rendered.has(element)) existing.set(key, element);
-        else element.remove();
-      });
-      let cursor = host.firstElementChild;
-      for (const entry of entries) {
-        let element = existing.get(entry.key);
-        existing.delete(entry.key);
-        if (element && column.rendered.get(element) !== entry.html) {
-          const fresh = createElementFromHtml(entry.html);
-          if (cursor === element) cursor = fresh;
-          element.replaceWith(fresh);
-          element = fresh;
-        }
-        if (!element) element = createElementFromHtml(entry.html);
-        column.rendered.set(element, entry.html);
-        if (element === cursor) cursor = cursor.nextElementSibling;
-        else host.insertBefore(element, cursor);
-      }
-      existing.forEach(element => element.remove());
+      patchKeyedChildren({ host: column.host, entries, rendered: column.rendered, keyOf, createElementFromHtml });
     }
 
     function tabsHtml(reader) {
@@ -96,7 +100,7 @@
     }
 
     function refreshTimes(host) {
-      host?.querySelectorAll?.('.p-time[data-created-at]').forEach(element => {
+      host?.querySelectorAll?.('.p-time[data-created-at], .nago[data-created-at]').forEach(element => {
         const label = relTime(element.dataset.createdAt);
         if (element.textContent !== label) element.textContent = label;
       });
@@ -156,5 +160,5 @@
     return String(text || '').replace(/(?:\s*·\s*(?:おすすめ|フォロー中))+\s*$/, '');
   }
 
-  global.SocialDeckXNativeColumnView = { baseSubtitleOf, createXNativeColumnView };
+  global.SocialDeckXNativeColumnView = { baseSubtitleOf, createXNativeColumnView, patchKeyedChildren };
 })(window);

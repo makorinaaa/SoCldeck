@@ -108,3 +108,28 @@ test('clears the encrypted session idempotently', t => {
   assert.equal(harness.vault.clear(), true);
   assert.equal(harness.vault.load(), null);
 });
+
+test('reads and decrypts the stored session once, then serves it from memory', t => {
+  const harness = createHarness();
+  t.after(harness.cleanup);
+  harness.vault.save(SESSION);
+
+  let reads = 0;
+  const vault = createBlueskySessionVault({
+    filePath: harness.filePath,
+    safeStorage: createSafeStorage(),
+    fsImpl: { ...fs, readFileSync: (...args) => { reads += 1; return fs.readFileSync(...args); } },
+  });
+  assert.deepEqual(vault.load(), SESSION);
+  vault.load().accessJwt = 'mutated';
+  assert.deepEqual(vault.load(), SESSION);
+  assert.equal(reads, 1);
+
+  const refreshed = { ...SESSION, accessJwt: 'access-refreshed-token' };
+  vault.save(refreshed);
+  assert.deepEqual(vault.load(), refreshed);
+  assert.equal(reads, 1);
+
+  vault.clear();
+  assert.equal(vault.load(), null);
+});

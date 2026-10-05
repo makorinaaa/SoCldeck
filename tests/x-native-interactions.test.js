@@ -11,7 +11,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function load() {
   const context = { window: {}, URL };
-  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-posts.js', 'x-native-page-scripts.js', 'x-native-column-view.js', 'x-native-detail.js', 'x-native-reactions.js', 'x-native-readers.js', 'x-native-timeline-runtime.js']) {
+  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-posts.js', 'x-native-page-scripts.js', 'x-native-column-view.js', 'x-native-detail.js', 'x-native-reactions.js', 'x-native-notifications.js', 'x-native-readers.js', 'x-native-timeline-runtime.js']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', name), 'utf8'), context);
   }
   return context.window;
@@ -277,6 +277,91 @@ test('a detail with no captured conversation reloads the status page once before
   timers.shift()();
   await flush();
   assert.match(detail.overlay.detailBody.innerHTML, /返信を読み込めませんでした/);
+});
+
+function createDetailHarness() {
+  const window = load();
+  const runs = [];
+  const timers = [];
+  const appended = [];
+  let captured = null;
+  const documentRef = createTarget({
+    body: { appendChild: node => appended.push(node) },
+    createElement: () => {
+      const detailBody = { innerHTML: '' };
+      return createTarget({ style: {}, innerHTML: '', detailBody, querySelector: () => detailBody, querySelectorAll: () => [], remove() {} });
+    },
+  });
+  const view = window.SocialDeckXPostView.createXPostView({});
+  const runtime = window.SocialDeckXNativeTimelineRuntime.createXNativeTimelineRuntime({
+    documentRef,
+    tap: { attach: async () => true, onCaptured: fn => { captured = fn; } },
+    statusRuntime: {
+      partitionOf: id => (id === 77 ? 'persist:x-0' : null),
+      run: async (partition, target, task, options) => { runs.push(options?.reload === true); },
+      dispose() {},
+    },
+    renderPost: view.renderPost,
+    renderThread: view.renderThread,
+    setTimeoutFn: fn => { timers.push(fn); return timers.length; },
+    clearTimeoutFn: () => {},
+  });
+  return { runtime, runs, timers, emit: payload => captured(payload) };
+}
+
+test('a conversation cached before a reply arrived is refreshed by reloading the status page', async () => {
+  const harness = createDetailHarness();
+  const [focal, reply] = normalizeTimelineResponse(fixture).posts;
+  const staleFocal = { ...focal, counts: { ...focal.counts, reply: 0 } };
+  // The post was opened earlier, before anyone replied.
+  harness.emit({ webContentsId: 77, operation: 'TweetDetail', focalId: focal.id, thread: [staleFocal], replies: [] });
+
+  const detail = harness.runtime.openPost(focal, 'persist:x-0');
+  assert.match(detail.overlay.detailBody.innerHTML, new RegExp(`data-x-id="${focal.id}"`), 'the cached conversation shows at once');
+  await flush();
+  // X serves the visited status from its own cache and fetches nothing.
+  harness.timers.shift()();
+  await flush();
+  assert.deepEqual(harness.runs, [false, true], 'the cached copy does not stop the reload');
+
+  harness.emit({ webContentsId: 77, operation: 'TweetDetail', focalId: focal.id, thread: [focal], replies: [{ post: reply, replies: [] }] });
+  await flush();
+  assert.match(detail.overlay.detailBody.innerHTML, new RegExp(`data-x-id="${reply.id}"`));
+  assert.doesNotMatch(detail.overlay.detailBody.innerHTML, /返信はありません/);
+});
+
+test('a cached conversation stays without an error when the reload fetches nothing', async () => {
+  const harness = createDetailHarness();
+  const [focal, reply] = normalizeTimelineResponse(fixture).posts;
+  harness.emit({ webContentsId: 77, operation: 'TweetDetail', focalId: focal.id, thread: [focal], replies: [{ post: reply, replies: [] }] });
+  const detail = harness.runtime.openPost(focal, 'persist:x-0');
+  await flush();
+  harness.timers.shift()();
+  await flush();
+  harness.timers.shift()();
+  await flush();
+  assert.deepEqual(harness.runs, [false, true]);
+  assert.match(detail.overlay.detailBody.innerHTML, new RegExp(`data-x-id="${reply.id}"`));
+  assert.doesNotMatch(detail.overlay.detailBody.innerHTML, /返信を読み込めませんでした/);
+});
+
+test("a reply's status page does not replace the open post's replies", async () => {
+  const harness = createDetailHarness();
+  const [focal, reply] = normalizeTimelineResponse(fixture).posts;
+  const ownPage = { webContentsId: 77, operation: 'TweetDetail', focalId: focal.id, thread: [focal], replies: [{ post: reply, replies: [] }] };
+  const replyPage = { webContentsId: 77, operation: 'TweetDetail', focalId: reply.id, thread: [focal, reply], replies: [] };
+  harness.emit(ownPage);
+  harness.emit(replyPage);
+
+  // The newer cached page belongs to the reply; the post's own page still wins.
+  const detail = harness.runtime.openPost(focal, 'persist:x-0');
+  assert.match(detail.overlay.detailBody.innerHTML, new RegExp(`data-x-id="${reply.id}"`));
+
+  await flush();
+  harness.emit(ownPage);
+  harness.emit(replyPage);
+  assert.match(detail.overlay.detailBody.innerHTML, new RegExp(`data-x-id="${reply.id}"`));
+  assert.doesNotMatch(detail.overlay.detailBody.innerHTML, /返信はありません/);
 });
 
 test('openPostFrom shows a searching state, then the found post with an already captured thread', async () => {

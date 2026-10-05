@@ -64,6 +64,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('update-status', listener);
   },
 
+  onWindowVisibility: fn => {
+    if (typeof fn !== 'function') return () => {};
+    const listener = (_, state) => fn({ hidden: state?.hidden === true });
+    ipcRenderer.on('window-visibility', listener);
+    return () => ipcRenderer.removeListener('window-visibility', listener);
+  },
+
   // ウィンドウ
   minimize: () => ipcRenderer.invoke('minimize'),
   maximize: () => ipcRenderer.invoke('maximize'),

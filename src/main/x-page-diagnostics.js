@@ -14,8 +14,18 @@ function pageKind(url) {
   } catch { return null; }
 }
 
+// Only these requests can be detail operations, so the session hooks leave every other
+// request (images, video, scripts) alone instead of calling into the main process.
+const GRAPHQL_URLS = [
+  '*://x.com/*graphql/*',
+  '*://api.x.com/*graphql/*',
+  '*://twitter.com/*graphql/*',
+  '*://api.twitter.com/*graphql/*',
+];
+
 // Store timing and outcomes only: never URLs, request bodies, cookies, or headers.
-function createXPageDiagnostics({ save, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+// save runs while the app is in use and may be asynchronous; saveSync runs on quit.
+function createXPageDiagnostics({ save, saveSync = save, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const events = [];
   const pending = new Map();
   const sessions = new WeakSet();
@@ -25,14 +35,15 @@ function createXPageDiagnostics({ save, now = Date.now, setTimer = setTimeout, c
     if (events.length > 200) events.shift();
     if (!timer) timer = setTimer(() => {
       timer = null;
-      try { save({ version: 1, events: events.slice() }); } catch {}
+      try { Promise.resolve(save({ version: 1, events: events.slice() })).catch(() => {}); } catch {}
     }, 1000);
   }
   function attachSession(session) {
     if (sessions.has(session)) return;
     sessions.add(session);
     // These observation hooks do not replace request blocking or header handling.
-    session.webRequest.onSendHeaders(details => {
+    const filter = { urls: GRAPHQL_URLS };
+    session.webRequest.onSendHeaders(filter, details => {
       const name = operation(details.url);
       if (!name) return;
       if (pending.size >= 500) pending.delete(pending.keys().next().value);
@@ -48,8 +59,8 @@ function createXPageDiagnostics({ save, now = Date.now, setTimer = setTimeout, c
         status: details.statusCode || 0, elapsedMs: start === undefined ? null : now() - start,
         ...(error ? { error: /^net::ERR_[A-Z0-9_]+$/.test(error) ? error : 'network-error' } : {}) });
     }
-    session.webRequest.onCompleted(details => complete(details));
-    session.webRequest.onErrorOccurred(details => complete(details, details.error || 'network-error'));
+    session.webRequest.onCompleted(filter, details => complete(details));
+    session.webRequest.onErrorOccurred(filter, details => complete(details, details.error || 'network-error'));
   }
   function attachContents(contents) {
     attachSession(contents.session);
@@ -73,9 +84,9 @@ function createXPageDiagnostics({ save, now = Date.now, setTimer = setTimeout, c
   function flush() {
     if (timer) clearTimer(timer);
     timer = null;
-    try { save({ version: 1, events: events.slice() }); } catch {}
+    try { saveSync({ version: 1, events: events.slice() }); } catch {}
   }
   return { attachContents, blocked, flush };
 }
 
-module.exports = { createXPageDiagnostics, operation, pageKind };
+module.exports = { GRAPHQL_URLS, createXPageDiagnostics, operation, pageKind };

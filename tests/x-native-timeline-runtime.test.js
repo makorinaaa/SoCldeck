@@ -10,7 +10,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 function load() {
   const context = { window: {}, URL };
-  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-posts.js', 'x-native-page-scripts.js', 'x-native-column-view.js', 'x-native-detail.js', 'x-native-reactions.js', 'x-native-readers.js', 'x-native-timeline-runtime.js']) {
+  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-posts.js', 'x-native-page-scripts.js', 'x-native-column-view.js', 'x-native-detail.js', 'x-native-reactions.js', 'x-native-notifications.js', 'x-native-readers.js', 'x-native-timeline-runtime.js']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', name), 'utf8'), context);
   }
   return context.window;
