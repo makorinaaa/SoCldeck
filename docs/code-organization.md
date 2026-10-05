@@ -31,6 +31,7 @@ XとBlueskyで異なる形式・サイズ・時間制限は各モジュールで
 | `src/renderer/network-adapters.js` | X / Bluesky等の機能・カラム定義 |
 | `src/renderer/compose-*.js` | 共通の投稿画面、下書き、試行状態、同時投稿 |
 | `src/renderer/x-composer-submit.mjs` | Xページ内への入力、添付の準備確認、送信 |
+| `src/renderer/x-composer-dom.js` | Xの投稿欄と添付メディアの検出（投稿準備・投稿確認で共用） |
 | `src/renderer/bsky-*.js` | Blueskyの投稿表示、カラム、プロフィール、リアクション等 |
 | `src/renderer/notification-*.js` | 通知の取得、表示、未読状態、会話表示 |
 | `src/renderer/column-*.js` | カラムの生成・保存・並べ替え・削除取り消し |

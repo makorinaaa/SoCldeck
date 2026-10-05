@@ -50,6 +50,7 @@ import './widget-mode-runtime.js';
 import './workspace-backup.js';
 import './workspace-storage.js';
 import './x-compose-delivery.js';
+import './x-composer-dom.js';
 import './x-compose-preparation.js';
 import './x-login-gate.js';
 import './x-post-confirmation.js';
