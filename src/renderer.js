@@ -688,6 +688,11 @@ const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
       onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
     }
   : null;
+// Notifications fetched per account, reused while X's badge shows nothing new. They are
+// fetched again at least this often in case the badge cannot be read.
+const xNotificationCache = new Map();
+const X_NOTIFICATION_MAX_AGE_MS = 5 * 60 * 1000;
+
 // X accounts are told apart by their real @handle, learned from the account's own posts
 // (matched by the user id in the session cookie). The display name stays as entered.
 const xAccountIds = new Map();
@@ -859,14 +864,24 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
           (Number(item.accountIndex) || 0) === accountIndex
         );
       }
-      return xWebViewRuntime.listNotifications({
+      // With a native Home Column, X's own notification badge on its hidden page says when
+      // something new arrived. The notification page is then loaded only for that, and
+      // closed right after, instead of staying open and reloading every 30 seconds.
+      const partition = account.partition || `persist:x-${accountIndex}`;
+      const cached = xNotificationCache.get(partition);
+      const badge = await xNativeTimelineRuntime?.readNotificationBadge(partition) ?? null;
+      const recent = cached && Date.now() - cached.at < X_NOTIFICATION_MAX_AGE_MS;
+      if (badge !== null && recent && (badge === 0 || badge === cached.badge)) return cached.items;
+      const items = await xWebViewRuntime.listNotifications({
         accountId: account.username || account.partition || `persist:x-${accountIndex}`,
         host: document.getElementById('notif-center-x-readers'),
         script: notificationCenter.buildXNotificationExtractionScript(40),
-        retainReader: desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
+        retainReader: badge === null && desktopNotificationRuntime?.getSnapshot().rules.enabled === true,
         refreshReader: true,
         forceHidden: true,
       });
+      xNotificationCache.set(partition, { items, badge, at: Date.now() });
+      return items;
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
   },
@@ -953,6 +968,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       : Promise.resolve(false),
     clear: partition => {
       xNativeTimelineRuntime?.forgetAccount(partition);
+      xNotificationCache.delete(partition);
       xNotificationCapture?.forget(partition);
       return IS_ELECTRON
         ? window.electronAPI?.clearXSession?.(partition)
@@ -960,6 +976,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     },
     clearAll: () => {
       xNativeTimelineRuntime?.forgetAccount();
+      xNotificationCache.clear();
       xNotificationCapture?.forget();
       return IS_ELECTRON
         ? window.electronAPI?.clearAllXSessions?.()

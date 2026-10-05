@@ -501,3 +501,13 @@ test('while X polls on its own, the automatic refresh does not click Home', asyn
   harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture), requestCursor: 'TOP' });
   await automatic;
 });
+
+test('reads the unread count from X notification tab badge', () => {
+  const { readNotificationBadge } = load().SocialDeckXNativeTimelineRuntime;
+  const link = (label, text = '') => ({ getAttribute: () => label, textContent: text });
+  const doc = found => ({ querySelector: selector => (selector.includes('AppTabBar_Notifications_Link') ? found : null) });
+  assert.equal(readNotificationBadge(doc(link('通知 (3件の未読通知)'))), 3);
+  assert.equal(readNotificationBadge(doc(link(null, '通知12'))), 12);
+  assert.equal(readNotificationBadge(doc(link('Notifications', 'Notifications'))), 0);
+  assert.equal(readNotificationBadge({ querySelector: () => null }), null);
+});

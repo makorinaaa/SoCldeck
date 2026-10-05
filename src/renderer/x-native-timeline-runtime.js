@@ -164,6 +164,23 @@
     return `(window.scrollTo(0, 0), (${selectFollowingRecent.toString()})(document, setTimeout))`;
   }
 
+  // Serialized into X's home page: the unread count on X's own Notifications tab.
+  // Returns null when the tab is not on the page, 0 when it shows no count.
+  function readNotificationBadge(documentLike) {
+    const link = documentLike.querySelector('[data-testid="AppTabBar_Notifications_Link"]')
+      || documentLike.querySelector('a[href="/notifications"]');
+    if (!link) return null;
+    const label = /(\d+)/.exec(String(link.getAttribute('aria-label') || ''));
+    if (label) return Number(label[1]);
+    const text = String(link.textContent || '').replace(/\s+/g, '');
+    const count = /(\d+)\+?$/.exec(text);
+    return count ? Number(count[1]) : 0;
+  }
+
+  function createNotificationBadgeScript() {
+    return `(${readNotificationBadge.toString()})(document)`;
+  }
+
   // Serialized into X's home page: which tab is selected right now.
   function readSelectedTab(documentLike) {
     const selected = Array.from(documentLike.querySelectorAll('[role="tab"]'))
@@ -1399,6 +1416,15 @@
       return { readersReloaded, statusReadersDisposed };
     }
 
+    // The hidden home page's notification badge tells whether X has new notifications, so
+    // the notification page only needs loading when the count changes.
+    async function readNotificationBadgeFor(partition) {
+      const reader = readers.get(partition);
+      if (!reader || reader.status !== 'ready' || reader.webContentsId === null) return null;
+      const count = await reader.webview.executeJavaScript(createNotificationBadgeScript()).catch(() => null);
+      return Number.isInteger(count) && count >= 0 ? count : null;
+    }
+
     function getMemoryStats() {
       return {
         readers: readers.size,
@@ -1416,6 +1442,7 @@
       dispose,
       forgetAccount,
       getMemoryStats,
+      readNotificationBadge: readNotificationBadgeFor,
       trim,
       getPendingReaction,
       has,
@@ -1435,10 +1462,12 @@
   global.SocialDeckXNativeTimelineRuntime = {
     createXNativeTimelineRuntime,
     createFollowingRecentScript,
+    createNotificationBadgeScript,
     createReadTabScript,
     createSelectTabScript,
     mergePosts,
     placeOnTop,
+    readNotificationBadge,
     readSelectedTab,
     selectFollowingRecent,
     selectHomeTab,
