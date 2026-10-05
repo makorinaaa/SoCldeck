@@ -354,3 +354,64 @@ test('startup shows no saved posts and removes posts saved by earlier builds', (
   assert.equal(storage.getItem('socialdeck_x_native_snapshot_persist:x-0'), null);
   assert.equal(storage.getItem('other-setting'), 'kept');
 });
+
+test('unchanged posts reuse their rendered HTML across renders', async () => {
+  const window = load();
+  let renders = 0;
+  const listeners = {};
+  const webview = { setAttribute() {}, addEventListener(type, fn) { (listeners[type] ||= []).push(fn); }, getWebContentsId: () => 41, loadURL: () => Promise.resolve(), executeJavaScript: () => Promise.resolve(true), remove() {} };
+  let captured = null;
+  const view = window.SocialDeckXPostView.createXPostView({});
+  const runtime = window.SocialDeckXNativeTimelineRuntime.createXNativeTimelineRuntime({
+    documentRef: { hidden: false, createElement: () => webview },
+    getReaderHost: () => ({ appendChild() {} }),
+    tap: { attach: async () => true, onCaptured: fn => { captured = fn; } },
+    renderPost: (post, options) => { renders += 1; return view.renderPost(post, options); },
+    createElementFromHtml: html => new FakeElement(html),
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {},
+  });
+  runtime.mount({ id: 'a', partition: 'persist:x-0', host: createHost() });
+  await Promise.all((listeners['dom-ready'] || []).map(fn => fn()));
+  const timeline = normalizeTimelineResponse(fixture);
+  captured({ webContentsId: 41, ...timeline, firstPage: true });
+  const first = renders;
+  assert.equal(first, timeline.posts.length);
+  // A refresh that only adds a new post renders just that post.
+  const newer = { ...timeline.posts[0], id: '1900000000000000009', sortIndex: '1900000000000000009', url: 'https://x.com/alice/status/1900000000000000009' };
+  captured({ webContentsId: 41, ...timeline, posts: [newer], requestCursor: 'TOP' });
+  assert.equal(renders, first + 1);
+  // Muting rules re-render everything visible without rebuilding unchanged posts.
+  runtime.rerenderAll();
+  assert.equal(renders, first + 1);
+});
+
+test('a refresh that sends the same posts again renders nothing', async () => {
+  const window = load();
+  let renders = 0;
+  const listeners = {};
+  const webview = { setAttribute() {}, addEventListener(type, fn) { (listeners[type] ||= []).push(fn); }, getWebContentsId: () => 41, loadURL: () => Promise.resolve(), executeJavaScript: () => Promise.resolve(true), remove() {} };
+  let captured = null;
+  const view = window.SocialDeckXPostView.createXPostView({});
+  const runtime = window.SocialDeckXNativeTimelineRuntime.createXNativeTimelineRuntime({
+    documentRef: { hidden: false, createElement: () => webview },
+    getReaderHost: () => ({ appendChild() {} }),
+    tap: { attach: async () => true, onCaptured: fn => { captured = fn; } },
+    renderPost: (post, options) => { renders += 1; return view.renderPost(post, options); },
+    createElementFromHtml: html => new FakeElement(html),
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {},
+  });
+  runtime.mount({ id: 'a', partition: 'persist:x-0', host: createHost() });
+  await Promise.all((listeners['dom-ready'] || []).map(fn => fn()));
+  captured({ webContentsId: 41, ...normalizeTimelineResponse(fixture), firstPage: true });
+  const first = renders;
+  // X sends fresh objects with the same content (as after JSON parsing).
+  captured({ webContentsId: 41, ...normalizeTimelineResponse(fixture), firstPage: true });
+  assert.equal(renders, first);
+  // A changed count re-renders only that post.
+  const changed = normalizeTimelineResponse(fixture);
+  changed.posts[1] = { ...changed.posts[1], counts: { ...changed.posts[1].counts, like: 1234 } };
+  captured({ webContentsId: 41, ...changed, firstPage: true });
+  assert.equal(renders, first + 1);
+});

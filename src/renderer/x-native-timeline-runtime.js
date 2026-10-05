@@ -34,7 +34,13 @@
       if (!post?.id) return;
       const previous = byId.get(post.id);
       // Keep the original position for posts already shown; re-ranking would make them jump.
-      byId.set(post.id, previous ? { ...post, sortIndex: previous.sortIndex, local: previous.local && !post.sortIndex } : post);
+      if (!previous) {
+        byId.set(post.id, post);
+        return;
+      }
+      const next = { ...post, sortIndex: previous.sortIndex, local: previous.local && !post.sortIndex };
+      // Unchanged posts keep their object, so their rendered HTML is reused.
+      byId.set(post.id, JSON.stringify(next) === JSON.stringify(previous) ? previous : next);
     });
     return [...byId.values()].sort(compareSortIndex).slice(0, limit);
   }
@@ -471,6 +477,28 @@
       reader.webview.remove();
     }
 
+    // Posts are immutable objects (an update makes a new one), so a post's HTML is kept until
+    // the post, its account view, or a pending reaction on it changes.
+    const postHtmlCache = new WeakMap();
+    function postHtml(post, options) {
+      const like = getPendingReaction('like', post.id, options.partition);
+      const repost = getPendingReaction('repost', post.id, options.partition);
+      const key = [options.partition, options.own ? 1 : 0, options.deleting ? 1 : 0,
+        like ? like.active : '-', repost ? repost.active : '-'].join('|');
+      let variants = postHtmlCache.get(post);
+      if (!variants) {
+        variants = new Map();
+        postHtmlCache.set(post, variants);
+      }
+      let html = variants.get(key);
+      if (html === undefined) {
+        if (variants.size >= 4) variants.clear();
+        html = renderPost(post, options);
+        variants.set(key, html);
+      }
+      return html;
+    }
+
     function keyOf(element) {
       if (element.dataset?.xId) return `post:${element.dataset.xId}`;
       if (element.hasAttribute?.('data-x-native-more')) return 'more';
@@ -556,7 +584,7 @@
       else if (reader.status === 'error') {
         entries.push({ key: 'notice', html: `<div class="x-native-notice">${escapeHtml(reader.message)}</div>` });
       }
-      visible.forEach(post => entries.push({ key: `post:${post.id}`, html: renderPost(post, postOptions(post, column.partition)) }));
+      visible.forEach(post => entries.push({ key: `post:${post.id}`, html: postHtml(post, postOptions(post, column.partition)) }));
       entries.push({
         key: 'more',
         html: `<button type="button" class="x-native-more" data-x-native-more${reader.loadingMore ? ' disabled' : ''}>${reader.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>`,
@@ -566,6 +594,8 @@
       if (column.signature === signature) return;
       column.signature = signature;
       patchColumn(column, entries);
+      // Cached HTML may carry an older relative time: refresh the visible labels.
+      refreshTimes(column.host);
     }
 
     function renderReader(reader) {
@@ -1282,14 +1312,17 @@
       columns.get(id)?.host?.scrollTo?.({ top: 0, behavior: 'smooth' });
     }
 
+    function refreshTimes(host) {
+      host?.querySelectorAll?.('.p-time[data-created-at]').forEach(element => {
+        const label = relTime(element.dataset.createdAt);
+        if (element.textContent !== label) element.textContent = label;
+      });
+    }
+
     function updateRelativeTimes() {
       const hosts = [...columns.values()].map(column => column.host);
       if (activeDetail) hosts.push(activeDetail.overlay);
-      hosts.forEach(host => {
-        host.querySelectorAll('.p-time[data-created-at]').forEach(element => {
-          element.textContent = relTime(element.dataset.createdAt);
-        });
-      });
+      hosts.forEach(refreshTimes);
     }
 
     function rerenderAll() {
