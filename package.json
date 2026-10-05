@@ -19,7 +19,8 @@
     "build-mac": "electron-builder --mac --publish never",
     "build-linux": "electron-builder --linux --publish never",
     "security:check": "node scripts/check-secrets.cjs",
-    "test:security": "node --test --test-concurrency=1 tests-security/*.test.cjs"
+    "test:security": "node --test --test-concurrency=1 tests-security/*.test.cjs",
+    "lint": "eslint ."
   },
   "build": {
     "appId": "com.socialdeck.app",
@@ -84,8 +85,11 @@
     ]
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "electron": "^43.7.7",
     "electron-builder": "^26.15.3",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0",
     "playwright-core": "^1.54.1"
   },
   "keywords": [

@@ -7,7 +7,7 @@ function inspect(text) {
   const rules = [
     ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/],
     ['provider-key', /\b(?:AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|sk-(?:proj-|svcacct-)?[A-Za-z0-9_-]{32,})\b/],
-    ['literal-api-key', /\b(?:api[_-]?key|client[_-]?secret)\b["']?\s*[:=]\s*["']([A-Za-z0-9_+\/-]{20,})["']/i],
+    ['literal-api-key', /\b(?:api[_-]?key|client[_-]?secret)\b["']?\s*[:=]\s*["']([A-Za-z0-9_+/-]{20,})["']/i],
   ];
   return text.split(/\r?\n/).flatMap((line, index) => rules.flatMap(([rule, pattern]) => {
     const match = pattern.exec(line);

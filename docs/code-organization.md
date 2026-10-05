@@ -55,6 +55,7 @@ Ctrl/Cmd+Enterは画面の投稿ボタンと同じ経路を使うようにし、
 
 ## 検証
 
+- `npm run lint`：ESLint による未定義・未使用変数などの静的検査。
 - `npm test`：機能の単体テスト、動画ファイル制限、購読解除、ショートカット。
 - `npm run test:e2e`：隔離Electron環境で画面操作と保存・再読込を検証。
 - `npm run test:security`：ローカル疑似サーバーで認証・応答・HTML・IPCを検証。
