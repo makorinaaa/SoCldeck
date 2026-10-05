@@ -11,11 +11,8 @@
   const LOAD_TIMEOUT_MS = 30000;
   // A long-lived x.com page slowly grows; memory cleanup reloads readers older than this.
   const READER_REFRESH_AGE_MS = 30 * 60 * 1000;
-  // The newest posts are kept per account so a restart shows them at once.
-  const SNAPSHOT_POSTS = 40;
-  const SNAPSHOT_SAVE_DELAY_MS = 2000;
-  const SNAPSHOT_KEY_PREFIX = 'socialdeck_x_native_snapshot_';
-  const SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+  // Earlier builds kept the newest posts in storage to show at startup; those are removed.
+  const LEGACY_SNAPSHOT_KEY_PREFIX = 'socialdeck_x_native_snapshot_';
   // Columns load more on their own when scrolled this close to the end.
   const AUTO_LOAD_MORE_PX = 800;
   // Below this scroll offset a Column counts as "at the top" for the new-post badge.
@@ -53,12 +50,10 @@
   // A timeline's first page is the truth for the range it covers: posts shown in that range
   // but missing from it were deleted (or hidden) and go away. Older posts loaded with
   // "load more" stay. A ranked feed (for you) is replaced, since its order changes anyway.
-  // Posts this account just sent stay: X can leave them out of its own refreshes. Posts
-  // restored from the saved snapshot always give way, wherever they sit.
+  // Posts this account just sent stay: X can leave them out of its own refreshes.
   function reconcileFirstPage(existing, firstPage, timeline) {
     if (!firstPage.length) return existing;
     const ids = new Set(firstPage.map(post => post.id));
-    existing = existing.filter(post => !post.cached || ids.has(post.id));
     if (timeline === 'for-you') return existing.filter(post => ids.has(post.id) || post.local);
     const oldest = firstPage.reduce((min, post) => {
       const value = sortValue(post);
@@ -214,6 +209,7 @@
 
     const readers = new Map();
     const columns = new Map();
+    removeLegacySnapshots();
     const pendingReactions = new Map();
     let activeDetail = null;
     let activeMenu = null;
@@ -297,7 +293,6 @@
       const waiters = reader.waiters.splice(0);
       waiters.forEach(resolve => resolve({ status: 'succeeded', detail: 'captured' }));
       renderReader(reader);
-      saveSnapshotSoon(reader);
       if (shownBefore.size && !replace && payload.operation !== 'CreateTweet') {
         const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local
           && sortValue(post) > previousTop && showsInTimeline(post, reader.partition));
@@ -389,44 +384,21 @@
       renderReader(reader);
     }
 
-    function snapshotKey(partition) {
-      return SNAPSHOT_KEY_PREFIX + partition;
-    }
-
-    function readSnapshot(partition) {
+    // Removes posts saved by earlier builds for the startup preview.
+    function removeLegacySnapshots() {
       try {
-        const snapshot = JSON.parse(storage?.getItem(snapshotKey(partition)) || 'null');
-        if (!Array.isArray(snapshot?.posts)) return null;
-        // An old snapshot would show a timeline from long ago: start empty instead.
-        if (!(now() - Number(snapshot.savedAt) < SNAPSHOT_MAX_AGE_MS)) return null;
-        return {
-          timeline: ['for-you', 'following'].includes(snapshot.timeline) ? snapshot.timeline : null,
-          // Saved posts only bridge the wait: X's first page replaces them (see reconcileFirstPage).
-          posts: snapshot.posts.filter(post => post && typeof post.id === 'string')
-            .slice(0, SNAPSHOT_POSTS).map(post => ({ ...post, cached: true, local: false })),
-        };
-      } catch {
-        return null;
-      }
-    }
-
-    function saveSnapshotSoon(reader) {
-      clearTimeoutFn(reader.snapshotTimer);
-      reader.snapshotTimer = setTimeoutFn(() => {
-        try {
-          storage?.setItem(snapshotKey(reader.partition), JSON.stringify({
-            savedAt: now(),
-            timeline: reader.timeline,
-            posts: reader.posts.slice(0, SNAPSHOT_POSTS).map(({ local, cached, ...post }) => post),
-          }));
-        } catch { /* Storage may be full or unavailable: the snapshot is only a head start. */ }
-      }, SNAPSHOT_SAVE_DELAY_MS);
+        const keys = [];
+        for (let index = 0; index < (storage?.length || 0); index += 1) {
+          const key = storage.key(index);
+          if (key?.startsWith(LEGACY_SNAPSHOT_KEY_PREFIX)) keys.push(key);
+        }
+        keys.forEach(key => storage.removeItem(key));
+      } catch {}
     }
 
     function createReader(partition) {
       const host = getReaderHost();
       if (!host) return null;
-      const snapshot = readSnapshot(partition);
       const webview = documentRef.createElement('webview');
       webview.id = `x-home-reader-${partition.replace(/[^a-z0-9-]/gi, '_')}`;
       webview.setAttribute('partition', partition);
@@ -437,8 +409,8 @@
         partition,
         webview,
         webContentsId: null,
-        posts: snapshot?.posts || [],
-        timeline: snapshot?.timeline || null,
+        posts: [],
+        timeline: null,
         status: 'loading',
         message: '',
         loadingMore: false,
@@ -493,7 +465,6 @@
     function disposeReader(reader) {
       clearTimeoutFn(reader.loadWatchdog);
       clearTimeoutFn(reader.sortingTimer);
-      clearTimeoutFn(reader.snapshotTimer);
       readers.delete(reader.partition);
       reader.waiters.splice(0).forEach(resolve => resolve({ status: 'deferred', detail: 'disposed' }));
       if (reader.webContentsId !== null) tap.detach?.(reader.webContentsId)?.catch?.(() => {});
@@ -1346,19 +1317,10 @@
       }
     }
 
-    // A removed account's saved posts must never show up for whoever uses the slot next.
+    // A removed account's posts and caches must never show up for whoever uses the slot next.
     function forgetAccount(partition = null) {
-      try {
-        const keys = [];
-        for (let index = 0; index < (storage?.length || 0); index += 1) {
-          const key = storage.key(index);
-          if (key?.startsWith(SNAPSHOT_KEY_PREFIX) && (!partition || key === snapshotKey(partition))) keys.push(key);
-        }
-        keys.forEach(key => storage.removeItem(key));
-      } catch {}
       [...readers.values()].forEach(reader => {
         if (partition && reader.partition !== partition) return;
-        clearTimeoutFn(reader.snapshotTimer);
         reader.posts = [];
         accountIds.delete(reader.partition);
         recentDetails.delete(reader.partition);
