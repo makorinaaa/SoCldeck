@@ -484,34 +484,34 @@ test('X list dialog adds distinct columns for the chosen account and survives re
   assert.deepEqual(await columns.locator('.col-title').allTextContents(), ['Friends', 'Friends again']);
 });
 
-test('X like notifications open inside the center without creating a column', async t => {
+test('X like notifications open the liked post in the native detail without creating a column', { timeout: 40000 }, async t => {
   const { page } = await launchApp(t, X_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
   await openXLikeNotification(page);
-  const webview = page.locator('#notif-reply-host webview');
-  assert.equal(await webview.getAttribute('partition'), 'persist:x-1');
-  let url = '';
-  const deadline = Date.now() + 10000;
-  while (Date.now() < deadline) {
-    url = await webview.evaluate(el => el.getURL()).catch(() => '');
-    if (url === LIKED_POST_URL) break;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  assert.equal(url, LIKED_POST_URL);
+  // The account's status page follows the notification cell on X to find the liked post.
+  const detail = page.locator('#x-post-detail');
+  await detail.waitFor();
+  await detail.locator('.x-focal[data-x-id="123"]').waitFor({ timeout: 20000 });
+  assert.equal(await detail.locator('.x-focal').getAttribute('data-x-url'), LIKED_POST_URL);
+  assert.equal(await page.locator('#x-status-readers webview').getAttribute('partition'), 'persist:x-1');
+  assert.equal(await page.locator('#notif-reply-host webview').count(), 0);
   assert.equal(await page.locator('.col[data-definition-id="x-notif-new"]').count(), 0);
   assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
-  await page.locator('#notif-reply-back').click();
+  await detail.locator('[data-x-detail-close]').click();
   await page.locator('.notif-center-item').first().waitFor({ state: 'visible' });
 });
 
 test('X detail diagnostic captures waiting and rendered states in the real preload', { timeout: 20000 }, async t => {
-  const { page, electronApp } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
-    xNotifications: [{ accountIndex: 0, text: 'Alice replied', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/789' }],
-  });
-  await page.locator('#sb-notif-b').click();
-  await page.locator('.notif-center-item').first().click();
-  const view = page.locator('#notif-reply-host webview');
+  const { page, electronApp } = await launchApp(t, { ...X_FIXTURES });
+  // X posts from notifications open the native detail, so exercise a status page in an X Column.
+  const column = await addXHomeColumn(page);
+  const view = column.locator('webview');
+  await view.evaluate(el => new Promise(resolve => {
+    if (el.dataset.ready === 'true' && !el.isLoading()) resolve();
+    else el.addEventListener('did-stop-loading', resolve, { once: true });
+  }));
+  await view.evaluate(el => el.loadURL('https://x.com/alice/status/789'));
   const diagnosticPath = await electronApp.evaluate(({ app }) => app.getPath('userData'));
   async function waitForPhase(phase) {
     const deadline = Date.now() + 6000;
@@ -917,37 +917,31 @@ test('X replies show a toast and remain unread until the conversation opens', { 
 test('notification center shows the conversation in the correct account and retains the reply draft', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, {
     ...X_FIXTURES, useNotificationReaders: false,
-    pageHtml: '<!doctype html><html><body><main><article>親の投稿</article><article>通知の対象投稿</article><textarea aria-label="返信"></textarea><article>続きの返信</article></main></body></html>',
-    xNotifications: [{ accountIndex: 1, text: 'Alice replied: Hello!', actorName: 'Alice',
+    xNotifications: [{ accountIndex: 1, text: 'Alice\n@alice\n·\n3分\n返信先:\n@second\nさん\nHello!', actorName: 'Alice',
       profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/456' }],
   });
   await page.locator('#sb-notif-b').click();
   const button = page.locator('[data-notification-reply]').first();
   await button.waitFor({ state: 'visible', timeout: 5000 });
   await button.click();
-  await page.locator('#notif-reply-panel').waitFor({ state: 'visible', timeout: 5000 });
-  const composer = page.locator('#notif-reply-host webview');
-  assert.equal(await composer.getAttribute('partition'), 'persist:x-1');
-  assert.equal(await composer.getAttribute('src'), 'https://x.com/alice/status/456');
-  assert.match(await page.locator('#notif-reply-title').textContent(), /@second/);
+  // X posts open the native detail; the conversation loads in that account's status page.
+  const detail = page.locator('#x-post-detail');
+  await detail.waitFor();
+  assert.equal(await detail.locator('.x-focal').getAttribute('data-x-id'), '456');
+  assert.equal(await page.locator('#x-status-readers webview').getAttribute('partition'), 'persist:x-1');
   assert.equal(await page.locator('#notifCenterMod').evaluate(el => el.classList.contains('on')), true);
-  let conversation = '';
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    conversation = await composer.evaluate(el => el.executeJavaScript('document.body.innerText')).catch(() => '');
-    if (conversation.includes('続きの返信')) break;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  assert.match(conversation, /親の投稿/);
-  assert.match(conversation, /通知の対象投稿/);
-  assert.match(conversation, /続きの返信/);
-  await composer.evaluate(el => el.executeJavaScript('document.querySelector("textarea").value = "入力中の返信"'));
-  await composer.evaluate(el => { el.dataset.retained = 'yes'; });
-  await page.locator('#notif-reply-back').click();
+
+  await detail.locator('.x-focal [data-x-action="reply"]').click();
+  await page.locator('#x-reply-preview').waitFor();
+  assert.match(await page.locator('#x-reply-preview').textContent(), /@alice/);
+  assert.match(await page.locator('#x-acc-select').textContent(), /second/);
+  await page.locator('#x-cta').fill('入力中の返信');
+  await page.locator('#xPostMod [data-compose-action="close"]').click();
+  await page.locator('#xPostMod').waitFor({ state: 'hidden' });
   await button.click();
-  assert.equal(await composer.getAttribute('data-retained'), 'yes');
-  assert.equal(await composer.evaluate(el => el.executeJavaScript('document.querySelector("textarea").value')), '入力中の返信');
-  assert.equal(await page.locator('#sb-notif-icons > button').count(), 1);
+  await detail.waitFor();
+  await detail.locator('.x-focal [data-x-action="reply"]').click();
+  assert.equal(await page.locator('#x-cta').inputValue(), '入力中の返信');
 });
 
 test('X reply read buttons clear individual and all unread replies without navigation', { timeout: 20000 }, async t => {
@@ -1119,9 +1113,11 @@ test('notification search and pagination keep actions bound to the matching acco
   assert.equal(await page.locator('.notif-center-item').count(), 1);
   assert.match(await page.locator('.notif-center-meta').textContent(), /@second/);
   await page.locator('[data-notification-reply]').click();
-  assert.equal(await page.locator('#notif-reply-host webview').getAttribute('partition'), 'persist:x-1');
-  assert.equal(await page.locator('#notif-reply-host webview').getAttribute('src'), 'https://x.com/alice/status/1100');
-  await page.locator('#notif-reply-back').click();
+  const detail = page.locator('#x-post-detail');
+  await detail.waitFor();
+  assert.equal(await detail.locator('.x-focal').getAttribute('data-x-id'), '1100');
+  assert.equal(await page.locator('#x-status-readers webview').getAttribute('partition'), 'persist:x-1');
+  await detail.locator('[data-x-detail-close]').click();
   await page.locator('#notif-center-search').fill('nothing-matches-this');
   assert.match(await page.locator('.notif-center-state').textContent(), /検索に一致/);
   await page.evaluate(async () => (await import('./renderer.js')).notificationCenterRuntime.open({ network: 'x' }));
@@ -1301,4 +1297,31 @@ test('corrupted workspace layout recovers its previous save and displays a notic
   assert.equal(await page.evaluate(async () => localStorage.getItem('socialdeck_cols.corrupt')), '{broken');
   await page.locator('[data-action="dismiss-workspace-recovery"]').click();
   assert.equal(await page.locator('#workspace-recovery').isVisible(), false);
+});
+
+test('an X notification that points at a post opens the native post detail', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: [{ accountIndex: 0, text: 'Alice replied', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/789' }],
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('.notif-center-item').first().click();
+  const detail = page.locator('#x-post-detail');
+  await detail.waitFor();
+  assert.equal(await detail.locator('.x-focal').getAttribute('data-x-id'), '789');
+  assert.match(await detail.locator('.x-focal .p-body').textContent(), /Alice replied/);
+  assert.equal(await page.locator('#notif-reply-host webview').count(), 0);
+});
+
+test('an X notification reply button opens the native detail and its reply goes to X compose', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, { ...X_FIXTURES, useNotificationReaders: false,
+    xNotifications: [{ accountIndex: 0, text: 'Alice\n@alice\n·\n3分\n返信先:\n@me\nさん\n読みやすい本文', actorName: 'Alice', profileUrl: 'https://x.com/alice', targetUrl: 'https://x.com/alice/status/790' }],
+  });
+  await page.locator('#sb-notif-b').click();
+  await page.locator('[data-notification-reply]').first().click();
+  const detail = page.locator('#x-post-detail');
+  await detail.waitFor();
+  assert.equal((await detail.locator('.x-focal .p-body').textContent()).trim(), '読みやすい本文');
+  await detail.locator('.x-focal [data-x-action="reply"]').click();
+  await page.locator('#x-reply-preview').waitFor();
+  assert.match(await page.locator('#x-reply-preview').textContent(), /@alice/);
 });

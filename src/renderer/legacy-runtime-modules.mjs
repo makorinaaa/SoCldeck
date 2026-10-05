@@ -53,7 +53,11 @@ import './x-compose-delivery.js';
 import './x-composer-dom.js';
 import './x-compose-preparation.js';
 import './x-login-gate.js';
+import './x-native-timeline-runtime.js';
 import './x-post-confirmation.js';
+import './x-post-view.js';
+import './x-status-actions.js';
+import './x-status-runtime.js';
 import './x-timeline-refresh.js';
 import './x-webview-runtime.js';
 
@@ -110,7 +114,11 @@ export const {
   SocialDeckXComposeDelivery,
   SocialDeckXComposePreparation,
   SocialDeckXLoginGate,
+  SocialDeckXNativeTimelineRuntime,
   SocialDeckXPostConfirmation,
+  SocialDeckXPostView,
+  SocialDeckXStatusActions,
+  SocialDeckXStatusRuntime,
   SocialDeckXTimelineRefresh,
   SocialDeckXWebViewRuntime
 } = window;

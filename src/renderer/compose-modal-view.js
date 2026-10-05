@@ -70,7 +70,7 @@
     const elements = {};
     const ids = [
       'xPostMod', 'compMod', 'x-acc-select', 'x-cross-post-controls', 'x-cross-post-b',
-      'x-cross-post-note', 'x-post-av', 'x-cta', 'x-cct', 'x-sndb', 'x-compose-preview',
+      'x-cross-post-note', 'x-post-av', 'x-cta', 'x-cct', 'x-sndb', 'x-compose-preview', 'x-reply-preview',
       'x-img-area', 'x-img-preview', 'x-img-drop', 'x-img-file', 'x-video-wrap', 'x-video-preview',
       'x-trim-in', 'x-trim-out', 'x-trim-start-label', 'x-trim-end-label',
       'x-trim-dur-label', 'x-trim-highlight', 'x-trim-timeline', 'x-trim-thumbnails',
@@ -364,6 +364,12 @@
       if (elements['x-sndb']) {
         elements['x-sndb'].disabled = !snapshot.canSubmit;
         elements['x-sndb'].textContent = snapshot.actionLabel;
+      }
+      if (elements['x-reply-preview']) {
+        elements['x-reply-preview'].style.display = snapshot.reply ? 'flex' : 'none';
+        elements['x-reply-preview'].innerHTML = snapshot.reply
+          ? `<span style="color:var(--text2)">@${escape(snapshot.reply.handle || '')}</span> への返信`
+          : '';
       }
       renderXMedia(snapshot);
       renderPreview(snapshot);

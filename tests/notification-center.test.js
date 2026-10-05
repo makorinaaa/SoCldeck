@@ -283,3 +283,35 @@ test('finds a legacy Bluesky profile column from its URL', () => {
 
   assert.equal(center.findBlueskyProfileColumn([postColumn, profileColumn]), profileColumn);
 });
+
+test('extracts the readable post body from X notification cell text', () => {
+  const { extractXNotificationBody } = loadNotificationCenterForBody();
+  assert.equal(extractXNotificationBody({ reason: 'reply', text: 'うほ\n@Lilymajalis_\n·\n3分\n返信先:\n@UltimaZzz_\nさん\n14' }), '14');
+  assert.equal(extractXNotificationBody({ reason: 'mention', text: 'Bob\n@bob\n·\n2h\nhello @me\nsecond line' }), 'hello @me\nsecond line');
+  assert.equal(extractXNotificationBody({ reason: 'reply', text: 'A\n@a\n·\n10月5日\nReplying to\n@me\nand\n@you\nthanks' }), 'thanks');
+  assert.equal(extractXNotificationBody({ reason: 'like', text: 'shunさんがあなたのポストをいいねしました\nいい更新だ' }), 'いい更新だ');
+});
+
+function loadNotificationCenterForBody() {
+  const context = { window: {}, URL };
+  require('node:vm').runInNewContext(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'notification-center.js'), 'utf8'), context);
+  return context.window.SocialDeckNotificationCenter;
+}
+
+test('X notification activation matches cell text regardless of line wrapping', () => {
+  const { buildXNotificationActivationScript } = loadNotificationCenterForBody();
+  const script = buildXNotificationActivationScript({ text: 'Alice\nliked   your post', sourceIndex: 5 });
+  const clicked = [];
+  const cell = (text, name) => ({
+    innerText: text,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    click: () => clicked.push(name),
+  });
+  const cells = [cell('Bob\nother', 'bob'), cell('Alice liked\nyour post', 'alice')];
+  const context = { document: { querySelectorAll: () => cells }, setTimeout, Date };
+  return require('node:vm').runInNewContext(script, context).then(result => {
+    assert.equal(result, true);
+    assert.deepEqual(clicked, ['alice']);
+  });
+});

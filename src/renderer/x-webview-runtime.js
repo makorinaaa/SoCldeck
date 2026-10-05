@@ -308,13 +308,21 @@
       if (!account) return null;
       let home = null;
       let fallback = null;
+      let reader = null;
       documentRef.querySelectorAll('webview').forEach(webview => {
         if (webview.partition !== account.partition) return;
         const source = webview.src || '';
+        // A status page's composer is a reply box: it must never receive a normal post.
+        if (/^x-status-reader-/.test(webview.id || '')) return;
+        // A native Home column's hidden reader can post when no visible X column exists.
+        if (/^x-home-reader-/.test(webview.id || '')) {
+          if (/x\.com|twitter\.com/.test(source)) reader = webview;
+          return;
+        }
         if (/x\.com\/home|twitter\.com\/home/.test(source)) home = webview;
         else if (!fallback && /x\.com|twitter\.com/.test(source)) fallback = webview;
       });
-      return home || fallback;
+      return home || fallback || reader;
     }
 
     async function executeCompose(delivery, context, execute) {
@@ -361,6 +369,7 @@
       documentRef.querySelectorAll('webview').forEach(webview => {
         const source = webview.src || '';
         if (!/x\.com|twitter\.com/.test(source)) return;
+        if (/^x-home-reader-/.test(webview.id || '') && target) return;
         if (!target || /x\.com\/home|twitter\.com\/home/.test(source)) target = webview;
       });
       if (!target?.openDevTools) return false;
@@ -519,6 +528,7 @@
       disposeColumn,
       executeCompose,
       getMemoryStats,
+      isPosting: () => postingDepth > 0,
       listNotifications,
       mountColumn,
       navigate,

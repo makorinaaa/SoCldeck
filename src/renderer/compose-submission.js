@@ -167,6 +167,9 @@
       const request = createRequest({
         networkId: 'x',
         accountId: account.username || account.partition,
+        replyTo: compose.reply?.id
+          ? { root: null, parent: { id: compose.reply.id, url: compose.reply.url } }
+          : null,
         text,
         images: media.images.map(image => ({ file: image.file })),
         video: media.video

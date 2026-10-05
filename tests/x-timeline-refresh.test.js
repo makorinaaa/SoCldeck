@@ -246,3 +246,24 @@ test('falls back to the Home href when X changes its navigation test id', async 
   assert.equal(result, 'home-clicked');
   assert.deepEqual(clicks, ['home-href']);
 });
+
+test('native Columns may refresh the For you tab when allowed', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'x-timeline-refresh.js'), 'utf8'), context);
+  const { refreshXNavigation } = context.window.SocialDeckXTimelineRefresh;
+  let clicked = 0;
+  const tab = (text, selected) => ({ textContent: text, getAttribute: () => String(selected) });
+  const documentLike = {
+    location: { pathname: '/home' },
+    scrollingElement: { scrollTop: 0 },
+    querySelector: selector => (selector.includes('AppTabBar_Home_Link') ? { click: () => { clicked += 1; } } : null),
+    querySelectorAll: selector => (selector === '[role="tab"]' ? [tab('おすすめ', true), tab('フォロー中', false)] : []),
+  };
+  const schedule = fn => fn();
+  assert.equal(await refreshXNavigation({ documentLike, schedule, destination: 'home' }), 'not-following');
+  assert.equal(await refreshXNavigation({ documentLike, schedule, destination: 'home', allowForYou: true }), 'home-clicked');
+  assert.equal(clicked, 1);
+});

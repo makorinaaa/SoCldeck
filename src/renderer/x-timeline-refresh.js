@@ -3,6 +3,7 @@
     documentLike,
     schedule,
     destination = 'home',
+    allowForYou = false,
   }) {
     function wait(ms) {
       return new Promise(resolve => schedule(resolve, ms));
@@ -55,7 +56,7 @@
     const atTop = (scroller?.scrollTop || 0) < 60;
     if (!atTop) return 'deferred';
 
-    if (destination === 'home') {
+    if (destination === 'home' && !allowForYou) {
       const followingTab = findTab(/^(フォロー中|Following)$/i);
       const forYouTab = findTab(/^(おすすめ|For you)$/i);
       if (followingTab && followingTab.getAttribute('aria-selected') !== 'true') {
@@ -90,11 +91,12 @@
     return 'navigation-missing';
   }
 
-  function createRefreshScript(destination = 'home') {
+  function createRefreshScript(destination = 'home', { allowForYou = false } = {}) {
     return `(${refreshXNavigation.toString()})({
       documentLike: document,
       schedule: setTimeout,
-      destination: ${JSON.stringify(destination)}
+      destination: ${JSON.stringify(destination)},
+      allowForYou: ${JSON.stringify(Boolean(allowForYou))}
     })`;
   }
 

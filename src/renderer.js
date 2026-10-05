@@ -55,7 +55,11 @@ import {
   SocialDeckXComposeDelivery,
   SocialDeckXComposePreparation,
   SocialDeckXLoginGate,
+  SocialDeckXNativeTimelineRuntime,
   SocialDeckXPostConfirmation,
+  SocialDeckXPostView,
+  SocialDeckXStatusActions,
+  SocialDeckXStatusRuntime,
   SocialDeckXTimelineRefresh,
   SocialDeckXWebViewRuntime
 } from './renderer/legacy-runtime-modules.mjs';
@@ -178,6 +182,7 @@ const columnShellRuntime = SocialDeckColumnShellRuntime.createColumnShellRuntime
     if (type === 'scroll-top' && kind === 'x') return wvScrollTop(id);
     if (type === 'scroll-top' && kind === 'bsky') return bskyScrollTop(id);
     if (type === 'scroll-top' && kind === 'schedule') return animeScheduleScrollTop(id);
+    if (type === 'scroll-top' && kind === 'x-native') return xNativeScrollTop(id);
   },
 });
 const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
@@ -191,6 +196,9 @@ const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
     loadWebViewUrl: (id, url) => xWebViewRuntime.navigateToStart(id, url),
     refreshBlueskyFeed: silentRefreshBsky,
     refreshAnimeSchedule: id => animeScheduleRuntime.load(id, { force: context?.force === true }),
+    refreshXNativeTimeline: id => xNativeTimelineRuntime
+      ? xNativeTimelineRuntime.refresh(id, { force: context?.force === true, reload: context?.force === true })
+      : { status: 'deferred', detail: 'unavailable' },
   }),
   applyWidth: (id, width) => columnShellRuntime.applyWidth(id, width),
   applyCollapsed: id => columnShellRuntime.setCollapsed(id, true),
@@ -199,6 +207,7 @@ const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
     bskyColumnsRuntime?.dispose(id);
     xWebViewRuntime?.disposeColumn(id);
     animeScheduleRuntime.dispose(id);
+    xNativeTimelineRuntime?.dispose(id);
     localStorage.removeItem(`col_fs_${id}`);
   },
   listElementIds: () => columnShellRuntime.listIds(),
@@ -246,6 +255,10 @@ function insertColumnPlan(plan) {
     mountAnimeScheduleColumn(plan.config);
     return true;
   }
+  if (plan?.kind === 'x-native') {
+    mountXNativeColumn(plan.config, null, plan.partition);
+    return true;
+  }
   return false;
 }
 
@@ -288,6 +301,7 @@ function refilterBskyCols() {
       silentRefreshBsky(cid, type, col.dataset.feeduri || null);
     }
   });
+  xNativeTimelineRuntime?.rerenderAll();
 }
 
 // ─── STATE ────────────────────────────────────
@@ -337,11 +351,15 @@ const memoryCleaner = SocialDeckMemoryCleaner.createMemoryCleaner({
   getRuntimeMetrics: () => {
     const bluesky = bskyColumnsRuntime?.getMemoryStats?.() || {};
     const x = xWebViewRuntime?.getMemoryStats?.() || {};
+    const xNative = xNativeTimelineRuntime?.getMemoryStats?.() || {};
     return {
       blueskyColumns: bluesky.columnCount || 0,
       blueskyItems: bluesky.renderedItemCount || 0,
       xColumnWebViews: x.columnWebViewCount || 0,
       xNotificationReaders: x.notificationReaderCount || 0,
+      xNativeReaders: xNative.readers || 0,
+      xNativeStatusReaders: xNative.statusReaders || 0,
+      xNativePosts: xNative.posts || 0,
     };
   },
   trimRuntime: () => {
@@ -351,7 +369,13 @@ const memoryCleaner = SocialDeckMemoryCleaner.createMemoryCleaner({
     const xNotificationReadersDisposed = desktopNotificationsEnabled
       ? 0
       : xWebViewRuntime?.disposeNotificationReaders?.() || 0;
-    return { blueskyItemsRemoved, xNotificationReadersDisposed };
+    const xNative = xNativeTimelineRuntime?.trim?.() || {};
+    return {
+      blueskyItemsRemoved,
+      xNotificationReadersDisposed,
+      xNativeReadersReloaded: xNative.readersReloaded || 0,
+      xNativeStatusReadersDisposed: xNative.statusReadersDisposed || 0,
+    };
   },
 });
 const settingsModals = SocialDeckSettingsModalsRuntime.createSettingsModalsRuntime({
@@ -672,6 +696,73 @@ xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
   allowDevTools: window.electronAPI?.devToolsEnabled === true,
   openImage: openImg,
 });
+const xPostView = SocialDeckXPostView.createXPostView({
+  icons: { reply: SVG.reply, repost: SVG.rt, heart: SVG.heart, more: SVG.more || '' },
+  relTime,
+  getPendingReaction: (kind, id, partition) => xNativeTimelineRuntime?.getPendingReaction(kind, id, partition) || null,
+});
+const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
+  ? {
+      attach: id => window.electronAPI.attachXTimelineTap(id),
+      detach: id => window.electronAPI.detachXTimelineTap(id),
+      onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
+    }
+  : null;
+const xStatusRuntime = xTimelineTap
+  ? SocialDeckXStatusRuntime.createXStatusRuntime({
+      documentRef: document,
+      getPreloadPath: () => wvPreloadPath,
+      tap: xTimelineTap,
+    })
+  : null;
+const xNativeTimelineRuntime = xTimelineTap
+  ? SocialDeckXNativeTimelineRuntime.createXNativeTimelineRuntime({
+      documentRef: document,
+      getPreloadPath: () => wvPreloadPath,
+      tap: xTimelineTap,
+      statusRuntime: xStatusRuntime,
+      renderPost: xPostView.renderPost,
+      renderThread: xPostView.renderThread,
+      icons: { repost: SVG.rt, trash: SVG.trash || '' },
+      getAccountId: partition => window.electronAPI?.getXAccountId?.(partition),
+      isAuthenticated: partition => window.electronAPI?.isXSessionAuthenticated
+        ? window.electronAPI.isXSessionAuthenticated(partition)
+        : true,
+      confirmAction: message => confirm(message),
+      relTime,
+      blocksPost: item => muteRules.blocksPost(item),
+      isBusy: () => xWebViewRuntime.isPosting(),
+      createRefreshScript: (destination, options) => SocialDeckXTimelineRefresh.createRefreshScript(destination, options),
+      createToggleScript: options => SocialDeckXStatusActions.createToggleScript(options),
+      log: window.electronAPI?.devToolsEnabled ? (...args) => console.info('[XNative]', ...args) : () => {},
+      intents: {
+        openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
+        openExternal: ({ url }) => window.open(url, '_blank', 'noopener'),
+        reply: target => openXReply(target),
+        loginCompleted: partition => completeXLogin(partition),
+        quote: target => openXQuote(target),
+        onOutcome: outcome => {
+          if (outcome.kind === 'timeline') {
+            toast(outcome.error?.message || 'タブを切り替えられませんでした');
+            return;
+          }
+          if (outcome.kind === 'delete') {
+            toast(outcome.status === 'failed'
+              ? `削除できませんでした: ${outcome.error?.message || ''}`
+              : 'ポストを削除しました');
+            return;
+          }
+          const verb = outcome.kind === 'like'
+            ? (outcome.active ? 'いいねしました' : 'いいねを取り消しました')
+            : (outcome.active ? 'リポストしました' : 'リポストを取り消しました');
+          toast(outcome.status === 'failed'
+            ? `エラー: ${outcome.error?.message || '操作できませんでした'}`
+            : verb);
+        },
+      },
+    })
+  : null;
+if (xNativeTimelineRuntime) setInterval(() => xNativeTimelineRuntime.updateRelativeTimes(), 60_000);
 function openUnreadReplies() {
   notificationReplyRuntime.back();
   notificationCenterRuntime.open({ network: 'x', reason: 'all', unreadOnly: true });
@@ -755,10 +846,11 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
         isRead: ['reply', 'like'].includes(item.reason) ? replyNotificationRuntime.isRead(item) : null,
       }));
     },
-    openNotification: item => notificationReplyRuntime.open(item),
+    openNotification: item => openXNotificationNatively(item) || notificationReplyRuntime.open(item),
     markXRead: item => replyNotificationRuntime.markRead(item),
     markAllXRead: () => replyNotificationRuntime.markAllRead(),
-    reply: item => notificationReplyRuntime.open(item),
+    // Xポストの返信も詳細画面から行う（詳細画面の返信ボタンで投稿画面を開く）
+    reply: item => openXNotificationNatively(item) || notificationReplyRuntime.open(item),
     clearUnread: () => notificationRuntime.clearUnread(),
     toast,
   },
@@ -816,12 +908,18 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     initializeTheme: partition => IS_ELECTRON
       ? window.electronAPI?.initializeXSessionTheme?.(partition)
       : Promise.resolve(false),
-    clear: partition => IS_ELECTRON
-      ? window.electronAPI?.clearXSession?.(partition)
-      : Promise.resolve(false),
-    clearAll: () => IS_ELECTRON
-      ? window.electronAPI?.clearAllXSessions?.()
-      : Promise.resolve(false),
+    clear: partition => {
+      xNativeTimelineRuntime?.forgetAccount(partition);
+      return IS_ELECTRON
+        ? window.electronAPI?.clearXSession?.(partition)
+        : Promise.resolve(false);
+    },
+    clearAll: () => {
+      xNativeTimelineRuntime?.forgetAccount();
+      return IS_ELECTRON
+        ? window.electronAPI?.clearAllXSessions?.()
+        : Promise.resolve(false);
+    },
     sync: accounts => {
       xWebViewRuntime.syncAccounts(accounts);
       if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
@@ -1021,15 +1119,31 @@ function bskyScrollTop(cid) {
   if (feedEl) feedEl.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function xNativeScrollTop(cid) {
+  if (columnShellRuntime.isCollapsed(cid)) { columnShellRuntime.toggleCollapsed(cid); return; }
+  xNativeTimelineRuntime?.scrollTop(cid);
+}
+
 function animeScheduleScrollTop(cid) {
   if (columnShellRuntime.isCollapsed(cid)) { columnShellRuntime.toggleCollapsed(cid); return; }
   animeScheduleRuntime.scrollTop(cid);
 }
 
 
+const X_NATIVE_FOLLOW_UP_MS = 10_000;
 async function refreshAfterCompose(target) {
   if (target.kind === 'x-account-columns') {
-    await xWebViewRuntime.refreshAccount(target.accountId);
+    const partition = getXPartitionForAccountId(target.accountId);
+    console.info('[XNative] post-compose refresh', target.accountId, partition);
+    await Promise.all([
+      xWebViewRuntime.refreshAccount(target.accountId),
+      partition && xNativeTimelineRuntime?.refreshPartition(partition, { force: true })
+        .then(result => console.info('[XNative] post-compose result', result)),
+    ]);
+    // A post sent from a visible X Column can reach the timeline a little later: check once more.
+    if (partition && xNativeTimelineRuntime) {
+      setTimeout(() => xNativeTimelineRuntime.refreshPartition(partition).catch(() => {}), X_NATIVE_FOLLOW_UP_MS);
+    }
     return;
   }
 
@@ -1143,6 +1257,50 @@ function mountAnimeScheduleColumn(columnConfig, before = null) {
   });
   columnLifecycle.setRefreshInterval(columnId, ANIME_REFRESH_INTERVAL_MS);
   animeScheduleRuntime.load(columnId).catch(() => {});
+
+  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
+  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
+  return root;
+}
+
+// ─── X HOME (NATIVE) COLUMN ─────────────────────
+// 非表示のX WebViewが取得したタイムラインを SocialDeck の表示で描画する
+function mountXNativeColumn(columnConfig, before = null, partition = 'persist:x-0') {
+  const columnId = columnConfig.id;
+  const { root, hosts, badge } = columnShellRuntime.mount({
+    id: columnId,
+    kind: 'x-native',
+    network: columnConfig.network,
+    definitionId: columnConfig.definitionId,
+    metadata: { partition },
+    title: columnConfig.title,
+    subtitle: columnConfig.sub,
+    subtitleId: `xn-sub-${columnId}`,
+    iconClass: columnConfig.icCls,
+    icon: columnConfig.icon,
+    indicatorColor: '#e7e9ea',
+    badge: true,
+    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'x-native' }, 'remove'],
+    hosts: [{
+      name: 'content',
+      id: `feed-${columnId}`,
+      className: 'feed x-native-feed',
+      loadingText: 'X のタイムラインを読み込み中…',
+    }],
+    before,
+  });
+  if (xNativeTimelineRuntime) {
+    xNativeTimelineRuntime.mount({
+      id: columnId,
+      partition,
+      host: hosts.content,
+      subtitle: document.getElementById(`xn-sub-${columnId}`),
+      badge,
+    });
+  } else {
+    hosts.content.innerHTML = '<div class="feed-empty">このカラムはデスクトップ版でのみ使えます</div>';
+  }
+  columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
 
   const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
   if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
@@ -1271,6 +1429,43 @@ function openXPost() {
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
 }
 
+function getXAccountIndexByPartition(partition) {
+  return (state.xs || []).findIndex((account, index) =>
+    (account.partition || `persist:x-${index}`) === partition);
+}
+
+function getXPartitionForAccountId(accountId) {
+  const accounts = state.xs || [];
+  const index = accounts.findIndex((account, position) =>
+    account.username === accountId || (account.partition || `persist:x-${position}`) === accountId);
+  return index >= 0 ? accounts[index].partition || `persist:x-${index}` : null;
+}
+
+// ネイティブXカラムからの返信・引用は、そのカラムのアカウントで投稿する
+function openXReply({ id, url, handle, partition }) {
+  xNativeTimelineRuntime?.closeDetail();
+  const result = composeModalRuntime.open('x', {
+    reply: { id, url, handle },
+    accountIndex: getXAccountIndexByPartition(partition),
+  });
+  if (result?.status !== 'blocked' && result?.status !== 'cancelled') {
+    setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
+  }
+}
+
+function openXQuote({ url, partition }) {
+  xNativeTimelineRuntime?.closeDetail();
+  composeModalRuntime.open('x', {
+    accountIndex: getXAccountIndexByPartition(partition),
+    appendText: url,
+  });
+  setTimeout(() => {
+    const input = document.getElementById('x-cta');
+    input?.focus();
+    input?.setSelectionRange?.(0, 0);
+  }, 50);
+}
+
 // ─── X投稿 画像・動画管理 ────────────────────────
 function setFFmpegStatus(msg) {
   const el = document.getElementById('x-ffmpeg-status');
@@ -1285,6 +1480,19 @@ function fmtSec(s) {
 }
 
 function executeXComposeDelivery(delivery, context = {}) {
+  // 返信はそのポストのページを操作用ビューで開き、ページ内の返信欄から送る
+  if (delivery.replyTo) {
+    const partition = getXPartitionForAccountId(delivery.accountId);
+    if (!xStatusRuntime || !partition) return Promise.reject(new Error('X の返信先を開けませんでした'));
+    return xWebViewRuntime.withPosting(() => xStatusRuntime.run(partition, delivery.replyTo, async webview => {
+      const composer = await webview.executeJavaScript(SocialDeckXStatusActions.createOpenReplyScript(delivery.replyTo.id));
+      console.info('[XNative] reply composer', composer);
+      if (composer?.status !== 'ready') {
+        throw new Error(`X の返信画面を開けませんでした（${composer?.status || 'unknown'}）`);
+      }
+      return networkAdapters.executeComposeDelivery(delivery, { ...context, webview });
+    }));
+  }
   return xWebViewRuntime.executeCompose(
     delivery,
     context,
@@ -1346,6 +1554,45 @@ function renderNotifIcons() {
 const appInfo = createAppInfoRuntime({
   documentRef: document, api: window.electronAPI,
 });
+
+// 通知センターのXポストも、タイムラインと同じ詳細画面で開く
+function openXNotificationNatively(item) {
+  if (item?.networkId !== 'x' || !xNativeTimelineRuntime) return false;
+  const partition = item.account?.partition || `persist:x-${Number(item.accountIndex) || 0}`;
+  if (getXAccountIndexByPartition(partition) < 0) return false;
+  const match = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\/([^/?#]+)\/status\/(\d+)/.exec(item.targetUrl || '');
+  if (!match) {
+    // Like / repost cells link only to the actor: follow the cell on X to find the post.
+    if (!['like', 'repost', 'reply', 'mention', 'quote'].includes(item.reason) || !xStatusRuntime) return false;
+    const body = SocialDeckNotificationCenter.extractXNotificationBody(item);
+    xNativeTimelineRuntime.openPostFrom(partition, async () => {
+      const target = await xStatusRuntime.resolveNotification(
+        partition, notificationCenter.buildXNotificationActivationScript(item.raw));
+      return target && {
+        id: target.id,
+        url: target.url,
+        createdAt: '',
+        author: { handle: target.handle, name: target.handle },
+        segments: body ? [{ type: 'text', text: body }] : [],
+        media: [],
+      };
+    }, { previewText: body }).then(detail => {
+      if (!detail) notificationReplyRuntime.open(item);
+    });
+    return true;
+  }
+  const [, handle, id] = match;
+  const author = item.author?.handle === handle ? item.author : { handle, displayName: handle };
+  const detail = xNativeTimelineRuntime.openPost({
+    id,
+    url: `https://x.com/${handle}/status/${id}`,
+    createdAt: item.indexedAt || '',
+    author: { handle, name: author.displayName || handle, avatar: author.avatar || '' },
+    segments: [{ type: 'text', text: SocialDeckNotificationCenter.extractXNotificationBody(item) }],
+    media: [],
+  }, partition);
+  return Boolean(detail);
+}
 
 async function openXNotificationCenterItem(item) {
   const accountIndex = state.xs?.findIndex(account =>

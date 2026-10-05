@@ -177,3 +177,37 @@ test('keeps a saved Bluesky Column out of the active layout without a Bluesky se
     layout,
   );
 });
+
+test('captures a native X Home Column with its account partition', () => {
+  const runtime = createRuntime();
+  const column = createColumnElement({
+    id: 'col-x0-x-home-native-1',
+    dataset: { kind: 'x-native', network: 'x', definitionId: 'x-home-native', partition: 'persist:x-1' },
+    title: 'Home',
+    sub: 'X · alice',
+    iconClass: 'col-ic ic-x',
+  });
+
+  const layout = runtime.captureLayout([column], {
+    resolveDefinition: storedColumn => {
+      assert.equal(storedColumn.kind, 'x-native');
+      return { network: 'x', id: 'x-home-native' };
+    },
+    getInterval: () => 300000,
+    isCollapsed: () => false,
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(layout)), [{
+    kind: 'x-native',
+    network: 'x',
+    definitionId: 'x-home-native',
+    id: 'x0-x-home-native-1',
+    partition: 'persist:x-1',
+    title: 'Home',
+    sub: 'X · alice',
+    icCls: 'ic-x',
+    width: '',
+    interval: 300000,
+    collapsed: false,
+  }]);
+});

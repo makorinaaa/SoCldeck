@@ -961,3 +961,29 @@ test('dispose releases the view and makes the Runtime terminal', () => {
   assert.equal(reopen.detail, 'disposed');
   assert.deepEqual(events.slice(-2), [['dispose'], ['connect', false]]);
 });
+
+test('X replies and quotes from a native Column use that Column account', () => {
+  let handlers;
+  const values = new Map();
+  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  const runtime = loadRuntime().createComposeModalRuntime({
+    storage,
+    getAccounts: () => ({ x: [{ partition: 'first' }, { partition: 'second' }], b: { did: 'did:plc:me' } }),
+    view: { connect: value => { handlers = value; } },
+  });
+  const reply = { id: '5', url: 'https://x.com/alice/status/5', handle: 'alice' };
+  const replying = runtime.open('x', { reply, accountIndex: 1 });
+  assert.equal(replying.selectedXAccountIndex, 1);
+  assert.deepEqual(plain(replying.reply), reply);
+  assert.equal(replying.crossPostAvailable, false, 'replies are not cross-posted');
+  handlers.textChanged('x', 'thanks');
+  runtime.close('x');
+  assert.deepEqual(plain(runtime.open('x').reply), reply, 'the reply target survives closing');
+
+  runtime.close('x', { discard: true });
+  const quoting = runtime.open('x', { accountIndex: 0, appendText: 'https://x.com/bob/status/7' });
+  assert.equal(quoting.selectedXAccountIndex, 0);
+  assert.equal(quoting.reply, null);
+  assert.equal(quoting.text, ' https://x.com/bob/status/7');
+  assert.equal(runtime.open('x', { appendText: 'https://x.com/bob/status/7' }).text, ' https://x.com/bob/status/7');
+});

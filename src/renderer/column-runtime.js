@@ -93,7 +93,11 @@
               type: column.dataset.type,
               feedUri: column.dataset.feeduri || '',
             }),
-            ...captureCommonState(column, id, columnKind === 'schedule' ? 'ic-anime' : 'ic-b'),
+            ...(columnKind === 'x-native' && { partition: column.dataset.partition }),
+            ...captureCommonState(column, id, {
+              schedule: 'ic-anime',
+              'x-native': 'ic-x',
+            }[columnKind] || 'ic-b'),
           });
         }
       });
