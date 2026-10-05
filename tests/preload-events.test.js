@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 
-test('host events hide Electron event objects and can be unsubscribed', () => {
+test('update status events hide Electron event objects and can be unsubscribed', () => {
   const ipcRenderer = new EventEmitter();
   let api;
   const electron = { ipcRenderer, webUtils: {},
@@ -15,12 +15,11 @@ test('host events hide Electron event objects and can be unsubscribed', () => {
     process: { env: {}, argv: [] },
   });
   const received = [];
-  const unsubscribe = api.on('show-about', (...args) => received.push(args));
-  ipcRenderer.emit('show-about', { sender: 'private-event' }, 'public-value');
-  assert.deepEqual(received, [['public-value']]);
+  const unsubscribe = api.onUpdateStatus(status => received.push(status));
+  ipcRenderer.emit('update-status', { sender: 'private-event' }, { status: 'ready' });
+  assert.deepEqual(received, [{ status: 'ready' }]);
   unsubscribe();
-  ipcRenderer.emit('show-about', {}, 'later');
+  ipcRenderer.emit('update-status', {}, { status: 'later' });
   assert.equal(received.length, 1);
-  api.on('unapproved-channel', () => assert.fail('unapproved channel'));
-  assert.equal(ipcRenderer.listenerCount('unapproved-channel'), 0);
+  assert.equal(api.on, undefined, 'no generic main-process event receiver is exposed');
 });

@@ -84,10 +84,6 @@ function createAppShellRuntime({ documentRef, windowRef, api, actions, cancelApp
     documentRef.addEventListener('keydown', onKeydown);
     if (!api) return;
     windowRef.addEventListener('resize', onResize);
-    for (const [channel, action] of Object.entries({
-      'add-column': 'open-add-column', 'refresh-all': 'refresh-all', 'show-about': 'open-about',
-      'scroll-left': 'scroll-columns-left', 'scroll-right': 'scroll-columns-right',
-    })) subscriptions.push(api.on(channel, () => run(action)));
     subscriptions.push(api.onUpdateStatus?.(status => run('update-status', { status })));
   }
 

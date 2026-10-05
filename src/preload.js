@@ -125,15 +125,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   widgetSetOpacity: (v) => ipcRenderer.invoke('widget-set-opacity', toFiniteNumber(v, 1)),
   widgetGetOpacity: () => ipcRenderer.invoke('widget-get-opacity'),
 
-  // メインプロセスからのイベント受信
-  on: (channel, fn) => {
-    const allowed = ['add-column', 'refresh-all', 'scroll-left', 'scroll-right', 'open-settings', 'show-about'];
-    if (!allowed.includes(channel) || typeof fn !== 'function') return () => {};
-    const listener = (_, ...args) => fn(...args);
-    ipcRenderer.on(channel, listener);
-    return () => ipcRenderer.removeListener(channel, listener);
-  },
-
   // Electron環境かどうかの判定
   isElectron: true,
   devToolsEnabled: isDevelopment,

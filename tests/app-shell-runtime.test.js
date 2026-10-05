@@ -25,9 +25,9 @@ async function harness() {
   const windowRef = { ...eventRoot(), screen: { availWidth: 100, availHeight: 100 }, outerWidth: 100, outerHeight: 100,
     setTimeout: callback => { timer = callback; return 1; }, clearTimeout: () => { canceled++; } };
   const calls = [], host = new Map();
-  const api = { on: (channel, callback) => { host.set(channel, callback); return () => host.delete(channel); },
+  const api = {
     onUpdateStatus: callback => { host.set('update-status', callback); return () => host.delete('update-status'); } };
-  const actions = Object.fromEntries(['open-add-column', 'refresh-all', 'move-lightbox', 'close-lightbox', 'open-about', 'update-status', 'scroll-columns-left', 'scroll-columns-right']
+  const actions = Object.fromEntries(['open-add-column', 'refresh-all', 'move-lightbox', 'close-lightbox', 'open-about', 'update-status']
     .map(action => [action, input => calls.push([action, input])]));
   const runtime = createAppShellRuntime({ documentRef, windowRef, api, actions,
     cancelAppearance: () => escaped++, closeOverlay: () => escaped++, closeQuote: () => escaped++,
@@ -54,12 +54,12 @@ test('keyboard shortcuts click only the enabled visible composer and prioritize 
 test('attach/dispose can repeat without duplicate keyboard or host subscriptions', async () => {
   const h = await harness(); h.runtime.attach(); h.runtime.attach();
   h.documentRef.emit('keydown', { key: 'n', ctrlKey: true, preventDefault() {} });
-  h.host.get('show-about')();
+  h.host.get('update-status')('ready');
   assert.equal(h.calls.length, 2);
   h.runtime.dispose(); assert.equal(h.host.size, 0);
   h.documentRef.emit('keydown', { key: 'n', ctrlKey: true, preventDefault() {} });
   assert.equal(h.calls.length, 2);
-  h.runtime.attach(); h.host.get('show-about')(); assert.equal(h.calls.length, 3);
+  h.runtime.attach(); h.host.get('update-status')('ready'); assert.equal(h.calls.length, 3);
 });
 
 test('toast uses textContent and replaces its previous hide timer', async () => {

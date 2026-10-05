@@ -1504,8 +1504,6 @@ function createUiActionHandlers() {
     'minimize-window': () => window.electronAPI?.minimize(),
     'maximize-window': () => window.electronAPI?.maximize(),
     'scroll-columns-start': () => scrollToStart(),
-    'scroll-columns-left': () => document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }),
-    'scroll-columns-right': () => document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }),
     'update-status': ({ status }) => appInfo.renderUpdateStatus(status),
     'scroll-start': () => scrollToStart(),
     'open-x-post': () => openXPost(),
