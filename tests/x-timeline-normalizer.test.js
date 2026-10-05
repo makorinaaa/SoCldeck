@@ -142,3 +142,10 @@ test('keeps the replied-to user id for timeline filtering', () => {
   assert.equal(conversation.replyTo, 'frank');
   assert.equal(conversation.replyToId, '16');
 });
+
+test('accepts any home timeline operation and labels only the known ones', () => {
+  assert.equal(timelineOperation('https://x.com/i/api/graphql/q/HomeFollowingTimeline'), 'HomeFollowingTimeline');
+  assert.equal(timelineOperation('https://x.com/i/api/graphql/q/UserTweets'), null);
+  assert.equal(normalizeTimelineResponse(fixture, 'HomeFollowingTimeline').timeline, null);
+  assert.equal(normalizeTimelineResponse(fixture, 'HomeLatestTimeline').timeline, 'following');
+});

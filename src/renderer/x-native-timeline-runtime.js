@@ -159,6 +159,20 @@
     return `(window.scrollTo(0, 0), (${selectFollowingRecent.toString()})(document, setTimeout))`;
   }
 
+  // Serialized into X's home page: which tab is selected right now.
+  function readSelectedTab(documentLike) {
+    const selected = Array.from(documentLike.querySelectorAll('[role="tab"]'))
+      .find(tab => tab.getAttribute('aria-selected') === 'true');
+    const text = String(selected?.textContent || '');
+    if (/フォロー中|Following/i.test(text)) return 'following';
+    if (/おすすめ|For you/i.test(text)) return 'for-you';
+    return null;
+  }
+
+  function createReadTabScript() {
+    return `(${readSelectedTab.toString()})(document)`;
+  }
+
   function isLoginUrl(value) {
     if (/\/i\/flow\/(?:login|signup)|\/login(?:[/?#]|$)|\/logout(?:[/?#]|$)/.test(value || '')) return true;
     // A signed-out session is sent from /home to X's landing page.
@@ -251,33 +265,30 @@
       if (payload?.webContentsId == null) return;
       const reader = [...readers.values()].find(item => item.webContentsId === payload.webContentsId);
       if (!reader || !Array.isArray(payload.posts)) return;
-      if (reader.sorting && payload.firstPage && payload.timeline === 'following' && payload.operation !== 'CreateTweet') {
+      if (reader.switching) {
+        if (payload.operation === 'CreateTweet' || !payload.firstPage) return;
+        verifySwitchCapture(reader, payload);
+        return;
+      }
+      // The page's selected tab decides which list a response belongs to; the operation
+      // name is only a fallback until the tab is known.
+      processCapture(reader, { ...payload, timeline: reader.pageTab || payload.timeline });
+      if (payload.firstPage && !reader.pageTab) learnPageTab(reader);
+    });
+
+    function processCapture(reader, payload, { replace = false } = {}) {
+      if (replace || (reader.sorting && payload.firstPage && payload.timeline === 'following' && payload.operation !== 'CreateTweet')) {
         reader.sorting = false;
         clearTimeoutFn(reader.sortingTimer);
         reader.posts = [];
       }
-      if (reader.switching) {
-        if (payload.operation === 'CreateTweet' || !payload.firstPage) return;
-        if (payload.timeline !== reader.switching) {
-          // The reload opened the other tab: X did not keep the click, so select it again.
-          if (!reader.reselected) {
-            reader.reselected = true;
-            reader.webview.executeJavaScript(createSelectTabScript(reader.switching)).catch(() => {});
-          }
-          return;
-        }
-        reader.posts = [];
-      } else if (reader.desiredTimeline && payload.timeline && payload.timeline !== reader.desiredTimeline) {
-        return;
-      }
       const incoming = payload.operation === 'CreateTweet'
         ? placeOnTop(payload.posts.filter(post => !reader.posts.some(shown => shown.id === post.id)), reader.posts)
         : payload.posts;
-      const wasSwitching = Boolean(reader.switching);
       const shownBefore = new Set(reader.posts.map(post => post.id));
       const previousTop = reader.posts.reduce((max, post) => (post.local ? max : (sortValue(post) > max ? sortValue(post) : max)), 0n);
       const isFirstPage = payload.operation !== 'CreateTweet' && payload.firstPage === true;
-      log('captured', payload.operation, payload.posts.length, isFirstPage ? 'first page' : 'partial');
+      log('captured', payload.operation, payload.timeline, payload.posts.length, isFirstPage ? 'first page' : 'partial');
       const base = isFirstPage ? reconcileFirstPage(reader.posts, payload.posts, payload.timeline) : reader.posts;
       reader.posts = mergePosts(base, incoming);
       reader.timeline = payload.timeline || reader.timeline;
@@ -287,7 +298,7 @@
       waiters.forEach(resolve => resolve({ status: 'succeeded', detail: 'captured' }));
       renderReader(reader);
       saveSnapshotSoon(reader);
-      if (shownBefore.size && !wasSwitching && payload.operation !== 'CreateTweet') {
+      if (shownBefore.size && !replace && payload.operation !== 'CreateTweet') {
         const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local
           && sortValue(post) > previousTop && showsInTimeline(post, reader.partition));
         if (arrived.length) announceNewPosts(reader, arrived.length);
@@ -295,7 +306,41 @@
       if (isFirstPage && reader.timeline === 'following' && !reader.sortChecked && !reader.switching) {
         ensureRecentSort(reader);
       }
-    });
+    }
+
+    async function readPageTab(reader) {
+      const tab = await reader.webview.executeJavaScript(createReadTabScript()).catch(() => null);
+      return tab === 'following' || tab === 'for-you' ? tab : null;
+    }
+
+    async function learnPageTab(reader) {
+      const tab = await readPageTab(reader);
+      if (!tab || reader.pageTab || reader.switching) return;
+      reader.pageTab = tab;
+      if (reader.timeline !== tab) {
+        reader.timeline = tab;
+        renderReader(reader);
+        if (tab === 'following' && !reader.sortChecked) ensureRecentSort(reader);
+      }
+    }
+
+    // While switching, a first page counts only if X's page really shows the chosen tab.
+    async function verifySwitchCapture(reader, payload) {
+      const target = reader.switching;
+      const tab = (await readPageTab(reader)) || payload.timeline;
+      if (reader.switching !== target) return;
+      log('switch capture', payload.operation, tab);
+      if (tab === target) {
+        reader.pageTab = target;
+        processCapture(reader, { ...payload, timeline: target }, { replace: true });
+        return;
+      }
+      // The reload reopened the other tab: X did not keep the click, so select it again.
+      if (!reader.reselected) {
+        reader.reselected = true;
+        reader.webview.executeJavaScript(createSelectTabScript(target)).catch(() => {});
+      }
+    }
 
     // Following defaults to Recent. X remembers the choice, so this runs once per Column
     // start and after switching to Following.
@@ -400,7 +445,7 @@
         lastLoadAt: now(),
         waiters: [],
         switching: null,
-        desiredTimeline: null,
+        pageTab: null,
       };
 
       const onNavigate = event => {
@@ -1183,7 +1228,7 @@
       log('switch timeline', timeline, result);
       let succeeded = false;
       if (result === 'clicked' || result === 'already') {
-        reader.desiredTimeline = timeline;
+        reader.pageTab = null;
         const captured = waitForCapture(reader);
         loadHome(reader);
         succeeded = (await captured).status === 'succeeded' && reader.timeline === timeline;
@@ -1373,9 +1418,11 @@
   global.SocialDeckXNativeTimelineRuntime = {
     createXNativeTimelineRuntime,
     createFollowingRecentScript,
+    createReadTabScript,
     createSelectTabScript,
     mergePosts,
     placeOnTop,
+    readSelectedTab,
     selectFollowingRecent,
     selectHomeTab,
     reconcileFirstPage,

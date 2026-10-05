@@ -12,7 +12,9 @@ function timelineOperation(url) {
     const parsed = new URL(url);
     if (!['x.com', 'twitter.com', 'api.x.com'].includes(parsed.hostname)) return null;
     const name = parsed.pathname.match(/\/graphql\/[^/]+\/([A-Za-z]+)$/)?.[1];
-    return TIMELINE_OPERATIONS.has(name) ? name : null;
+    // X can serve the home tabs (and the Following sort orders) through other Home*Timeline
+    // operations; the renderer decides which tab a response belongs to from the page itself.
+    return TIMELINE_OPERATIONS.has(name) || /^Home[A-Za-z]*Timeline$/.test(name || '') ? name : null;
   } catch {
     return null;
   }
@@ -249,7 +251,7 @@ function normalizeTimelineResponse(json, operation = 'HomeTimeline') {
   }
   return {
     operation,
-    timeline: operation === 'HomeLatestTimeline' ? 'following' : 'for-you',
+    timeline: { HomeLatestTimeline: 'following', HomeTimeline: 'for-you' }[operation] || null,
     posts,
     cursors,
   };
