@@ -1,13 +1,12 @@
 (function (global) {
-  const { escapeHtml } = global.SocialDeckHtmlEscape;
-
+  // Native X Home Columns. This module owns the hidden home page per account (the reader),
+  // what it captures, and the Columns that show it. Post lists, page scripts, Column drawing,
+  // the post detail view and reactions live in their own x-native-* modules.
   const HOME_URL = 'https://x.com/home';
-  const MAX_POSTS = 200;
   const CAPTURE_TIMEOUT_MS = 20000;
   // Automatic reloads never run more often than this, whatever the column interval says.
   const MIN_AUTO_REFRESH_MS = 3 * 60 * 1000;
   const SOFT_REFRESH_RESULTS = new Set(['home-clicked', 'banner-clicked']);
-  const DETAIL_WAIT_MS = 6000;
   const LOAD_TIMEOUT_MS = 30000;
   // A long-lived x.com page slowly grows; memory cleanup reloads readers older than this.
   const READER_REFRESH_AGE_MS = 30 * 60 * 1000;
@@ -22,184 +21,6 @@
   const DRIVEN_RESPONSE_MS = 8000;
   const X_POLLING_WINDOW_MS = 150 * 1000;
   const BADGE_AT_TOP_MS = 5000;
-  const TIMELINE_LABELS = { 'for-you': 'おすすめ', following: 'フォロー中' };
-
-  function compareSortIndex(left, right) {
-    const a = String(left.sortIndex || '');
-    const b = String(right.sortIndex || '');
-    if (a.length !== b.length) return b.length - a.length;
-    return b < a ? -1 : b > a ? 1 : 0;
-  }
-
-  // Newly captured posts replace older copies so counts and viewer state stay fresh.
-  function mergePosts(existing, incoming, limit = MAX_POSTS) {
-    const byId = new Map(existing.map(post => [post.id, post]));
-    incoming.forEach(post => {
-      if (!post?.id) return;
-      const previous = byId.get(post.id);
-      // Keep the original position for posts already shown; re-ranking would make them jump.
-      if (!previous) {
-        byId.set(post.id, post);
-        return;
-      }
-      const next = { ...post, sortIndex: previous.sortIndex, local: previous.local && !post.sortIndex };
-      // Unchanged posts keep their object, so their rendered HTML is reused.
-      byId.set(post.id, JSON.stringify(next) === JSON.stringify(previous) ? previous : next);
-    });
-    return [...byId.values()].sort(compareSortIndex).slice(0, limit);
-  }
-
-  function sortValue(post) {
-    try {
-      return BigInt(post?.sortIndex || 0);
-    } catch {
-      return 0n;
-    }
-  }
-
-  // A timeline's first page is the truth for the range it covers: posts shown in that range
-  // but missing from it were deleted (or hidden) and go away. Older posts loaded with
-  // "load more" stay. A ranked feed (for you) is replaced, since its order changes anyway.
-  // Posts this account just sent stay: X can leave them out of its own refreshes.
-  function reconcileFirstPage(existing, firstPage, timeline) {
-    if (!firstPage.length) return existing;
-    const ids = new Set(firstPage.map(post => post.id));
-    if (timeline === 'for-you') return existing.filter(post => ids.has(post.id) || post.local);
-    const oldest = firstPage.reduce((min, post) => {
-      const value = sortValue(post);
-      return value < min ? value : min;
-    }, sortValue(firstPage[0]));
-    return existing.filter(post => ids.has(post.id) || post.local || sortValue(post) < oldest);
-  }
-
-  // A new post has no timeline sortIndex: place it just above the newest shown post.
-  function placeOnTop(posts, existing) {
-    const top = existing.reduce((max, post) => {
-      try {
-        const value = BigInt(post.sortIndex || 0);
-        return value > max ? value : max;
-      } catch {
-        return max;
-      }
-    }, 0n);
-    return posts.map((post, index) => ({ ...post, local: true, sortIndex: String(top + BigInt(posts.length - index)) }));
-  }
-
-  function toMuteShape(post) {
-    const quoted = post.quoted;
-    const text = segments => (segments || []).map(segment => segment.text || '').join('');
-    return {
-      post: {
-        record: { text: text(post.segments) },
-        author: { handle: post.author?.handle, displayName: post.author?.name },
-        embed: quoted ? {
-          record: {
-            value: { text: text(quoted.segments) },
-            author: { handle: quoted.author?.handle, displayName: quoted.author?.name },
-          },
-        } : null,
-      },
-      reason: post.repostedBy
-        ? { by: { handle: post.repostedBy.handle, displayName: post.repostedBy.name } }
-        : null,
-    };
-  }
-
-  // Serialized into X's home page: selects the For you / Following tab. X's narrow layout
-  // hides its header while scrolled, so the tabs may need a moment to come back.
-  async function selectHomeTab(documentLike, timeline, schedule = null, attempts = 1) {
-    const pattern = timeline === 'following' ? /フォロー中|Following/i : /おすすめ|For you/i;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const tab = Array.from(documentLike.querySelectorAll('[role="tab"]'))
-        .find(element => pattern.test(String(element.textContent || '')));
-      if (tab) {
-        if (tab.getAttribute('aria-selected') === 'true') return 'already';
-        tab.click();
-        return 'clicked';
-      }
-      if (schedule) await new Promise(resolve => schedule(resolve, 150));
-    }
-    return 'missing';
-  }
-
-  function createSelectTabScript(timeline) {
-    return `(window.scrollTo(0, 0), (${selectHomeTab.toString()})(document, ${JSON.stringify(timeline)}, setTimeout, 20))`;
-  }
-
-  // Serialized into X's home page: X's Following tab can sort by "Popular" or "Recent".
-  // Pressing the selected Following tab opens that menu; SocialDeck picks Recent.
-  async function selectFollowingRecent(documentLike, schedule) {
-    const wait = ms => new Promise(resolve => schedule(resolve, ms));
-    const close = () => {
-      if (typeof KeyboardEvent === 'function') {
-        documentLike.dispatchEvent?.(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      }
-    };
-    const following = Array.from(documentLike.querySelectorAll('[role="tab"]'))
-      .find(tab => /フォロー中|Following/i.test(String(tab.textContent || '')));
-    if (!following || following.getAttribute('aria-selected') !== 'true') return 'not-following';
-    following.click();
-    let items = [];
-    for (let check = 0; check < 20 && !items.length; check += 1) {
-      await wait(100);
-      items = Array.from(documentLike.querySelectorAll('[role="menuitem"], [role="menuitemradio"]'));
-    }
-    if (!items.length) return 'no-menu';
-    const recent = items.find(item => /最新|Recent|Latest/i.test(String(item.textContent || '')));
-    if (!recent) {
-      close();
-      return 'no-recent';
-    }
-    const checked = recent.getAttribute('aria-checked') === 'true'
-      || Boolean(recent.querySelector('[data-testid="check"], svg[aria-label*="選択"], svg[aria-label*="Selected"]'));
-    if (checked) {
-      close();
-      return 'already';
-    }
-    recent.click();
-    return 'selected';
-  }
-
-  function createFollowingRecentScript() {
-    return `(window.scrollTo(0, 0), (${selectFollowingRecent.toString()})(document, setTimeout))`;
-  }
-
-  // Serialized into X's home page: the unread count on X's own Notifications tab.
-  // Returns null when the tab is not on the page, 0 when it shows no count.
-  function readNotificationBadge(documentLike) {
-    const link = documentLike.querySelector('[data-testid="AppTabBar_Notifications_Link"]')
-      || documentLike.querySelector('a[href="/notifications"]');
-    if (!link) return null;
-    const label = /(\d+)/.exec(String(link.getAttribute('aria-label') || ''));
-    if (label) return Number(label[1]);
-    const text = String(link.textContent || '').replace(/\s+/g, '');
-    const count = /(\d+)\+?$/.exec(text);
-    return count ? Number(count[1]) : 0;
-  }
-
-  function createNotificationBadgeScript() {
-    return `(${readNotificationBadge.toString()})(document)`;
-  }
-
-  // Serialized into X's home page: which tab is selected right now.
-  function readSelectedTab(documentLike) {
-    const selected = Array.from(documentLike.querySelectorAll('[role="tab"]'))
-      .find(tab => tab.getAttribute('aria-selected') === 'true');
-    const text = String(selected?.textContent || '');
-    if (/フォロー中|Following/i.test(text)) return 'following';
-    if (/おすすめ|For you/i.test(text)) return 'for-you';
-    return null;
-  }
-
-  function createReadTabScript() {
-    return `(${readSelectedTab.toString()})(document)`;
-  }
-
-  function isLoginUrl(value) {
-    if (/\/i\/flow\/(?:login|signup)|\/login(?:[/?#]|$)|\/logout(?:[/?#]|$)/.test(value || '')) return true;
-    // A signed-out session is sent from /home to X's landing page.
-    return /^https:\/\/(?:www\.)?(?:x|twitter)\.com\/?(?:[?#]|$)/.test(value || '');
-  }
 
   function createXNativeTimelineRuntime({
     documentRef = global.document,
@@ -225,25 +46,56 @@
     storage = global.localStorage,
     createToggleScript = null,
     requestFrame = callback => (global.requestAnimationFrame ? global.requestAnimationFrame(callback) : callback()),
-    createElementFromHtml = html => {
-      const template = documentRef.createElement('template');
-      template.innerHTML = html.trim();
-      return template.content.firstElementChild;
-    },
+    createElementFromHtml,
   } = {}) {
     if (!tap?.attach || !tap?.onCaptured) throw new Error('X native timeline requires a timeline tap');
     if (typeof renderPost !== 'function') throw new Error('X native timeline requires a post renderer');
+    const { MAX_POSTS, mergePosts, placeOnTop, reconcileFirstPage, sortValue, toMuteShape } = global.SocialDeckXNativePosts;
+    const scripts = global.SocialDeckXNativePageScripts;
+    const { baseSubtitleOf, createXNativeColumnView } = global.SocialDeckXNativeColumnView;
 
     const readers = new Map();
     const columns = new Map();
-    removeLegacySnapshots();
-    const pendingReactions = new Map();
-    let activeDetail = null;
-    let activeMenu = null;
-    // A status page may be fetched before the detail view knows which post it shows.
-    const recentDetails = new Map();
     const accountIds = new Map();
-    const deleting = new Set();
+    removeLegacySnapshots();
+
+    const reactions = global.SocialDeckXNativeReactions.createXNativeReactions({
+      documentRef,
+      statusRuntime,
+      icons,
+      intents,
+      log,
+      confirmAction,
+      isBusy,
+      createToggleScript,
+      getReader: partition => readers.get(partition),
+      updatePost,
+      removePost,
+      renderPartition,
+      rerenderEverything,
+    });
+    const detail = global.SocialDeckXNativeDetail.createXNativeDetail({
+      documentRef,
+      statusRuntime,
+      renderPost,
+      renderThread,
+      postOptions,
+      handleInteractive,
+      isMenuOpen: () => reactions.isMenuOpen(),
+      updatePost,
+      renderPartition,
+      intents,
+      log,
+      setTimeoutFn,
+      clearTimeoutFn,
+    });
+    const view = createXNativeColumnView({
+      documentRef,
+      renderPost,
+      relTime,
+      getPendingReaction: (kind, id, partition) => reactions.getPendingReaction(kind, id, partition),
+      ...(createElementFromHtml ? { createElementFromHtml } : {}),
+    });
 
     // The home timeline leaves out replies to other people, including this account's own
     // replies to others. Threads (replies to oneself) and replies to this account stay;
@@ -263,7 +115,7 @@
     function postOptions(post, partition) {
       // The author decides: a post shown because someone else reposted it is still deletable.
       const own = Boolean(post?.author?.id) && accountIds.get(partition) === post.author.id;
-      return { partition, own, deleting: deleting.has(`${partition}|${post?.id}`) };
+      return { partition, own, deleting: reactions.isDeleting(partition, post?.id) };
     }
 
     function loadAccountId(partition) {
@@ -282,7 +134,7 @@
     tap.onCaptured(payload => {
       const statusPartition = statusRuntime?.partitionOf(payload?.webContentsId);
       if (statusPartition) {
-        handleStatusCapture(statusPartition, payload);
+        detail.handleStatusCapture(statusPartition, payload);
         return;
       }
       if (payload?.webContentsId == null) return;
@@ -336,7 +188,7 @@
     }
 
     async function readPageTab(reader) {
-      const tab = await reader.webview.executeJavaScript(createReadTabScript()).catch(() => null);
+      const tab = await reader.webview.executeJavaScript(scripts.createReadTabScript()).catch(() => null);
       return tab === 'following' || tab === 'for-you' ? tab : null;
     }
 
@@ -365,7 +217,7 @@
       // The reload reopened the other tab: X did not keep the click, so select it again.
       if (!reader.reselected) {
         reader.reselected = true;
-        reader.webview.executeJavaScript(createSelectTabScript(target)).catch(() => {});
+        reader.webview.executeJavaScript(scripts.createSelectTabScript(target)).catch(() => {});
       }
     }
 
@@ -375,7 +227,7 @@
       if (isBusy()) return;
       reader.sortChecked = true;
       markDriven(reader);
-      const result = await reader.webview.executeJavaScript(createFollowingRecentScript()).catch(() => 'failed');
+      const result = await reader.webview.executeJavaScript(scripts.createFollowingRecentScript()).catch(() => 'failed');
       log('following sort', result);
       if (result !== 'selected') return;
       reader.sorting = true;
@@ -454,7 +306,7 @@
       };
 
       const onNavigate = event => {
-        if (isLoginUrl(event?.url)) setStatus(reader, 'login', 'このアカウントで X にログインしてください');
+        if (scripts.isLoginUrl(event?.url)) setStatus(reader, 'login', 'このアカウントで X にログインしてください');
       };
       webview.addEventListener('did-navigate', onNavigate);
       webview.addEventListener('did-navigate-in-page', onNavigate);
@@ -482,12 +334,12 @@
       return reader;
     }
 
-    // Loads X's home in the reader; if no timeline arrives the Column stops spinning and
-    // offers the refresh button instead of waiting forever.
     function markDriven(reader) {
       reader.lastDrivenAt = now();
     }
 
+    // Loads X's home in the reader; if no timeline arrives the Column stops spinning and
+    // offers the refresh button instead of waiting forever.
     function loadHome(reader) {
       reader.lastLoadAt = now();
       markDriven(reader);
@@ -509,125 +361,12 @@
       reader.webview.remove();
     }
 
-    // Posts are immutable objects (an update makes a new one), so a post's HTML is kept until
-    // the post, its account view, or a pending reaction on it changes.
-    const postHtmlCache = new WeakMap();
-    function postHtml(post, options) {
-      const like = getPendingReaction('like', post.id, options.partition);
-      const repost = getPendingReaction('repost', post.id, options.partition);
-      const key = [options.partition, options.own ? 1 : 0, options.deleting ? 1 : 0,
-        like ? like.active : '-', repost ? repost.active : '-'].join('|');
-      let variants = postHtmlCache.get(post);
-      if (!variants) {
-        variants = new Map();
-        postHtmlCache.set(post, variants);
-      }
-      let html = variants.get(key);
-      if (html === undefined) {
-        if (variants.size >= 4) variants.clear();
-        html = renderPost(post, options);
-        variants.set(key, html);
-      }
-      return html;
-    }
-
-    function keyOf(element) {
-      if (element.dataset?.xId) return `post:${element.dataset.xId}`;
-      if (element.hasAttribute?.('data-x-native-more')) return 'more';
-      if (element.hasAttribute?.('data-x-native-tabs')) return 'tabs';
-      if (element.hasAttribute?.('data-x-native-login')) return 'login';
-      if (element.classList?.contains('x-native-notice')) return 'notice';
-      return null;
-    }
-
-    // Updates a column in place: unchanged posts keep their DOM nodes (a playing video keeps
-    // playing, images are not decoded again) and only new or changed posts are built.
-    // Chromium's scroll anchoring keeps the reading position when posts are added above.
-    function patchColumn(column, entries) {
-      const { host } = column;
-      if (typeof host.insertBefore !== 'function') {
-        host.innerHTML = entries.map(entry => entry.html).join('');
-        return;
-      }
-      const existing = new Map();
-      Array.from(host.children || []).forEach(element => {
-        const key = keyOf(element);
-        if (key && !existing.has(key) && column.rendered.has(element)) existing.set(key, element);
-        else element.remove();
-      });
-      let cursor = host.firstElementChild;
-      for (const entry of entries) {
-        let element = existing.get(entry.key);
-        existing.delete(entry.key);
-        if (element && column.rendered.get(element) !== entry.html) {
-          const fresh = createElementFromHtml(entry.html);
-          if (cursor === element) cursor = fresh;
-          element.replaceWith(fresh);
-          element = fresh;
-        }
-        if (!element) element = createElementFromHtml(entry.html);
-        column.rendered.set(element, entry.html);
-        if (element === cursor) cursor = cursor.nextElementSibling;
-        else host.insertBefore(element, cursor);
-      }
-      existing.forEach(element => element.remove());
-    }
-
-    function tabsHtml(reader) {
-      const current = reader.switching || reader.timeline;
-      const button = (timeline, label) => `<button type="button" data-x-timeline="${timeline}" class="${current === timeline ? 'on' : ''}"${reader.switching ? ' disabled' : ''} aria-pressed="${current === timeline}">${label}</button>`;
-      return `<div class="x-native-tabs" data-x-native-tabs role="group" aria-label="タイムライン">${button('for-you', 'おすすめ')}${button('following', 'フォロー中')}</div>`;
-    }
-
-    function loginHtml(reader) {
-      return `<div class="x-native-login" data-x-native-login>
-        <div>${escapeHtml(reader.message || 'このアカウントで X にログインしてください')}</div>
-        <button type="button" data-x-native-open-login>X にログイン</button>
-      </div>`;
-    }
-
     function renderColumn(column, reader) {
-      const { host } = column;
-      if (column.login) return;
-      if (column.subtitle) {
-        const label = TIMELINE_LABELS[reader.timeline];
-        column.subtitle.textContent = label ? `${column.baseSubtitle} · ${label}` : column.baseSubtitle;
-      }
-      const visible = reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, column.partition));
-      if (reader.status === 'login' && !visible.length) {
-        const html = loginHtml(reader);
-        if (column.signature !== html) host.innerHTML = html;
-        column.signature = html;
-        return;
-      }
-      if (!visible.length) {
-        const tabs = reader.timeline || reader.switching ? tabsHtml(reader) : '';
-        const html = tabs + (reader.status === 'loading' || reader.switching
-          ? '<div class="feed-loading"><div class="spinner"></div>X のタイムラインを読み込み中…</div>'
-          : reader.status === 'ready'
-            ? '<div class="feed-empty">表示できるポストがありません</div>'
-            : `<div class="feed-empty">${escapeHtml(reader.message || '読み込めませんでした')}</div>`);
-        if (column.signature !== html) host.innerHTML = html;
-        column.signature = html;
-        return;
-      }
-      const entries = [{ key: 'tabs', html: tabsHtml(reader) }];
-      if (reader.status === 'login') entries.push({ key: 'login', html: loginHtml(reader) });
-      else if (reader.status === 'error') {
-        entries.push({ key: 'notice', html: `<div class="x-native-notice">${escapeHtml(reader.message)}</div>` });
-      }
-      visible.forEach(post => entries.push({ key: `post:${post.id}`, html: postHtml(post, postOptions(post, column.partition)) }));
-      entries.push({
-        key: 'more',
-        html: `<button type="button" class="x-native-more" data-x-native-more${reader.loadingMore ? ' disabled' : ''}>${reader.loadingMore ? '読み込み中…' : 'さらに読み込む'}</button>`,
+      view.render(column, {
+        reader,
+        visible: reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, column.partition)),
+        optionsFor: post => postOptions(post, column.partition),
       });
-      // Most captures (a refresh with no new posts) change nothing: skip the DOM entirely.
-      const signature = entries.map(entry => entry.html).join('');
-      if (column.signature === signature) return;
-      column.signature = signature;
-      patchColumn(column, entries);
-      // Cached HTML may carry an older relative time: refresh the visible labels.
-      refreshTimes(column.host);
     }
 
     function renderReader(reader) {
@@ -637,13 +376,7 @@
     // Viewer state (liked / reposted) differs per account, so posts are looked up per account.
     function findPost(id, partition) {
       if (!id) return null;
-      const candidates = [...(readers.get(partition)?.posts || [])];
-      const detail = activeDetail?.partition === partition ? activeDetail : null;
-      if (detail?.data) {
-        const { ancestors = [], focal, replies = [] } = detail.data;
-        candidates.push(...ancestors, focal, ...replies.flatMap(chain => [chain.post, ...(chain.replies || [])]));
-      }
-      if (detail?.fallback) candidates.push(detail.fallback);
+      const candidates = [...(readers.get(partition)?.posts || []), ...detail.postsOf(partition)];
       for (const post of candidates) {
         if (post?.id === id) return post;
         if (post?.quoted?.id === id) return post.quoted;
@@ -659,211 +392,26 @@
       };
       const reader = readers.get(partition);
       if (reader) reader.posts = reader.posts.map(apply);
-      if (activeDetail?.partition !== partition) return;
-      if (activeDetail.data) {
-        const data = activeDetail.data;
-        activeDetail.data = {
-          ...data,
-          ancestors: (data.ancestors || []).map(apply),
-          focal: apply(data.focal),
-          replies: (data.replies || []).map(chain => ({ post: apply(chain.post), replies: (chain.replies || []).map(apply) })),
-        };
-      }
-      if (activeDetail.fallback) activeDetail.fallback = apply(activeDetail.fallback);
+      detail.applyUpdate(apply, partition);
+    }
+
+    // A deleted post is gone for every account, so it leaves every Column, the open detail
+    // view and the cached status pages, not only those of the account that deleted it.
+    function removePost(id) {
+      readers.forEach(reader => { reader.posts = reader.posts.filter(post => post?.id !== id); });
+      detail.removePost(id);
     }
 
     function rerenderEverything() {
       readers.forEach(renderReader);
-      renderDetail();
+      detail.render();
     }
 
     // Reactions, deletions and status pages only touch one account's posts.
     function renderPartition(partition) {
       const reader = readers.get(partition);
       if (reader) renderReader(reader);
-      if (activeDetail?.partition === partition) renderDetail();
-    }
-
-    function reactionKey(kind, id, partition) {
-      return `${partition}|${kind}:${id}`;
-    }
-
-    function getPendingReaction(kind, id, partition) {
-      return pendingReactions.get(reactionKey(kind, id, partition)) || null;
-    }
-
-    async function toggleReaction(kind, post, partition) {
-      const key = reactionKey(kind, post.id, partition);
-      if (pendingReactions.has(key) || !statusRuntime) return;
-      const field = kind === 'like' ? 'liked' : 'reposted';
-      const countField = kind === 'like' ? 'like' : 'repost';
-      const active = !post.viewer?.[field];
-      pendingReactions.set(key, { active });
-      renderPartition(partition);
-      try {
-        let result = await toggleInReader(partition, post, kind, active);
-        log('reaction (home)', kind, post.id, result);
-        if (result !== 'done' && result !== 'already') {
-          result = await statusRuntime.toggle(partition, post, kind, active);
-          log('reaction (status page)', kind, post.id, result);
-        }
-        if (result !== 'done' && result !== 'already') {
-          throw new Error(result === 'unconfirmed' ? 'X で反映を確認できませんでした' : 'X で操作できませんでした');
-        }
-        updatePost(post.id, current => ({
-          viewer: { ...current.viewer, [field]: active },
-          counts: {
-            ...current.counts,
-            [countField]: Math.max(0, (Number(current.counts?.[countField]) || 0)
-              + (result === 'done' && Boolean(current.viewer?.[field]) !== active ? (active ? 1 : -1) : 0)),
-          },
-        }), partition);
-        if (kind === 'repost') showOwnRepost(post.id, partition, active);
-        intents.onOutcome?.({ kind, status: 'succeeded', active });
-      } catch (error) {
-        intents.onOutcome?.({ kind, status: 'failed', active, error });
-      } finally {
-        pendingReactions.delete(key);
-        renderPartition(partition);
-      }
-    }
-
-    // X does not put the account's own repost on top of its home right away: SocialDeck does,
-    // like it does for the account's new posts.
-    function showOwnRepost(id, partition, active) {
-      const reader = readers.get(partition);
-      const shown = reader?.posts.find(post => post.id === id);
-      if (!reader || !shown) return;
-      if (active) {
-        const others = reader.posts.filter(post => post.id !== id);
-        const [moved] = placeOnTop([{ ...shown, repostedBy: { handle: '', name: 'あなた', self: true } }], others);
-        reader.posts = [moved, ...others];
-      } else if (shown.repostedBy?.self) {
-        reader.posts = reader.posts.map(post => (post.id === id ? { ...post, repostedBy: null } : post));
-      }
-    }
-
-    // The hidden home page usually still holds recent posts: pressing X's button there needs
-    // no navigation, so a like lands in a fraction of the time a status page takes.
-    async function toggleInReader(partition, post, kind, active) {
-      const reader = readers.get(partition);
-      if (!createToggleScript || !reader || reader.status !== 'ready' || reader.webContentsId === null
-        || reader.switching || isBusy()) return 'skipped';
-      try {
-        return await reader.webview.executeJavaScript(createToggleScript({ statusId: post.id, action: kind, active }));
-      } catch {
-        return 'failed';
-      }
-    }
-
-    function closeMenu() {
-      if (!activeMenu) return;
-      documentRef.removeEventListener?.('pointerdown', activeMenu.handlePointerDown, true);
-      documentRef.removeEventListener?.('keydown', activeMenu.handleKeyDown);
-      activeMenu.menu.remove?.();
-      activeMenu = null;
-    }
-
-    // A deleted post is gone for every account, so it leaves every Column, the open detail
-    // view and the cached status pages, not only those of the account that deleted it.
-    function removePost(id) {
-      const keep = post => post?.id !== id;
-      readers.forEach(reader => { reader.posts = reader.posts.filter(keep); });
-      recentDetails.forEach((payloads, partition) => {
-        recentDetails.set(partition, payloads.map(payload => ({
-          ...payload,
-          thread: (payload.thread || []).filter(keep),
-          replies: (payload.replies || []).filter(chain => keep(chain.post))
-            .map(chain => ({ ...chain, replies: (chain.replies || []).filter(keep) })),
-        })));
-      });
-      if (!activeDetail) return;
-      if (activeDetail.focalId === id) {
-        closeDetail();
-        return;
-      }
-      const data = activeDetail.data;
-      if (data) {
-        activeDetail.data = {
-          ...data,
-          ancestors: data.ancestors.filter(post => post.id !== id),
-          replies: data.replies
-            .filter(chain => chain.post.id !== id)
-            .map(chain => ({ ...chain, replies: (chain.replies || []).filter(post => post.id !== id) })),
-        };
-      }
-    }
-
-    async function deletePost(post, partition) {
-      const key = `${partition}|${post.id}`;
-      if (deleting.has(key) || !statusRuntime?.remove) return;
-      if (!confirmAction('このポストを削除しますか？この操作は取り消せません。')) return;
-      deleting.add(key);
-      renderPartition(partition);
-      try {
-        let result = await statusRuntime.remove(partition, post);
-        log('delete', post.id, result);
-        // Failures before X's confirm button was pressed leave the post untouched: one retry
-        // covers a status page that was still starting up.
-        if (['missing', 'menu-missing', 'delete-missing', 'confirm-missing'].includes(result)) {
-          result = await statusRuntime.remove(partition, post);
-          log('delete retry', post.id, result);
-        }
-        if (result !== 'done') {
-          throw new Error(result === 'delete-missing' ? 'X で削除メニューが見つかりませんでした' : 'X で削除を確認できませんでした');
-        }
-        removePost(post.id);
-        intents.onOutcome?.({ kind: 'delete', status: 'succeeded' });
-      } catch (error) {
-        intents.onOutcome?.({ kind: 'delete', status: 'failed', error });
-      } finally {
-        deleting.delete(key);
-        rerenderEverything();
-      }
-    }
-
-    function openMoreMenu(button, post, partition) {
-      showMenu(button, `<button type="button" class="x-menu-danger" data-x-menu-action="delete">${icons.trash || ''} 削除</button>`, action => {
-        if (action === 'delete') deletePost(post, partition);
-      });
-    }
-
-    function openRepostMenu(button, post, partition) {
-      showMenu(button, `
-        <button type="button" data-x-menu-action="repost">${icons.repost || ''} ${post.viewer?.reposted ? 'リポストを取り消す' : 'リポスト'}</button>
-        <button type="button" data-x-menu-action="quote">引用</button>`, action => {
-        if (action === 'repost') toggleReaction('repost', post, partition);
-        else intents.quote?.({ id: post.id, url: post.url, handle: post.author?.handle || '', partition });
-      });
-    }
-
-    function showMenu(button, html, onAction) {
-      closeMenu();
-      if (!documentRef.body) return;
-      const menu = documentRef.createElement('div');
-      menu.className = 'bsky-repost-menu';
-      const rect = button.getBoundingClientRect?.() || { left: 0, bottom: 0 };
-      menu.style.left = `${rect.left}px`;
-      menu.style.top = `${rect.bottom + 4}px`;
-      menu.innerHTML = html;
-      menu.addEventListener('click', event => {
-        const action = event.target?.closest?.('[data-x-menu-action]')?.dataset.xMenuAction;
-        if (!action) return;
-        event.preventDefault();
-        event.stopPropagation();
-        closeMenu();
-        onAction(action);
-      });
-      const handlePointerDown = event => {
-        if (!menu.contains?.(event.target)) closeMenu();
-      };
-      const handleKeyDown = event => {
-        if (event.key === 'Escape') closeMenu();
-      };
-      documentRef.body.appendChild(menu);
-      documentRef.addEventListener?.('pointerdown', handlePointerDown, true);
-      documentRef.addEventListener?.('keydown', handleKeyDown);
-      activeMenu = { menu, handlePointerDown, handleKeyDown };
+      if (detail.isOpenFor(partition)) detail.render();
     }
 
     function handleInteractive(event, partition) {
@@ -879,11 +427,11 @@
         if (action === 'reply') {
           intents.reply?.({ id: post.id, url: post.url, handle: post.author?.handle || '', partition });
         } else if (action === 'like') {
-          toggleReaction('like', post, partition);
+          reactions.toggle('like', post, partition);
         } else if (action === 'repost') {
-          openRepostMenu(actionButton, post, partition);
+          reactions.openRepostMenu(actionButton, post, partition);
         } else if (action === 'more') {
-          openMoreMenu(actionButton, post, partition);
+          reactions.openMoreMenu(actionButton, post, partition);
         }
         return true;
       }
@@ -903,7 +451,7 @@
       if (holder) {
         const id = quote ? quoteId(quote) : holder.dataset.xId;
         const post = findPost(id, partition);
-        if (post) openPost(post, partition);
+        if (post) detail.open(post, partition);
         else if (holder.dataset.xUrl) intents.openExternal?.({ url: holder.dataset.xUrl });
         return true;
       }
@@ -936,209 +484,13 @@
       handleInteractive(event, column.partition);
     }
 
-    function closeDetail() {
-      if (!activeDetail) return;
-      documentRef.removeEventListener?.('keydown', activeDetail.handleKeyDown);
-      activeDetail.overlay.remove?.();
-      activeDetail = null;
-    }
-
-    function renderDetail() {
-      if (!activeDetail) return;
-      const body = activeDetail.overlay.querySelector?.('.bsky-post-detail-body');
-      if (!body) return;
-      const html = detailHtml(activeDetail);
-      if (activeDetail.renderedHtml === html) return;
-      activeDetail.renderedHtml = html;
-      body.innerHTML = html;
-    }
-
-    function detailHtml(detail) {
-      const { data, fallback, error } = detail;
-      if (data && renderThread) {
-        return renderThread(data, {
-          partition: detail.partition,
-          postOptions: post => postOptions(post, detail.partition),
-        });
-      }
-      if (!fallback) {
-        const preview = detail.previewText
-          ? `<div class="x-detail-preview">${escapeHtml(detail.previewText).replace(/\n/g, '<br>')}</div>`
-          : '';
-        return error
-          ? `<div class="feed-err">${escapeHtml(error)}</div>`
-          : `${preview}<div class="feed-loading"><div class="spinner"></div>ポストを探しています…</div>`;
-      }
-      return renderPost(fallback, { ...postOptions(fallback, detail.partition), focal: true })
-        + (error
-          ? `<div class="feed-err">${escapeHtml(error)}</div>`
-          : '<div class="feed-loading"><div class="spinner"></div>返信を読み込み中…</div>');
-    }
-
-    // Opens a post like Bluesky does: an overlay with the conversation around it.
-    function openPost(post, partition) {
-      if (!post?.id) return null;
-      const detail = createDetail(partition, post);
-      if (detail && statusRuntime) loadDetail(detail, post);
-      return detail;
-    }
-
-    // Opens the detail view first and fills it once the post is known, for example when
-    // a notification only reveals its post after X's notification page is followed.
-    async function openPostFrom(partition, findPost, { previewText = '' } = {}) {
-      const detail = createDetail(partition, null, { previewText });
-      if (!detail) return null;
-      let post = null;
-      try {
-        post = await findPost();
-      } catch {}
-      if (activeDetail !== detail) return null;
-      if (!post?.id) {
-        closeDetail();
-        return null;
-      }
-      detail.focalId = post.id;
-      detail.fallback = post;
-      useCachedDetail(detail);
-      renderDetail();
-      if (statusRuntime) loadDetail(detail, post);
-      return detail;
-    }
-
-    function useCachedDetail(detail) {
-      for (const payload of recentDetails.get(detail.partition) || []) {
-        const shaped = shapeDetail(payload, detail.focalId);
-        if (shaped) {
-          detail.data = shaped;
-          return;
-        }
-      }
-    }
-
-    function createDetail(partition, post, { previewText = '' } = {}) {
-      if (!documentRef.body) return null;
-      closeDetail();
-      const overlay = documentRef.createElement('div');
-      overlay.className = 'ov on';
-      overlay.id = 'x-post-detail';
-      overlay.innerHTML = `
-        <div class="bsky-post-detail-modal">
-          <div class="chead"><h2>ポスト</h2><button class="cbtn" type="button" data-x-detail-external title="X で開く">↗</button><button class="cbtn" type="button" data-x-detail-close title="閉じる">&times;</button></div>
-          <div class="bsky-post-detail-body"></div>
-        </div>`;
-      const detail = { overlay, partition, focalId: post?.id || null, fallback: post, data: null, error: '', previewText };
-      detail.handleKeyDown = event => {
-        if (event.key === 'Escape' && !activeMenu) closeDetail();
-      };
-      overlay.addEventListener('click', event => {
-        if (event.target === overlay || event.target?.closest?.('[data-x-detail-close]')) {
-          closeDetail();
-          return;
-        }
-        if (event.target?.closest?.('[data-x-detail-external]')) {
-          if (detail.fallback?.url) intents.openExternal?.({ url: detail.fallback.url });
-          return;
-        }
-        const clicked = event.target?.closest?.('[data-x-id]');
-        if (clicked?.dataset.xId === detail.focalId && !event.target?.closest?.('[data-x-action], img, video, a[href], .p-quote')) return;
-        handleInteractive(event, partition);
-      });
-      documentRef.addEventListener?.('keydown', detail.handleKeyDown);
-      documentRef.body.appendChild(overlay);
-      activeDetail = detail;
-      if (post) useCachedDetail(detail);
-      renderDetail();
-      return detail;
-    }
-
-    // Shapes a captured status page around the post the detail view asked for.
-    function shapeDetail(payload, focalId) {
-      const thread = payload.thread || [];
-      const index = thread.findIndex(post => post.id === focalId);
-      if (index < 0) return null;
-      const ownsReplies = !payload.focalId || payload.focalId === focalId;
-      return {
-        focalId,
-        ancestors: thread.slice(0, index),
-        focal: thread[index],
-        replies: ownsReplies ? payload.replies || [] : [],
-      };
-    }
-
-    function waitForDetail(detail, timeoutMs) {
-      return new Promise(resolve => {
-        if (detail.data) {
-          resolve(true);
-          return;
-        }
-        const timer = setTimeoutFn(() => {
-          detail.onData = null;
-          resolve(Boolean(detail.data));
-        }, timeoutMs);
-        detail.onData = () => {
-          clearTimeoutFn(timer);
-          detail.onData = null;
-          resolve(true);
-        };
-      });
-    }
-
-    // X can serve an already visited status from its cache without fetching the
-    // conversation again; one full page load then makes it fetch TweetDetail.
-    async function loadDetail(detail, post) {
-      try {
-        await statusRuntime.run(detail.partition, post);
-        if (await waitForDetail(detail, DETAIL_WAIT_MS) || activeDetail !== detail) return;
-        log('detail reload', post.id);
-        await statusRuntime.run(detail.partition, post, undefined, { reload: true });
-        if (await waitForDetail(detail, DETAIL_WAIT_MS) || activeDetail !== detail) return;
-        detail.error = '返信を読み込めませんでした';
-      } catch (error) {
-        if (activeDetail !== detail) return;
-        detail.error = error?.message || 'ポストを開けませんでした';
-      }
-      renderDetail();
-    }
-
-    function handleStatusCapture(partition, payload) {
-      intents.postsSeen?.(partition, [...(payload.thread || []), ...(payload.posts || [])]);
-      log('status captured', payload.operation, payload.focalId || '', activeDetail?.focalId || '');
-      if (payload.operation === 'TweetDetail') {
-        recentDetails.set(partition, [payload, ...(recentDetails.get(partition) || [])].slice(0, 5));
-        (payload.thread || []).forEach(post => {
-          updatePost(post.id, () => ({ counts: post.counts, viewer: post.viewer }), partition);
-        });
-        const detail = activeDetail?.partition === partition ? activeDetail : null;
-        const shaped = detail && shapeDetail(payload, detail.focalId);
-        if (shaped) {
-          detail.data = shaped;
-          detail.error = '';
-          detail.onData?.();
-        }
-        renderPartition(partition);
-        return;
-      }
-      if (payload.operation === 'CreateTweet' && activeDetail?.data && activeDetail.partition === partition) {
-        const [created] = payload.posts || [];
-        if (!created) return;
-        const data = activeDetail.data;
-        if (created.replyTo && !data.replies.some(chain => chain.post.id === created.id)) {
-          activeDetail.data = { ...data, replies: [{ post: created, replies: [] }, ...data.replies] };
-          updatePost(data.focal.id, current => ({
-            counts: { ...current.counts, reply: (Number(current.counts?.reply) || 0) + 1 },
-          }), partition);
-          renderPartition(partition);
-        }
-      }
-    }
-
     function mount({ id, partition, host, subtitle = null, badge = null }) {
       const column = {
         id,
         partition,
         host,
         subtitle,
-        baseSubtitle: String(subtitle?.textContent || '').replace(/(?:\s*·\s*(?:おすすめ|フォロー中))+\s*$/, ''),
+        baseSubtitle: baseSubtitleOf(subtitle?.textContent),
         rendered: new WeakMap(),
         signature: null,
         badge,
@@ -1154,7 +506,7 @@
       column.handleKeyDown = event => {
         if (event.key !== 'Enter' || !event.target?.classList?.contains('x-native-post')) return;
         const post = findPost(event.target.dataset.xId, partition);
-        if (post) openPost(post, partition);
+        if (post) detail.open(post, partition);
       };
       column.handleScroll = () => {
         if (column.scrollQueued) return;
@@ -1201,7 +553,7 @@
         timer = setTimeoutFn(() => {
           remove();
           resolve({ status: 'deferred', detail: 'no-timeline-response' });
-        }, CAPTURE_TIMEOUT_MS);
+        }, timeoutMs);
         cancel = () => {
           clearTimeoutFn(timer);
           remove();
@@ -1263,7 +615,7 @@
       // Clicking only changes X's remembered tab: X may show that tab from its cache without
       // a request. Reloading right after makes X fetch the chosen tab's first page.
       markDriven(reader);
-      const result = await reader.webview.executeJavaScript(createSelectTabScript(timeline)).catch(() => 'failed');
+      const result = await reader.webview.executeJavaScript(scripts.createSelectTabScript(timeline)).catch(() => 'failed');
       log('switch timeline', timeline, result);
       let succeeded = false;
       if (result === 'clicked' || result === 'already') {
@@ -1351,21 +703,11 @@
       columns.get(id)?.host?.scrollTo?.({ top: 0, behavior: 'smooth' });
     }
 
-    function refreshTimes(host) {
-      host?.querySelectorAll?.('.p-time[data-created-at]').forEach(element => {
-        const label = relTime(element.dataset.createdAt);
-        if (element.textContent !== label) element.textContent = label;
-      });
-    }
-
     function updateRelativeTimes() {
       const hosts = [...columns.values()].map(column => column.host);
-      if (activeDetail) hosts.push(activeDetail.overlay);
-      hosts.forEach(refreshTimes);
-    }
-
-    function rerenderAll() {
-      rerenderEverything();
+      const overlay = detail.overlay();
+      if (overlay) hosts.push(overlay);
+      hosts.forEach(view.refreshTimes);
     }
 
     function dispose(id) {
@@ -1383,9 +725,8 @@
       if (reader && columnsFor(reader).length === 0) {
         disposeReader(reader);
         statusRuntime?.dispose(column.partition);
-        recentDetails.delete(column.partition);
         accountIds.delete(column.partition);
-        if (activeDetail?.partition === column.partition) closeDetail();
+        detail.forget(column.partition, { closeOpen: true });
       }
     }
 
@@ -1395,7 +736,7 @@
         if (partition && reader.partition !== partition) return;
         reader.posts = [];
         accountIds.delete(reader.partition);
-        recentDetails.delete(reader.partition);
+        detail.forget(reader.partition);
         renderReader(reader);
       });
     }
@@ -1418,10 +759,10 @@
 
     // The hidden home page's notification badge tells whether X has new notifications, so
     // the notification page only needs loading when the count changes.
-    async function readNotificationBadgeFor(partition) {
+    async function readNotificationBadge(partition) {
       const reader = readers.get(partition);
       if (!reader || reader.status !== 'ready' || reader.webContentsId === null) return null;
-      const count = await reader.webview.executeJavaScript(createNotificationBadgeScript()).catch(() => null);
+      const count = await reader.webview.executeJavaScript(scripts.createNotificationBadgeScript()).catch(() => null);
       return Number.isInteger(count) && count >= 0 ? count : null;
     }
 
@@ -1433,45 +774,27 @@
       };
     }
 
-    function has(id) {
-      return columns.has(id);
-    }
-
     return {
-      closeDetail,
+      closeDetail: detail.close,
       dispose,
       forgetAccount,
       getMemoryStats,
-      readNotificationBadge: readNotificationBadgeFor,
-      trim,
-      getPendingReaction,
-      has,
+      getPendingReaction: reactions.getPendingReaction,
+      has: id => columns.has(id),
       loadMore,
       mount,
-      openPost,
-      openPostFrom,
+      openPost: detail.open,
+      openPostFrom: detail.openFrom,
+      readNotificationBadge,
       refresh,
       refreshPartition,
-      rerenderAll,
+      rerenderAll: rerenderEverything,
       scrollTop,
       switchTimeline,
+      trim,
       updateRelativeTimes,
     };
   }
 
-  global.SocialDeckXNativeTimelineRuntime = {
-    createXNativeTimelineRuntime,
-    createFollowingRecentScript,
-    createNotificationBadgeScript,
-    createReadTabScript,
-    createSelectTabScript,
-    mergePosts,
-    placeOnTop,
-    readNotificationBadge,
-    readSelectedTab,
-    selectFollowingRecent,
-    selectHomeTab,
-    reconcileFirstPage,
-    toMuteShape,
-  };
+  global.SocialDeckXNativeTimelineRuntime = { createXNativeTimelineRuntime };
 })(window);

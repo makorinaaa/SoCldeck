@@ -10,7 +10,7 @@ const plain = value => JSON.parse(JSON.stringify(value));
 
 function load() {
   const context = { window: {}, URL };
-  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-timeline-runtime.js']) {
+  for (const name of ['html-escape.js', 'x-post-view.js', 'x-native-posts.js', 'x-native-page-scripts.js', 'x-native-column-view.js', 'x-native-detail.js', 'x-native-reactions.js', 'x-native-timeline-runtime.js']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', name), 'utf8'), context);
   }
   return context.window;
@@ -152,7 +152,7 @@ test('shows a login prompt when the reader is redirected to X login', async () =
 });
 
 test('mergePosts keeps shown posts in place and refreshes their counts', () => {
-  const { mergePosts } = load().SocialDeckXNativeTimelineRuntime;
+  const { mergePosts } = load().SocialDeckXNativePosts;
   const merged = mergePosts(
     [{ id: '1', sortIndex: '20', counts: { like: 1 } }, { id: '2', sortIndex: '10' }],
     [{ id: '1', sortIndex: '99', counts: { like: 5 } }, { id: '3', sortIndex: '100' }],
@@ -259,7 +259,7 @@ test('a captured CreateTweet post is placed above the newest shown post', async 
 });
 
 test('selectHomeTab clicks the requested X home tab only when needed', async () => {
-  const { selectHomeTab } = load().SocialDeckXNativeTimelineRuntime;
+  const { selectHomeTab } = load().SocialDeckXNativePageScripts;
   const clicks = [];
   const tab = (text, selected) => ({ textContent: text, getAttribute: () => String(selected), click: () => clicks.push(text) });
   const documentLike = tabs => ({ querySelectorAll: () => tabs });
@@ -381,7 +381,7 @@ test('a restored subtitle does not repeat the tab label', async () => {
 });
 
 test('selectFollowingRecent picks Recent from the Following tab menu', async () => {
-  const { selectFollowingRecent } = load().SocialDeckXNativeTimelineRuntime;
+  const { selectFollowingRecent } = load().SocialDeckXNativePageScripts;
   const immediate = fn => fn();
   const make = ({ selected = 'フォロー中', recentChecked = false, menu = true } = {}) => {
     const clicks = [];
@@ -438,7 +438,7 @@ test('Following switches to Recent once and the list is replaced by the Recent p
 });
 
 test('the selected tab on X decides which list a response belongs to', async () => {
-  const { readSelectedTab } = load().SocialDeckXNativeTimelineRuntime;
+  const { readSelectedTab } = load().SocialDeckXNativePageScripts;
   const tab = (text, selected) => ({ textContent: text, getAttribute: () => String(selected) });
   assert.equal(readSelectedTab({ querySelectorAll: () => [tab('おすすめ', false), tab('フォロー中', true)] }), 'following');
   assert.equal(readSelectedTab({ querySelectorAll: () => [tab('For you', true), tab('Following', false)] }), 'for-you');
@@ -503,7 +503,7 @@ test('while X polls on its own, the automatic refresh does not click Home', asyn
 });
 
 test('reads the unread count from X notification tab badge', () => {
-  const { readNotificationBadge } = load().SocialDeckXNativeTimelineRuntime;
+  const { readNotificationBadge } = load().SocialDeckXNativePageScripts;
   const link = (label, text = '') => ({ getAttribute: () => label, textContent: text });
   const doc = found => ({ querySelector: selector => (selector.includes('AppTabBar_Notifications_Link') ? found : null) });
   assert.equal(readNotificationBadge(doc(link('通知 (3件の未読通知)'))), 3);
