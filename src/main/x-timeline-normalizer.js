@@ -169,6 +169,7 @@ function normalizeTweetBody(tweet) {
     segments,
     media,
     replyTo: legacy.in_reply_to_screen_name || null,
+    replyToId: legacy.in_reply_to_user_id_str ? String(legacy.in_reply_to_user_id_str) : null,
   };
 }
 

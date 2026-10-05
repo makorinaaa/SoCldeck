@@ -376,3 +376,22 @@ test('new posts above the top raise a badge that stays until the reader returns 
   assert.equal(host.scrollTop, 0);
   assert.equal(badge.style.display, 'none');
 });
+
+test('the home timeline leaves out replies to other people but keeps threads and replies to the account', async () => {
+  const window = load();
+  const { runtime, ready, emit } = createRuntime(window);
+  const host = createHost();
+  runtime.mount({ id: 'a', partition: 'persist:x-0', host });
+  await ready();
+  const timeline = normalizeTimelineResponse(fixture);
+  const base = timeline.posts[0];
+  const post = (id, extra) => ({ ...base, id, sortIndex: `19000000000000000${id}`, url: `https://x.com/alice/status/${id}`, ...extra });
+  emit({ ...timeline, firstPage: true, posts: [
+    post('1', { replyTo: 'kate', replyToId: '77' }),
+    post('2', { replyTo: 'alice', replyToId: base.author.id }),
+    post('3', {}),
+    post('4', { replyTo: 'kate' }),
+  ] });
+  const ids = host.children.map(node => node.dataset.xId).filter(Boolean);
+  assert.deepEqual(ids.sort(), ['2', '3']);
+});

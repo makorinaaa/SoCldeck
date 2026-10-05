@@ -208,6 +208,20 @@
     const accountIds = new Map();
     const deleting = new Set();
 
+    // The home timeline leaves out replies to other people, including this account's own
+    // replies to others. Threads (replies to oneself) and replies to this account stay;
+    // conversations remain available in the post detail view.
+    function isReplyToOthers(post, partition) {
+      if (!post?.replyTo) return false;
+      const authorId = post.author?.id;
+      if (post.replyToId) return post.replyToId !== authorId && post.replyToId !== accountIds.get(partition);
+      return String(post.replyTo).toLowerCase() !== String(post.author?.handle || '').toLowerCase();
+    }
+
+    function showsInTimeline(post, partition) {
+      return !isReplyToOthers(post, partition) && !blocksPost(toMuteShape(post));
+    }
+
     // The account's own posts (and only those) can be deleted from SocialDeck.
     function postOptions(post, partition) {
       // The author decides: a post shown because someone else reposted it is still deletable.
@@ -274,7 +288,8 @@
       renderReader(reader);
       saveSnapshotSoon(reader);
       if (shownBefore.size && !wasSwitching && payload.operation !== 'CreateTweet') {
-        const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local && sortValue(post) > previousTop);
+        const arrived = reader.posts.filter(post => !shownBefore.has(post.id) && !post.local
+          && sortValue(post) > previousTop && showsInTimeline(post, reader.partition));
         if (arrived.length) announceNewPosts(reader, arrived.length);
       }
       if (isFirstPage && reader.timeline === 'following' && !reader.sortChecked && !reader.switching) {
@@ -502,7 +517,7 @@
         const label = TIMELINE_LABELS[reader.timeline];
         column.subtitle.textContent = label ? `${column.baseSubtitle} · ${label}` : column.baseSubtitle;
       }
-      const visible = reader.switching ? [] : reader.posts.filter(post => !blocksPost(toMuteShape(post)));
+      const visible = reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, column.partition));
       if (reader.status === 'login' && !visible.length) {
         const html = loginHtml(reader);
         if (column.signature !== html) host.innerHTML = html;

@@ -51,7 +51,7 @@ test('normalizes tweets, reposts and conversation modules while dropping ads', (
   assert.equal(repost.media[0].type, 'video');
   assert.equal(repost.media[0].videoUrl, 'https://video.twimg.com/ext_tw_video/1/pu/vid/1280x720/mid.mp4');
 
-  assert.equal(conversation.replyTo, 'frank');
+  assert.equal(conversation.replyTo, 'erin');
   assert.deepEqual(conversation.segments, [
     { type: 'text', text: 'A long post that goes beyond the limit ' },
     { type: 'link', url: 'https://example.org/long', text: 'example.org/long' },
@@ -130,4 +130,15 @@ test('normalizes TweetDetail into ancestors, the focal post and reply chains', (
   // Without a focal id in the request URL the whole thread is returned for the renderer to pick from.
   assert.equal(normalizeCapturedResponse(detail, 'TweetDetail', 'https://x.com/i/api/graphql/q/TweetDetail').focalId, '');
   assert.equal(normalizeCapturedResponse(detail, 'TweetDetail', 'https://x.com/i/api/graphql/q/TweetDetail?variables=%7B%22focalTweetId%22%3A%229%22%7D'), null);
+});
+
+test('keeps the replied-to user id for timeline filtering', () => {
+  const [, , conversation] = normalizeTimelineResponse({
+    data: { home: { home_timeline_urt: { instructions: [{
+      type: 'TimelineAddEntries',
+      entries: fixture.data.home.home_timeline_urt.instructions[0].entries.map(entry => JSON.parse(JSON.stringify(entry).replace('"in_reply_to_screen_name":"erin"', '"in_reply_to_screen_name":"frank","in_reply_to_user_id_str":"16"'))),
+    }] } } },
+  }).posts;
+  assert.equal(conversation.replyTo, 'frank');
+  assert.equal(conversation.replyToId, '16');
 });
