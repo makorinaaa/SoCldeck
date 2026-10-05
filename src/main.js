@@ -1,13 +1,10 @@
 const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net } = require('electron');
-const path = require('path');
-const fs = require('fs');
+const path = require('node:path');
+const fs = require('node:fs');
 const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
 const { createAppConfigStore } = require('./main/app-config-store');
-const workspaceBackupFiles = createWorkspaceBackupFiles({ dialog });
 const { createXPageDiagnostics } = require('./main/x-page-diagnostics');
-const os = require('os');
-const { randomUUID } = require('crypto');
-const { pathToFileURL } = require('url');
+const { pathToFileURL } = require('node:url');
 const { ensureDefaultXDarkTheme, isXSessionAuthenticated } = require('./main/x-session-theme');
 const { createAppUpdater } = require('./main/app-updater');
 const { createXAccountRuntime, isXPartition } = require('./main/x-account-runtime');
@@ -16,12 +13,7 @@ const {
   createDesktopNotificationService,
   resolveWindowsNotificationIdentity,
 } = require('./main/desktop-notification-service');
-const {
-  MAX_TRIM_OUTPUT_BYTES,
-  planTrimEncoding,
-  resolveFfmpegPath,
-  runFfmpegTrim,
-} = require('./main/ffmpeg-runtime');
+const { createXVideoFileService } = require('./main/x-video-file');
 const { denyWebviewPermissions } = require('./main/webview-permission-policy');
 const { createBlueskySessionVault } = require('./main/bluesky-session-vault');
 const { createAtprotoClient } = require('./main/bluesky-atproto-client');
@@ -35,6 +27,9 @@ const {
   secureWebviewContents,
 } = require('./main/electron-trust-policy');
 const { autoUpdater } = require('electron-updater');
+
+const workspaceBackupFiles = createWorkspaceBackupFiles({ dialog });
+const xVideoFiles = createXVideoFileService({ isPackaged: app.isPackaged });
 
 const APP_USER_MODEL_ID = 'com.socialdeck.app';
 if (process.platform === 'win32') {
@@ -60,7 +55,6 @@ app.on('before-quit', () => xPageDiagnostics.flush());
 
 const X_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.m4v', '.webm']);
 const INDEX_PATH = path.join(__dirname, 'index.html');
 const APP_PRELOAD_PATH = path.join(__dirname, 'preload.js');
 const WEBVIEW_PRELOAD_PATH = path.join(__dirname, 'webview-preload.js');
@@ -88,17 +82,6 @@ function openExternalUrl(value) {
   const url = parseHttpUrl(value);
   if (!url) return;
   shell.openExternal(url.toString());
-}
-
-function isSocialDeckTempFile(filePath) {
-  if (typeof filePath !== 'string') return false;
-  const resolved = path.resolve(filePath);
-  const tmpRoot = path.resolve(os.tmpdir());
-  const relative = path.relative(tmpRoot, resolved);
-  return relative &&
-    !relative.startsWith('..') &&
-    !path.isAbsolute(relative) &&
-    path.basename(resolved).startsWith('socialdeck_trim_');
 }
 
 async function initAdBlocker() {
@@ -420,129 +403,12 @@ handleTrustedIpc('clear-memory', async () => {
 });
 
 // ── 動画トリミング（検証済みFFmpeg / メインプロセスで実行）──
-handleTrustedIpc('trim-video', async (_, { filePath, startSec, endSec, durationSec }) => {
-  if (typeof filePath !== 'string') throw new Error('Invalid video file');
-  const inputPath = path.resolve(filePath);
-  const ext = path.extname(inputPath).toLowerCase() || '.mp4';
-  if (!VIDEO_EXTENSIONS.has(ext)) throw new Error('Unsupported video format');
-  if (!fs.existsSync(inputPath)) throw new Error('Video file not found');
-
-  const start = Number(startSec);
-  const end = Number(endSec);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0) {
-    throw new Error('Invalid trim range');
-  }
-  const duration = end - start;
-  if (duration <= 0) throw new Error('トリム範囲が不正です');
-  if (duration > 140) throw new Error('動画が2分20秒を超えています');
-
-  const outPath = path.join(os.tmpdir(), `socialdeck_trim_${randomUUID()}${ext}`);
-
-  // 高ビットレート素材はコピーすると数百MBになり投稿経路が破綻するため再エンコードする
-  const { size: sourceBytes } = await fs.promises.stat(inputPath);
-  const { videoBitrateBps } = planTrimEncoding({
-    sourceBytes,
-    sourceDurationSeconds: durationSec,
-    trimDurationSeconds: duration,
-  });
-
-  const ffmpegPath = resolveFfmpegPath({ isPackaged: app.isPackaged });
-  await runFfmpegTrim({
-    ffmpegPath,
-    inputPath,
-    outputPath: outPath,
-    startSeconds: start,
-    durationSeconds: duration,
-    videoBitrateBps,
-  });
-
-  const { size: trimmedBytes } = await fs.promises.stat(outPath);
-  if (trimmedBytes > MAX_TRIM_OUTPUT_BYTES * 2) {
-    await fs.promises.rm(outPath, { force: true }).catch(() => {});
-    throw new Error('トリム後の動画が大きすぎます。範囲を短くしてください');
-  }
-  return outPath;
-});
+handleTrustedIpc('trim-video', (_, input) => xVideoFiles.trim(input));
 
 handleTrustedIpc('get-memory-metrics', () => memoryMetricsService.snapshot());
 
-handleTrustedIpc('delete-temp-file', (_, filePath) => {
-  try {
-    if (isSocialDeckTempFile(filePath)) fs.unlinkSync(path.resolve(filePath));
-    return true;
-  } catch (e) { return false; }
-});
-
-handleTrustedIpc('read-file-base64', async (_, filePath) => {
-  try {
-    if (!isSocialDeckTempFile(filePath)) throw new Error('Invalid temp file');
-    const resolved = path.resolve(filePath);
-    const ext = path.extname(resolved).slice(1).toLowerCase() || 'mp4';
-    if (!VIDEO_EXTENSIONS.has(`.${ext}`)) throw new Error('Unsupported video format');
-    // 同期読み込みはメインプロセスを止めてアプリ全体を固まらせるため非同期にする
-    const { size } = await fs.promises.stat(resolved);
-    if (size > MAX_TRIM_OUTPUT_BYTES * 2) {
-      throw new Error('動画が大きすぎます。トリム範囲を短くしてください');
-    }
-    const data = await fs.promises.readFile(resolved);
-    const mime = ext === 'mp4' ? 'video/mp4' : `video/${ext}`;
-    return `data:${mime};base64,${data.toString('base64')}`;
-  } catch (e) {
-    throw new Error('ファイル読み込みエラー: ' + e.message);
-  }
-});
-
-// ── メニュー ──
-function buildMenu() {
-  const template = [
-    {
-      label: 'SocialDeck',
-      submenu: [
-        { label: 'SocialDeckについて', click: () => mainWindow.webContents.send('show-about') },
-        { type: 'separator' },
-        { label: '設定', accelerator: 'CmdOrCtrl+,', click: () => mainWindow.webContents.send('open-settings') },
-        { type: 'separator' },
-        { label: '終了', accelerator: 'CmdOrCtrl+Q', role: 'quit' },
-      ]
-    },
-    {
-      label: 'カラム',
-      submenu: [
-        { label: 'カラムを追加', accelerator: 'CmdOrCtrl+N', click: () => mainWindow.webContents.send('add-column') },
-        { label: 'すべて更新', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.webContents.send('refresh-all') },
-        { type: 'separator' },
-        { label: '← 左へ移動', accelerator: 'CmdOrCtrl+Left', click: () => mainWindow.webContents.send('scroll-left') },
-        { label: '右へ移動 →', accelerator: 'CmdOrCtrl+Right', click: () => mainWindow.webContents.send('scroll-right') },
-      ]
-    },
-    {
-      label: '表示',
-      submenu: [
-        { label: '拡大', accelerator: 'CmdOrCtrl+=', role: 'zoomIn' },
-        { label: '縮小', accelerator: 'CmdOrCtrl+-', role: 'zoomOut' },
-        { label: 'リセット', accelerator: 'CmdOrCtrl+0', role: 'resetZoom' },
-        { type: 'separator' },
-        { label: '全画面', accelerator: 'F11', role: 'togglefullscreen' },
-        { label: '開発者ツール', accelerator: 'F12', role: 'toggleDevTools' },
-      ]
-    },
-    {
-      label: 'ヘルプ',
-      submenu: [
-        { label: 'GitHubで開く', click: () => shell.openExternal('https://github.com') },
-      ]
-    }
-  ];
-  const securedTemplate = isDevelopment
-    ? template
-    : template.map(item => ({
-      ...item,
-      submenu: Array.isArray(item.submenu)
-        ? item.submenu.filter(entry => entry.role !== 'toggleDevTools')
-        : item.submenu,
-    }));
-  Menu.setApplicationMenu(Menu.buildFromTemplate(securedTemplate));
-}
+handleTrustedIpc('delete-temp-file', (_, filePath) => xVideoFiles.remove(filePath));
+handleTrustedIpc('read-file-base64', (_, filePath) => xVideoFiles.readDataUrl(filePath));
 
 // ── アプリ起動 ──
 app.whenReady().then(async () => {

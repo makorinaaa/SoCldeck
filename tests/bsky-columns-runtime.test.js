@@ -804,7 +804,7 @@ test('keeps the Timeline repost menu compact and dismisses it without choosing a
   documentRef.dispatch('keydown', { key: 'Escape' });
   assert.equal(documentRef.getElementById('rt-ctx-menu'), null);
 
-  const stylesheet = fs.readFileSync(path.join(__dirname, '..', 'src', 'index.html'), 'utf8');
+  const stylesheet = fs.readFileSync(path.join(__dirname, '..', 'src', 'styles', 'app.css'), 'utf8');
   assert.match(stylesheet, /\.bsky-repost-menu\s+svg\s*\{[^}]*width:\s*14px;[^}]*height:\s*14px;/);
 });
 

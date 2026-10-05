@@ -1,3 +1,5 @@
+import { createAppShellRuntime } from './renderer/app-shell-runtime.mjs';
+import { icons as SVG } from './renderer/icons.mjs';
 import { createAppInfoRuntime } from './renderer/app-info-runtime.mjs';
 import { createPostMenuRuntime } from './renderer/post-menu-runtime.mjs';
 import { createXListDialogRuntime } from './renderer/x-list-dialog-runtime.mjs';
@@ -94,6 +96,7 @@ let composeModalRuntime;
 let accountSessionRuntime;
 let desktopNotificationRuntime;
 let delegatedActionRuntime;
+let appShellRuntime;
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -112,17 +115,7 @@ const bskyGateway = SocialDeckBlueskyGatewayAdapter.createBlueskyGatewayAdapter(
   clearSession: () => window.electronAPI.clearBlueskySession(),
 });
 
-const SVG = {
-  x: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.389 6.231H2.763l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`,
-  bsky: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.204-.659-.299-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8z"/></svg>`,
-  bell: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>`,
-  heart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`,
-  rt: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
-  reply: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
-  follow: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`,
-  calendar: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><line x1="16" y1="3" x2="16" y2="7"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h2v2H8zM14 14h2v2h-2z"/></svg>`,
-  gear: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>`,
-};
+
 
 // ─── COLUMN PERSISTENCE ──────────────────────────
 const columnRuntime = SocialDeckColumnRuntime.createColumnRuntime({ storage: workspaceStorage });
@@ -134,7 +127,7 @@ const animeScheduleRuntime = SocialDeckAnimeScheduleRuntime.createAnimeScheduleR
     : Promise.reject(new Error('Anime schedule API is unavailable')),
 });
 const xComposeExecutor = SocialDeckXComposeDelivery.createXComposeDelivery({
-  createSubmissionScript: createSubmissionScript,
+  createSubmissionScript,
   createPreparationScript: () => xComposePreparation.createPreparationScript(),
   createConfirmationScript: options => xPostConfirmation.createConfirmationScript(options),
   readFileAsDataUrl,
@@ -296,8 +289,7 @@ function refilterBskyCols() {
 }
 
 // ─── STATE ────────────────────────────────────
-const LS_KEY = SocialDeckStateStore.STATE_KEY;
-const MEM_KEY = 'socialdeck_mem_interval'; // メモリクリア間隔設定キー  // v4: Xマルチアカウント対応
+const MEM_KEY = 'socialdeck_mem_interval'; // メモリクリア間隔設定キー
 // state.xs: Xアカウントの配列 [{username, initials, bg, partition}]
 // state.activeX: アクティブなXアカウントのindex
 // state.b: Blueskyアカウント（単一）
@@ -645,7 +637,6 @@ function renderApp() {
   renderCompUI();
 }
 function closeAmenu() { document.getElementById('amenu').classList.remove('open'); }
-document.addEventListener('click', e => { if (!e.target.closest('.sb')) closeAmenu(); });
 
 // ─── DEFAULT COLUMNS ────────────────────────────
 let colIdSeq = 0;
@@ -1394,17 +1385,11 @@ async function fetchBskyUnread() {
 }
 
 // ─── SCROLL TO START ────────────────────────────
-function scrollColsToStart() {
-  const cols = document.getElementById('cols');
-  cols.scrollTo({ left: 0, behavior: 'smooth' });
-}
-
 async function refreshAll() {
   await columnLifecycle.refreshAll({ force: true });
   toast('Refreshing all feeds...');
 }
 
-// ─── UTILS ─────────────────────────────────────
 // ─── NOTIF SHORTCUTS & SCROLL ───────────────────
 
 function goToNotifCol(plat, xIdx) {
@@ -1476,11 +1461,6 @@ const xListDialog = createXListDialogRuntime({
   nextColumnId: prefix => columnPicker.nextColumnId(prefix), createColumn: request => columnLifecycle.create(request),
 });
 
-function setComposeBusy(modalId, buttonId, busy, busyLabel = '送信中…') {
-  const networkId = modalId === 'xPostMod' ? 'x' : 'b';
-  composeModalRuntime.setBusy(networkId, busy, busy ? busyLabel : null);
-}
-
 function closeOv(id, e) {
   if (id === 'xPostMod' || id === 'compMod') {
     if (!e || e.target.classList.contains('ov')) {
@@ -1494,13 +1474,8 @@ function closeOv(id, e) {
 }
 
 // ─── アプリ内メニュー ────────────────────────────
-function toggleAmDrop(id, e) {
-  e.stopPropagation();
-  const drop = document.getElementById(id);
-  const item = drop?.closest('.am-item');
-  const isOpen = item?.classList.contains('open');
-  document.querySelectorAll('.am-item.open').forEach(el => el.classList.remove('open'));
-  if (!isOpen && item) item.classList.add('open');
+function toggleAmDrop(id, event) {
+  appShellRuntime.toggleMenu(id, event);
 }
 
 function createUiActionHandlers() {
@@ -1526,7 +1501,10 @@ function createUiActionHandlers() {
     'open-x-devtools': () => openFirstXWebViewDevTools(),
     'minimize-window': () => window.electronAPI?.minimize(),
     'maximize-window': () => window.electronAPI?.maximize(),
-    'scroll-columns-start': () => scrollColsToStart(),
+    'scroll-columns-start': () => scrollToStart(),
+    'scroll-columns-left': () => document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }),
+    'scroll-columns-right': () => document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }),
+    'update-status': ({ status }) => appInfo.renderUpdateStatus(status),
     'scroll-start': () => scrollToStart(),
     'open-x-post': () => openXPost(),
     'open-b-post': () => openComp(),
@@ -1598,85 +1576,30 @@ function createUiActionHandlers() {
   };
 }
 
-document.addEventListener('click', () => {
-  document.querySelectorAll('.am-item.open').forEach(el => el.classList.remove('open'));
-});
-
-let toastTimer;
-function toast(msg) {
-  const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('sh');
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('sh'), 2800);
-}
-
-// ─── KEYBOARD SHORTCUTS ─────────────────────────
-document.addEventListener('keydown', e => {
-  const lb = document.getElementById('lightbox');
-  if (lb?.classList.contains('on')) {
-    if (e.key === 'ArrowLeft') { lbMove(-1); return; }
-    if (e.key === 'ArrowRight') { lbMove(1); return; }
-    if (e.key === 'Escape') { lbClose(); return; }
-  }
-
-  if (e.key === 'Enter' && !document.getElementById('login-screen').classList.contains('hidden')) {
-    const buttonId = document.querySelector('.ltab.xt.active') ? 'x-login-btn' : 'b-login-btn';
-    document.getElementById(buttonId)?.click();
-  }
-  if (e.key === 'Escape') {
-    if (document.getElementById('appearanceMod')?.classList.contains('on')) {
-      appearanceRuntime.cancel();
-    }
-    document.querySelectorAll('.ov.on').forEach(o => {
-      if (o.id === 'xPostMod' || o.id === 'compMod') closeOv(o.id);
-      else o.classList.remove('on');
-    });
-    composeQuote.close();
-  }
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'n') { e.preventDefault(); columnPicker.open(); }
-    if (e.key === 'r') { e.preventDefault(); refreshAll(); }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const xMod = document.getElementById('xPostMod');
-      const bMod = document.getElementById('compMod');
-      const qMod = document.getElementById('quote-modal-ov');
-      if (qMod) {
-        const btn = document.getElementById('quote-sndb');
-        if (btn && !btn.disabled) composeQuote.submit();
-      } else if (xMod?.classList.contains('on')) {
-        const btn = document.getElementById('x-sndb');
-        if (btn && !btn.disabled) composeSubmission.submit('x');
-      } else if (bMod?.classList.contains('on')) {
-        const btn = document.getElementById('sndb');
-        if (btn && !btn.disabled) composeSubmission.submit('b');
-      }
-    }
-  }
-});
-
-if (IS_ELECTRON) {
-  window.electronAPI.on('add-column', () => columnPicker.open());
-  window.electronAPI.on('refresh-all', () => refreshAll());
-  window.electronAPI.on('scroll-left', () => { document.getElementById('cols').scrollBy({ left: -400, behavior: 'smooth' }); });
-  window.electronAPI.on('scroll-right', () => { document.getElementById('cols').scrollBy({ left: 400, behavior: 'smooth' }); });
-  window.electronAPI.on('show-about', () => appInfo.openAbout());
-  window.electronAPI.onUpdateStatus?.(appInfo.renderUpdateStatus);
-
-  window.addEventListener('resize', () => {
-    const btn = document.getElementById('win-max-btn');
-    if (!btn) return;
-    const isMax = window.outerWidth >= screen.availWidth && window.outerHeight >= screen.availHeight;
-    btn.innerHTML = isMax
-      ? `<svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 0h8v8M0 2h8v8" fill="none" stroke="currentColor" stroke-width="1"/></svg>`
-      : `<svg viewBox="0 0 10 10" width="10" height="10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>`;
-  });
+function toast(message) {
+  appShellRuntime.toast(message);
 }
 
 // ─── INIT ───────────────────────────────────────
+const uiActions = createUiActionHandlers();
+appShellRuntime = createAppShellRuntime({
+  documentRef: document,
+  windowRef: window,
+  api: window.electronAPI,
+  actions: uiActions,
+  cancelAppearance: () => appearanceRuntime.cancel(),
+  closeOverlay: id => closeOv(id),
+  closeQuote: () => composeQuote.close(),
+});
+appShellRuntime.attach();
 delegatedActionRuntime = SocialDeckDelegatedActionRuntime.createDelegatedActionRuntime({
   root: document,
-  actions: createUiActionHandlers(),
+  actions: uiActions,
 });
+window.addEventListener('beforeunload', () => {
+  appShellRuntime.dispose();
+  delegatedActionRuntime.dispose();
+}, { once: true });
 if (!window.electronAPI?.devToolsEnabled) {
   document.querySelectorAll('.dev-only').forEach(element => element.remove());
 }

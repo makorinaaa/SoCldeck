@@ -8,6 +8,36 @@ const { version: appVersion } = require('../package.json');
 
 const APP_ROOT = path.join(__dirname, '..');
 
+test('app shell shortcuts preserve modal and enabled-submit behavior with external CSS', { timeout: 20000 }, async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#sb-post-b').waitFor({ state: 'visible' });
+  assert.equal(await page.evaluate(() => [...document.styleSheets].some(sheet =>
+    sheet.href?.endsWith('/styles/app.css') && sheet.cssRules.length > 0)), true);
+  await page.keyboard.press('Control+n');
+  await page.locator('#addMod.on').waitFor({ state: 'visible' });
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#addMod').evaluate(element => element.classList.contains('on')), false);
+  await page.locator('#sb-post-b').click();
+  await page.locator('#compMod.on').waitFor({ state: 'visible' });
+  await page.evaluate(() => {
+    window.__shortcutClicks = 0;
+    document.getElementById('sndb').addEventListener('click', event => {
+      window.__shortcutClicks++;
+      // Verify keyboard delivery without starting even a fixture-backed API post.
+      event.stopImmediatePropagation();
+      event.stopPropagation();
+    });
+  });
+  await page.keyboard.press('Control+Enter');
+  assert.equal(await page.evaluate(() => window.__shortcutClicks), 0);
+  await page.locator('#cta').fill('shortcut fixture');
+  await page.waitForFunction(() => !document.getElementById('sndb').disabled);
+  await page.keyboard.press('Control+Enter');
+  assert.equal(await page.evaluate(() => window.__shortcutClicks), 1);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#compMod').evaluate(element => element.classList.contains('on')), false);
+});
+
 test('X submission waits for composer attachments and ignores media in the timeline', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, { ...X_FIXTURES, pageHtml: `<!doctype html><html><body>
     <article data-testid="attachments"><div data-testid="tweetPhoto"></div><div data-testid="tweetPhoto"></div></article>
