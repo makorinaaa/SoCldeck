@@ -161,7 +161,7 @@ test('marks the active column interval and applies changes through the column bo
   runtime.applyColumnInterval('bsky-1', 30000);
   assert.deepEqual(calls.intervals, [['bsky-1', 30000]]);
   assert.equal(calls.persisted, 1);
-  assert.equal(calls.toasts.at(-1), 'Auto refresh: 30 sec');
+  assert.equal(calls.toasts.at(-1), '自動更新: 30秒');
   assert.equal(overlay.removed, true);
 
   runtime.applyColumnFontSize('bsky-1', 'bsky', 15);

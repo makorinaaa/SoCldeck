@@ -152,7 +152,7 @@
 
   function prepareXComposeCompletion(request) {
     return {
-      message: `Posted to ${request.target.accountId}`,
+      message: `${request.target.accountId} で投稿しました`,
       refresh: {
         kind: 'x-account-columns',
         accountId: request.target.accountId,
@@ -194,7 +194,7 @@
 
   function prepareBlueskyComposeCompletion(request) {
     return {
-      message: 'Posted to Bluesky',
+      message: 'Bluesky に投稿しました',
       refresh: {
         kind: 'bsky-timelines',
         accountId: request.target.accountId,
@@ -359,7 +359,7 @@
               network: 'b',
               columnType: 'timeline',
               label: 'Timeline',
-              description: 'Real-time feed',
+              description: 'リアルタイムのタイムライン',
               icon: icons.bsky,
               requiresAccount: true,
               defaultParams: { runtimeType: 'timeline' },
@@ -369,7 +369,7 @@
               network: 'b',
               columnType: 'notifications',
               label: 'Notifications',
-              description: 'Real-time notifications',
+              description: 'リアルタイムの通知',
               icon: icons.bell,
               requiresAccount: true,
               defaultParams: { runtimeType: 'notif' },
@@ -379,7 +379,7 @@
               network: 'b',
               columnType: 'search',
               label: 'Search',
-              description: 'Keyword search',
+              description: 'キーワード検索',
               icon: icons.bsky,
               requiresAccount: true,
               defaultParams: { runtimeType: 'search' },
@@ -389,7 +389,7 @@
               network: 'b',
               columnType: 'feed',
               label: 'Discover',
-              description: 'Recommended feed',
+              description: 'おすすめフィード',
               icon: icons.bsky,
               requiresAccount: true,
               defaultParams: {
@@ -402,7 +402,7 @@
               network: 'b',
               columnType: 'profile',
               label: 'Profile',
-              description: 'Bluesky profile',
+              description: 'Bluesky のプロフィール',
               icon: icons.bsky,
               requiresAccount: true,
               picker: false,
@@ -412,7 +412,7 @@
               network: 'b',
               columnType: 'post',
               label: 'Post',
-              description: 'Bluesky post page',
+              description: 'Bluesky のポストページ',
               icon: icons.bsky,
               requiresAccount: true,
               picker: false,

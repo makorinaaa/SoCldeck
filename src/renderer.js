@@ -231,7 +231,7 @@ const composeCoordinator = SocialDeckComposeCoordinator.createComposeCoordinator
 });
 
 function saveColLayout() {
-  if (new URLSearchParams(location.search).get('widget') === '1') return;
+  if (columnRuntime.isWidgetMode()) return;
   const cols = document.getElementById('cols');
   if (!cols) return;
   const layout = columnRuntime.captureLayout(cols.querySelectorAll('.col'), {
@@ -301,13 +301,13 @@ function insertColumnPlan(plan) {
 function insertColumnRestoreError(col, error) {
   const { hosts } = columnShellRuntime.mount({
     id: col.id,
-    title: col.title || 'Column restore failed',
-    subtitle: 'Workspace State was preserved',
+    title: col.title || 'カラムを復元できませんでした',
+    subtitle: '保存済みの設定はそのまま残っています',
     interactiveHeader: false,
     actions: ['remove'],
     hosts: [{ name: 'content', className: 'feed-empty' }],
   });
-  hosts.content.textContent = error.message || 'Column Definition could not be resolved';
+  hosts.content.textContent = error.message || 'カラムの種類を判別できませんでした';
 }
 
 function restoreColLayout() {
@@ -359,13 +359,7 @@ const blueskySessionRuntime = SocialDeckBlueskySessionRuntime.createBlueskySessi
       : Promise.resolve(true),
   },
 });
-let state = {
-  xs: [],
-  activeX: 0,
-  b: null,
-  composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
-  appearance: { theme: 'dark', accent: '#4e9af0' },
-};
+let state = SocialDeckStateStore.defaultState();
 const appearanceRuntime = SocialDeckAppearanceRuntime.createAppearanceRuntime({
   root: document.documentElement,
   persist: appearance => {
@@ -961,7 +955,7 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
   view: notificationCenterView,
   intents: {
     close: () => closeOv('notifCenterMod'),
-    openXAccountNotifications: ({ accountIndex }) => goToNotifCol('x', accountIndex),
+    openXAccountNotifications: ({ accountIndex }) => goToXNotifCol(accountIndex),
     observeX: (items, accounts, errors, enabled = accounts.map(() => true)) => {
       replyNotificationRuntime.syncAccounts(accounts);
       accounts.forEach((account, index) => {
@@ -1074,8 +1068,8 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
   createDefaultState: SocialDeckStateStore.defaultState,
   view: accountSessionView,
   intents: {
-    confirmLogout: account => confirm(`Log out ${account.username}?`),
-    confirmLogoutAll: () => confirm('Log out all accounts?'),
+    confirmLogout: account => confirm(`${account.username} をログアウトしますか？`),
+    confirmLogoutAll: () => confirm('すべてのアカウントからログアウトしますか？'),
     enterRequested: () => enterApp(),
     workspaceResetRequested: async () => {
       columnLifecycle.clear({ removeElements: true });
@@ -1092,7 +1086,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       desktopNotificationRuntime.rebaseline().catch(() => {});
       if (network === 'all') {
         accountSessionRuntime.openSettings();
-        toast('All accounts logged out');
+        toast('すべてのアカウントからログアウトしました');
         return;
       }
       const app = document.getElementById('app');
@@ -1100,9 +1094,9 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       if (kind === 'login' && !appIsOpen) enterApp();
       else if (appIsOpen) renderApp();
       if (network === 'x') {
-        toast(kind === 'login' ? `${account.username} added` : 'X account removed');
+        toast(kind === 'login' ? `${account.username} を追加しました` : 'X アカウントを削除しました');
       } else {
-        toast(kind === 'login' ? `@${account.handle} logged in` : 'Bluesky logged out');
+        toast(kind === 'login' ? `@${account.handle} でログインしました` : 'Bluesky からログアウトしました');
       }
     },
   },
@@ -1231,10 +1225,9 @@ function wvBack(id) {
 }
 
 function openFirstXWebViewDevTools() {
-  if (!xWebViewRuntime.openDevTools()) toast('X WebView not found');
+  if (!xWebViewRuntime.openDevTools()) toast('X の WebView カラムが見つかりません');
 }
 
-// カラムヘッダークリックで先頭へスクロール
 // カラムヘッダークリックで先頭へ（元のURLに戻してリロード）
 function wvScrollTop(id) {
   // 折りたたみ中はシングルクリックでも展開
@@ -1343,24 +1336,19 @@ function mountBlueskyColumn(columnConfig, before = null) {
   }
 
   // 自動ロードとデフォルト自動更新開始
-  if (columnConfig.type === 'timeline' || columnConfig.type === 'feed' || columnConfig.type === 'notif' || hasSearch) {
-    bskyColumnsRuntime.mount({
-      id: columnId,
-      type: columnConfig.type,
-      feedUri: columnConfig.feedUri || null,
-      host: hosts.content,
-      badge,
-      searchInput,
-      searchButton,
-    });
-    if (!hasSearch) {
-      bskyColumnsRuntime.refresh(columnId, { mode: 'replace' }).catch(() => {});
-      columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
-    } else {
-      hosts.content.innerHTML = '<div class="feed-empty">検索キーワードを入力してください</div>';
-    }
-  } else if (!hasSearch) {
-    loadBskyFeed(columnId, columnConfig.type, columnConfig.feedUri);
+  bskyColumnsRuntime.mount({
+    id: columnId,
+    type: columnConfig.type,
+    feedUri: columnConfig.feedUri || null,
+    host: hosts.content,
+    badge,
+    searchInput,
+    searchButton,
+  });
+  if (hasSearch) {
+    hosts.content.innerHTML = '<div class="feed-empty">検索キーワードを入力してください</div>';
+  } else {
+    bskyColumnsRuntime.refresh(columnId, { mode: 'replace' }).catch(() => {});
     columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
   }
   // フォントサイズ設定を復元
@@ -1480,14 +1468,6 @@ function mountXNativeNotificationColumn(columnConfig, before = null, partition =
   return root;
 }
 
-async function loadBskyFeed(cid, type, feedUri = null, append = false) {
-  if (!state.b) return;
-  if (!['timeline', 'feed', 'notif'].includes(type)) {
-    return { status: 'deferred', detail: 'unsupported-column-type' };
-  }
-  return bskyColumnsRuntime.refresh(cid, { mode: append ? 'append' : 'replace' });
-}
-
 function removeCol(id) {
   try { columnUndo.remove(id); }
   catch (error) { toast(`カラムを削除できませんでした: ${error.message}`); }
@@ -1508,7 +1488,6 @@ async function openReply(uri, cid, handle) {
   replyTarget = { uri, cid, rootUri: uri, rootCid: cid, handle };
 
   openComp();
-  setTimeout(() => document.getElementById('cta')?.focus(), 50);
 
   if (state.b) {
     try {
@@ -1789,7 +1768,7 @@ async function openXNotificationCenterItem(item) {
     (account.partition || account.username) === (item.account?.partition || item.account?.username));
   const account = state.xs?.[accountIndex];
   if (!account) return false;
-  const targetCol = goToNotifCol('x', accountIndex, { webView: true });
+  const targetCol = goToXNotifCol(accountIndex, { webView: true });
   const columnId = targetCol?.id?.replace(/^col-/, '');
   if (!columnId) return false;
 
@@ -1823,62 +1802,39 @@ async function fetchBskyUnread() {
   return data.count || 0;
 }
 
-// ─── SCROLL TO START ────────────────────────────
+// ─── REFRESH ALL ────────────────────────────────
 async function refreshAll() {
+  toast('すべてのカラムを更新しています…');
   await columnLifecycle.refreshAll({ force: true });
-  toast('Refreshing all feeds...');
 }
 
-// ─── NOTIF SHORTCUTS & SCROLL ───────────────────
+// ─── X NOTIFICATION COLUMN ──────────────────────
 
 // The native notification Column is preferred: it runs no X page of its own. Opening a
 // notification by its place on X's page (`webView`) needs the WebView Column.
-function goToNotifCol(plat, xIdx, { webView = false } = {}) {
-  let targetCol = null;
-
-  if (plat === 'x') {
-    const acc = state.xs?.[xIdx];
-    if (!acc) return;
-    const xPart = acc.partition || `persist:x-${xIdx}`;
-    const nativeCol = webView || !xNativeTimelineRuntime ? null : [...document.querySelectorAll('.col')].find(col =>
-      col.dataset.definitionId === 'x-notif-native' && col.dataset.partition === xPart) || null;
-    targetCol = nativeCol || notificationCenter.findXNotificationColumn(
-      document.querySelectorAll('.col'),
-      xPart
-    );
-    if (!targetCol) {
-      const native = !webView && Boolean(xNativeTimelineRuntime);
-      const id = native ? `x${xIdx}-notif-native-auto` : `x${xIdx}-notif-auto`;
-      const result = columnLifecycle.create({
-        networkId: 'x',
-        definitionId: native ? 'x-notif-native' : 'x-notif-new',
-        id,
-        account: { ...acc, index: xIdx, partition: xPart },
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      targetCol = document.getElementById(`col-${id}`);
-      toast(`${acc.username} notifications column added`);
-    }
-  } else {
-    document.querySelectorAll('.col').forEach(col => {
-      const feed = col.querySelector('.feed');
-      if (feed && feed.id && feed.id.includes('notif')) targetCol = col;
+function goToXNotifCol(accountIndex, { webView = false } = {}) {
+  const account = state.xs?.[accountIndex];
+  if (!account) return null;
+  const partition = account.partition || `persist:x-${accountIndex}`;
+  const native = !webView && Boolean(xNativeTimelineRuntime);
+  const columns = document.querySelectorAll('.col');
+  const nativeCol = native ? [...columns].find(col =>
+    col.dataset.definitionId === 'x-notif-native' && col.dataset.partition === partition) : null;
+  let targetCol = nativeCol || notificationCenter.findXNotificationColumn(columns, partition);
+  if (!targetCol) {
+    const id = native ? `x${accountIndex}-notif-native-auto` : `x${accountIndex}-notif-auto`;
+    const result = columnLifecycle.create({
+      networkId: 'x',
+      definitionId: native ? 'x-notif-native' : 'x-notif-new',
+      id,
+      account: { ...account, index: accountIndex, partition },
     });
-    if (!targetCol) {
-      const id = 'b-notif-auto';
-      const result = columnLifecycle.create({
-        networkId: 'b', definitionId: 'b-notif-new', id,
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      targetCol = document.getElementById(`col-${id}`);
-      toast('Bluesky notifications column added');
+    if (result.status !== 'created') {
+      toast('通知カラムを追加できませんでした');
+      return null;
     }
+    targetCol = document.getElementById(`col-${id}`);
+    toast(`${account.username} の通知カラムを追加しました`);
   }
 
   // カラムにスクロール
@@ -2061,12 +2017,6 @@ if (!window.electronAPI?.devToolsEnabled) {
 }
 state = E2E_FIXTURES?.state ? structuredClone(E2E_FIXTURES.state) : stateStore.load();
 state.appearance = appearanceRuntime.apply(state.appearance);
-if (state.x && !(state.xs && state.xs.length > 0)) {
-  state.xs = [{ ...state.x, partition: 'persist:x-0' }];
-  state.activeX = 0;
-  delete state.x;
-  saveState();
-}
 webviewPreloadReady = initWvPreloadPath();
 const blueskySessionReady = initializeBlueskySession();
 const accountSessionReady = blueskySessionReady.then(() => accountSessionRuntime.start());
@@ -2114,11 +2064,7 @@ startMemoryCleaner();
 // ═══════════════════════════════════════════════
 //  WIDGET MODE — デスクトップTLウィジェット
 // ═══════════════════════════════════════════════
-const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
-
-if (IS_WIDGET) {
-  widgetMode.init();
-}
+if (columnRuntime.isWidgetMode()) widgetMode.init();
 
 Promise.all([xLoginStatesReady, webviewPreloadReady]).then(() => {
   const pollReplies = () => {

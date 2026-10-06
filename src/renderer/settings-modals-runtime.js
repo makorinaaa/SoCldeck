@@ -86,6 +86,11 @@
     }
 
     // ── カラム設定 ──
+    function intervalLabel(ms) {
+      if (ms === 0) return 'OFF';
+      return ms < 60000 ? `${ms / 1000}秒` : `${ms / 60000}分`;
+    }
+
     function optionButton(action, dataAttributes, active, label) {
       const data = Object.entries(dataAttributes)
         .map(([name, value]) => `data-${name}="${escape(value)}"`).join(' ');
@@ -97,17 +102,17 @@
       const currentSeconds = Math.round((columns.getRefreshInterval?.(id) || 0) / 1000);
       const currentFontSize = parseInt(storage.getItem(`col_fs_${id}`)) || 13;
       openOverlay('col-settings-ov', `<div class="modal" style="width:300px">
-        <h2 style="margin-bottom:14px">Column settings</h2>
-        <div class="modal-label">Auto refresh interval</div>
+        <h2 style="margin-bottom:14px">カラム設定</h2>
+        <div class="modal-label">自動更新の間隔</div>
         <div class="chip-row">
           ${[15, 30, 60, 120, 300, 0].map(seconds => optionButton(
             'apply-column-interval',
             { 'column-id': id, 'interval-ms': seconds * 1000 },
             currentSeconds === seconds,
-            seconds === 0 ? 'OFF' : seconds < 60 ? seconds + ' sec' : seconds / 60 + ' min',
+            intervalLabel(seconds * 1000),
           )).join('')}
         </div>
-        <div class="modal-label">Font size</div>
+        <div class="modal-label">文字サイズ</div>
         <div class="chip-row">
           ${[11, 12, 13, 14, 15, 16].map(fontSize => optionButton(
             'apply-column-font-size',
@@ -116,14 +121,13 @@
             fontSize + 'px',
           )).join('')}
         </div>
-        <button data-action="remove-element" data-target-id="col-settings-ov" class="btn-cancel">Close</button>
+        <button data-action="remove-element" data-target-id="col-settings-ov" class="btn-cancel">閉じる</button>
       </div>`);
     }
 
     function applyColumnInterval(id, ms) {
       columns.setRefreshInterval?.(id, ms);
-      const label = ms === 0 ? 'OFF' : ms < 60000 ? (ms / 1000) + ' sec' : (ms / 60000) + ' min';
-      toast('Auto refresh: ' + label);
+      toast(`自動更新: ${intervalLabel(ms)}`);
       closeOverlay('col-settings-ov');
       columns.persistLayout?.();
     }

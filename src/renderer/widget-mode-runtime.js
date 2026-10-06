@@ -315,10 +315,10 @@
           <span class="wg-tab-dot"></span>
           <span class="wg-tab-name">${escapeHtml(title)}</span>
           ${count ? `<span class="wg-tab-count">${count}</span>` : ''}
-          <button class="wg-tab-close" title="Close tab" data-action="widget-close-tab"
+          <button class="wg-tab-close" title="タブを閉じる" data-action="widget-close-tab"
             data-column-id="${escapeHtml(id)}">×</button>
         </div>`;
-      }).join('') + `<button class="wg-icon wg-tab-add" title="Add tab" data-action="widget-open-picker">${ICONS.add}</button>`;
+      }).join('') + `<button class="wg-icon wg-tab-add" title="タブを追加" data-action="widget-open-picker">${ICONS.add}</button>`;
     }
 
     function renderPicker() {
@@ -402,15 +402,15 @@
       bar.innerHTML = `
         <div class="wg-tabs" id="wg-tabs"></div>
         <div class="wg-controls">
-          <button class="wg-icon" id="wg-top-btn" title="Always on top" data-action="widget-toggle-top">${ICONS.top}</button>
-          <button class="wg-icon" id="wg-lock-btn" title="Lock position" data-action="widget-toggle-lock">${ICONS.lock}</button>
-          <button class="wg-icon" id="wg-menu-btn" title="Widget settings" data-action="widget-toggle-menu">${ICONS.more}</button>
-          <button class="wg-icon" title="Close" data-action="widget-close">${ICONS.close}</button>
+          <button class="wg-icon" id="wg-top-btn" title="常に手前に表示" data-action="widget-toggle-top">${ICONS.top}</button>
+          <button class="wg-icon" id="wg-lock-btn" title="位置を固定" data-action="widget-toggle-lock">${ICONS.lock}</button>
+          <button class="wg-icon" id="wg-menu-btn" title="ウィジェットの設定" data-action="widget-toggle-menu">${ICONS.more}</button>
+          <button class="wg-icon" title="閉じる" data-action="widget-close">${ICONS.close}</button>
         </div>
         <div class="wg-popover" id="wg-menu" hidden>
           <div class="wg-menu-row">
             <span>透明度</span>
-            <input type="range" min="30" max="100" value="100" title="Opacity" id="wg-opacity"
+            <input type="range" min="30" max="100" value="100" title="不透明度" id="wg-opacity"
               data-input-action="widget-set-opacity">
           </div>
           <div class="wg-menu-row">
@@ -419,9 +419,9 @@
           <div class="wg-menu-row">
             <span>文字サイズ</span>
             <div class="wg-stepper">
-              <button title="Smaller" data-action="widget-font-step" data-step="-1">A-</button>
+              <button title="小さく" data-action="widget-font-step" data-step="-1">A-</button>
               <span id="wg-font-size">-</span>
-              <button title="Larger" data-action="widget-font-step" data-step="1">A+</button>
+              <button title="大きく" data-action="widget-font-step" data-step="1">A+</button>
             </div>
           </div>
         </div>
@@ -516,14 +516,14 @@
       if (!widgetHost) return;
       const next = await widgetHost.toggleTop();
       setButtonActive('wg-top-btn', next);
-      toast(next ? 'Always on top enabled' : 'Always on top disabled');
+      toast(next ? '常に手前に表示します' : '常に手前に表示するのをやめました');
     }
 
     async function toggleLock() {
       if (!widgetHost?.toggleLock) return;
       const next = await widgetHost.toggleLock();
       applyLocked(next);
-      toast(next ? 'Position locked' : 'Position unlocked');
+      toast(next ? '位置を固定しました' : '位置の固定を解除しました');
     }
 
     async function toggleBackgroundOnly() {
@@ -532,7 +532,7 @@
       const slider = byId('wg-opacity');
       applyBackgroundAlpha(Number(slider?.value ?? 100) / 100);
       setButtonActive('wg-bg-btn', backgroundOnly);
-      toast(backgroundOnly ? 'Background-only transparency' : 'Whole-window transparency');
+      toast(backgroundOnly ? '背景だけ透過します' : 'ウィンドウ全体を透過します');
     }
 
     function setOpacity(percent) {

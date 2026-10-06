@@ -78,3 +78,21 @@ test('never persists Bluesky credentials in Workspace State', () => {
     displayName: 'Alice',
   });
 });
+
+test('moves a single legacy X account into the account list', () => {
+  const { stateStore, readSaved } = createStore({ x: { username: '@alice' }, activeX: 3 });
+  const state = stateStore.load();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(state.xs)), [{ username: '@alice', partition: 'persist:x-0' }]);
+  assert.equal(state.activeX, 0);
+  assert.equal('x' in state, false);
+  stateStore.save(state);
+  assert.equal('x' in readSaved(), false);
+});
+
+test('keeps the account list when a legacy X account is also present', () => {
+  const xs = [{ username: '@bob', partition: 'persist:x-1' }];
+  const { stateStore } = createStore({ x: { username: '@alice' }, xs, activeX: 0 });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(stateStore.load().xs)), xs);
+});

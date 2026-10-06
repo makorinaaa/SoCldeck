@@ -324,7 +324,7 @@
       }
       element.textContent = REFRESH_LABELS[state.status] || '';
       element.title = state.status === 'failed'
-        ? `更新失敗: ${state.error?.message || 'Unknown error'}`
+        ? `更新失敗: ${state.error?.message || '原因不明のエラー'}`
         : state.status === 'deferred'
           ? '閲覧中または準備中のため更新を延期しました'
           : state.status === 'paused'

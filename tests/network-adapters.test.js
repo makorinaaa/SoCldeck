@@ -156,7 +156,7 @@ test('X compose capability prepares account timeline completion', () => {
   assert.deepEqual(plain(registry.prepareComposeCompletion({
     target: { networkId: 'x', accountId: 'alice' },
   })), {
-    message: 'Posted to alice',
+    message: 'alice で投稿しました',
     refresh: { kind: 'x-account-columns', accountId: 'alice' },
     delayMs: 2500,
   });
@@ -168,7 +168,7 @@ test('Bluesky compose capability prepares timeline completion', () => {
   assert.deepEqual(plain(registry.prepareComposeCompletion({
     target: { networkId: 'b', accountId: 'did:plc:alice' },
   })), {
-    message: 'Posted to Bluesky',
+    message: 'Bluesky に投稿しました',
     refresh: { kind: 'bsky-timelines', accountId: 'did:plc:alice' },
     delayMs: 1000,
   });

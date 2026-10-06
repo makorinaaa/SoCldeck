@@ -78,7 +78,7 @@ test('X video compose flows from user intent to account refresh', async () => {
 
   completion.runtime.complete(flow.prepareCompletion(request));
   assert.deepEqual(completion.events, [
-    ['notify', 'Posted to alice'],
+    ['notify', 'alice で投稿しました'],
     ['schedule', 2500],
   ]);
 
@@ -122,7 +122,7 @@ test('Bluesky reply compose preserves alt text through timeline refresh', async 
 
   completion.runtime.complete(flow.prepareCompletion(request));
   assert.deepEqual(completion.events, [
-    ['notify', 'Posted to Bluesky'],
+    ['notify', 'Bluesky に投稿しました'],
     ['schedule', 1000],
   ]);
 

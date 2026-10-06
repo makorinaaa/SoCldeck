@@ -56,7 +56,7 @@
       if (!status) return;
       if (snapshot.xAccounts.length === 0) {
         status.className = 'lsbar none';
-        status.textContent = 'X account is not connected';
+        status.textContent = 'X アカウントは未接続';
         return;
       }
       status.className = 'lsbar ok';
@@ -64,9 +64,9 @@
         <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
           <div style="width:24px;height:24px;border-radius:50%;background:${escape(account.bg || '')};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#000;flex-shrink:0">${escape(account.initials || '')}</div>
           <span style="flex:1;font-size:12px;color:var(--text1)">${escape(account.username || '')}</span>
-          <button data-account-action="logout-x" data-account-index="${accountIndex}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">Remove</button>
+          <button data-account-action="logout-x" data-account-index="${accountIndex}" style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:11px;font-family:inherit">削除</button>
         </div>`).join('');
-      status.innerHTML = `<div style="width:100%"><div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:12px">${snapshot.xAccounts.length} X account(s) connected</span></div>${accounts}</div>`;
+      status.innerHTML = `<div style="width:100%"><div style="display:flex;align-items:center;gap:6px;margin-bottom:8px"><span style="font-size:12px">X アカウント ${snapshot.xAccounts.length} 件を接続中</span></div>${accounts}</div>`;
     }
 
     function renderBlueskyStatus(snapshot) {
@@ -74,14 +74,14 @@
       if (snapshot.blueskyAccount) {
         if (status) {
           status.className = 'lsbar ok';
-          status.innerHTML = `Connected: <span class="sname">@${escape(snapshot.blueskyAccount.handle || '')}</span>`;
+          status.innerHTML = `接続中: <span class="sname">@${escape(snapshot.blueskyAccount.handle || '')}</span>`;
         }
         if (elements['b-login-btn']) elements['b-login-btn'].style.display = 'none';
         if (elements['b-logout-btn']) elements['b-logout-btn'].style.display = 'block';
       } else {
         if (status) {
           status.className = 'lsbar none';
-          status.textContent = 'Bluesky account is not connected';
+          status.textContent = 'Bluesky アカウントは未接続';
         }
         if (elements['b-login-btn']) elements['b-login-btn'].style.display = 'flex';
         if (elements['b-logout-btn']) elements['b-logout-btn'].style.display = 'none';
@@ -98,7 +98,7 @@
       if (elements['sb-avs']) {
         const firstX = snapshot.xAccounts[0];
         elements['sb-avs'].innerHTML = [
-          ...(firstX ? [`<button class="sbav" data-account-action="toggle-account-menu" style="background:${escape(firstX.bg || '')}" title="X accounts">${escape(firstX.initials || '')}<span class="adot x"></span></button>`] : []),
+          ...(firstX ? [`<button class="sbav" data-account-action="toggle-account-menu" style="background:${escape(firstX.bg || '')}" title="X アカウント">${escape(firstX.initials || '')}<span class="adot x"></span></button>`] : []),
           ...(snapshot.blueskyAccount ? [`<button class="sbav" data-account-action="toggle-account-menu" style="background:${escape(snapshot.blueskyAccount.bg || '')}" title="@${escape(snapshot.blueskyAccount.handle || '')}">${snapshot.blueskyAccount.avatar ? `<img src="${escape(snapshot.blueskyAccount.avatar)}">` : escape(snapshot.blueskyAccount.initials || '')}<span class="adot b"></span></button>`] : []),
         ].join('');
       }
@@ -107,11 +107,11 @@
     function renderAccountMenu(snapshot) {
       if (!elements['amenu-items']) return;
       const xSection = snapshot.xAccounts.length > 0
-        ? `<div style="padding:6px 13px;font-size:10px;font-weight:600;color:var(--text3)">X accounts</div>${snapshot.xAccounts.map((account, accountIndex) => `
+        ? `<div style="padding:6px 13px;font-size:10px;font-weight:600;color:var(--text3)">X アカウント</div>${snapshot.xAccounts.map((account, accountIndex) => `
           <div class="aitem">
             <div class="aiav" style="background:${escape(account.bg || '')}">${escape(account.initials || '')}</div>
             <div class="aiinfo"><div class="ainame">${escape(account.username || '')}</div><div class="aihandle">X WebView</div></div>
-            <button data-account-action="logout-x" data-account-index="${accountIndex}" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit">Remove</button>
+            <button data-account-action="logout-x" data-account-index="${accountIndex}" style="padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--red);cursor:pointer;font-size:10px;font-family:inherit">削除</button>
           </div>`).join('')}`
         : '';
       const bluesky = snapshot.blueskyAccount;
@@ -184,8 +184,8 @@
         blueskyAccount,
         canEnter: connected.length > 0,
         connectedLabel: connected.length > 0
-          ? `${connected.join(' + ')} connected`
-          : 'Add an account to continue',
+          ? `${connected.join(' + ')} を接続中`
+          : 'アカウントを追加してください',
         busy: operation.busy,
         error: operation.error,
       };
@@ -221,13 +221,13 @@
       const accounts = Array.isArray(current.xs) ? current.xs : [];
       const clean = String(credentials.displayName || '').trim().replace(/^@/, '');
       if (!clean) {
-        operation.error = { network: 'x', message: 'Enter a display name' };
+        operation.error = { network: 'x', message: '表示名を入力してください' };
         refresh();
         return { status: 'rejected', reason: 'display-name-required' };
       }
       const username = `@${clean}`;
       if (accounts.some(account => account.username === username)) {
-        operation.error = { network: 'x', message: 'This account is already registered' };
+        operation.error = { network: 'x', message: 'このアカウントは登録済みです' };
         refresh();
         return { status: 'rejected', reason: 'duplicate-account' };
       }
@@ -265,7 +265,7 @@
       const handle = String(credentials.handle || '').trim();
       const password = String(credentials.password || '').trim();
       if (!handle || !password) {
-        operation.error = { network: 'b', message: 'Enter handle and app password' };
+        operation.error = { network: 'b', message: 'ハンドルとアプリパスワードを入力してください' };
         refresh();
         return { status: 'rejected', reason: 'credentials-required' };
       }
@@ -288,7 +288,7 @@
         await intents.accountsChanged?.({ network: 'b', kind: 'login', account });
         return { status: 'authenticated', account, snapshot: getSnapshot() };
       } catch (error) {
-        operation.error = { network: 'b', message: error?.message || 'Login failed' };
+        operation.error = { network: 'b', message: error?.message || 'ログインに失敗しました' };
         return { status: 'failed', error, snapshot: getSnapshot() };
       } finally {
         operation.busy = false;

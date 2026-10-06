@@ -118,7 +118,7 @@ test('submits a quote record and refreshes timelines afterwards', async () => {
   });
   assert.deepEqual(plain(record.facets), [{ text: '引用コメント' }]);
   assert.equal(documentRef.getElementById('quote-modal-ov'), null);
-  assert.deepEqual(calls.toasts, ['Quote posted']);
+  assert.deepEqual(calls.toasts, ['引用ポストを投稿しました']);
   assert.equal(calls.refreshes, 1);
 });
 

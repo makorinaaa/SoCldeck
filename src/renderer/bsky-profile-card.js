@@ -97,7 +97,7 @@
         card.innerHTML = `<div style="display:flex;gap:10px;align-items:center">${avatar}<div style="min-width:0;flex:1"><div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(profile.displayName || profile.handle || '')}</div><div style="color:var(--text3)">@${escapeHtml(profile.handle || '')}</div></div><button type="button" data-bsky-follow data-did="${escapeHtml(profile.did || '')}" data-handle="${escapeHtml(profile.handle || '')}" data-followuri="${escapeHtml(following)}">${following ? 'フォロー中' : 'フォロー'}</button></div>${profile.description ? `<div style="margin-top:8px;color:var(--text2);line-height:1.4">${escapeHtml(profile.description).slice(0, 180)}</div>` : ''}`;
         positionCard(card, target);
       } catch (error) {
-        if (documentRef.getElementById?.('bsky-hover-card') === card) card.textContent = 'Profile load failed';
+        if (documentRef.getElementById?.('bsky-hover-card') === card) card.textContent = 'プロフィールを読み込めませんでした';
         onOutcome({ kind: 'profile', status: 'failed', columnId: ownerId, error });
       }
 

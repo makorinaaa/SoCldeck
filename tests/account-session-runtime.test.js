@@ -110,7 +110,7 @@ test('DOM view delegates account actions and renders account presentation withou
       handle: 'bob.test', displayName: 'Bob', initials: 'BO', bg: '#654321', avatar: null,
     },
     canEnter: true,
-    connectedLabel: 'X(1) + Bluesky connected',
+    connectedLabel: 'X(1) + Bluesky を接続中',
     busy: false,
     error: null,
   });
@@ -152,7 +152,7 @@ test('starts from persisted accounts and publishes one Account Session snapshot'
   ]);
   assert.equal(snapshot.blueskyAccount.handle, 'bob.test');
   assert.equal(snapshot.canEnter, true);
-  assert.equal(snapshot.connectedLabel, 'X(1) + Bluesky connected');
+  assert.equal(snapshot.connectedLabel, 'X(1) + Bluesky を接続中');
   assert.equal(snapshot.busy, false);
   assert.equal(snapshot.error, null);
   assert.deepEqual(renders, [plain(snapshot)]);
@@ -269,7 +269,7 @@ test('rejects missing and duplicate X display names before touching the session'
   assert.deepEqual(sessionCalls, []);
   assert.deepEqual(plain(runtime.getSnapshot().error), {
     network: 'x',
-    message: 'This account is already registered',
+    message: 'このアカウントは登録済みです',
   });
 });
 
