@@ -706,7 +706,7 @@ const xNotificationCapture = xTimelineTap
         items.forEach(item => xAccounts.learnHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle }));
         xNativeTimelineRuntime?.setNotifications(partition, items);
       },
-      onFirstCapture: partition => {
+      onSourceChange: partition => {
         const account = xAccounts.byPartition(partition);
         if (account) replyNotificationRuntime?.rebaseline(account);
         desktopNotificationRuntime?.rebaseline?.();

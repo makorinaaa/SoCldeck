@@ -1386,3 +1386,46 @@ test('a native X notification Column draws X data and refreshes without reloadin
   assert.equal(after.kept, true, 'the refresh did not reload the page');
   assert.ok(after.loads > before, 'the refresh pressed the tab');
 });
+
+test('an X account whose data stops arriving reports it, then reads its notification page', { timeout: 60000 }, async t => {
+  const timeline = require('../tests/fixtures/x-home-timeline.json');
+  const tweet = timeline.data.home.home_timeline_urt.instructions[0].entries[0].content.itemContent.tweet_results.result;
+  const like = id => ({
+    itemType: 'TimelineNotification', id, notification_icon: 'heart_icon', timestamp_ms: String(1790000000000 + Number(id.slice(1))),
+    rich_message: { text: `Bob ${id} liked your post` },
+    template: {
+      target_objects: [{ tweet_results: { result: tweet } }],
+      from_users: [{ user_results: { result: { rest_id: '3', core: { name: 'Bob', screen_name: 'bob' }, legacy: {} } } }],
+    },
+  });
+  const { electronApp, page } = await launchApp(t, { ...X_FIXTURES, notificationsGraphql: notificationGraphql([like('n1')]) });
+  const reload = () => page.evaluate(async () => {
+    const renderer = await import('./renderer.js');
+    const outcome = await renderer.notificationCenterRuntime.reload();
+    return {
+      phases: outcome.snapshot.xStates.map(state => state.phase),
+      errors: outcome.snapshot.xErrors.map(error => [error.accountIndex, error.message]),
+      texts: renderer.notificationCenterRuntime.getAllItems()
+        .filter(item => item.networkId === 'x' && item.accountIndex === 1).map(item => item.text),
+    };
+  });
+  assert.deepEqual((await reload()).phases, ['succeeded', 'succeeded']);
+
+  // The second account's page still lists notifications, but X sends no data for it.
+  await electronApp.evaluate(async ({ session }) => {
+    const target = session.fromPartition('persist:x-1');
+    target.protocol.uninterceptProtocol('https');
+    target.protocol.interceptBufferProtocol('https', (request, callback) => callback({ mimeType: 'text/html', charset: 'utf-8',
+      data: Buffer.from(`<!doctype html><html><body><div data-testid="cellInnerDiv">
+        <a href="https://x.com/carol">Carol</a><time datetime="2026-10-06T00:00:00Z"></time>
+        <div data-testid="tweetText">Carol liked your post</div></div></body></html>`) }));
+  });
+  const missed = await reload();
+  assert.deepEqual(missed.phases, ['succeeded', 'failed']);
+  assert.deepEqual(missed.errors, [[1, 'Xから通知データが届きませんでした']]);
+  assert.ok(missed.texts.some(text => /Bob n1/.test(text)), 'the last notifications stay listed');
+
+  const recovered = await reload();
+  assert.deepEqual(recovered.phases, ['succeeded', 'succeeded']);
+  assert.ok(recovered.texts.some(text => /Carol liked your post/.test(text)), JSON.stringify(recovered.texts));
+});

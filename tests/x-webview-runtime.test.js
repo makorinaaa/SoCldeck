@@ -569,12 +569,14 @@ function createCaptureHarness(options = {}) {
   const captured = [{ captured: true, reason: 'like', targetUrl: 'https://x.com/me/status/9', text: 'liked' }];
   const waits = [];
   let fresh = true;
+  let misses = 0;
   const notificationCapture = {
     attach: async () => true,
     mode: () => 'captured',
     wait: async (partition, since, timeoutMs) => { waits.push(timeoutMs); return fresh ? captured : null; },
     last: () => captured,
     hasCaptured: () => true,
+    missed: () => (++misses >= 2 ? 'page' : 'captured'),
   };
   const harness = createHarness({ notificationCapture, ...options });
   harness.runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
@@ -613,9 +615,26 @@ test('an account whose tab press brings no data falls back to reloading, then st
     reader.emit('dom-ready');
   };
   harness.setFresh(false);
-  await harness.read();
-  await harness.read();
-  await harness.read();
+  await harness.read().catch(() => {});
+  await harness.read().catch(() => {});
+  await harness.read().catch(() => {});
   assert.equal(reader.scripts.filter(script => script === 'refresh:notifications').length, 2);
   assert.equal(reader.reloadCount, 3);
+});
+
+test('an account whose X data stops arriving reports it, then reads the page', async () => {
+  const harness = createCaptureHarness({ realTimers: true });
+  const reader = await harness.start();
+  reader.executeJavaScript = async script => {
+    reader.scripts.push(script);
+    return script === 'extract' ? [{ text: 'from the page' }] : 'notifications-clicked';
+  };
+  reader.reload = () => {
+    reader.dataset.ready = 'true';
+    reader.emit('dom-ready');
+  };
+  harness.setFresh(false);
+
+  await assert.rejects(harness.read(), /Xから通知データが届きませんでした/);
+  assert.deepEqual(JSON.parse(JSON.stringify(await harness.read())), [{ text: 'from the page' }]);
 });

@@ -545,9 +545,15 @@
         if (source !== 'page') {
           // X's data (with post ids) once it is known to arrive; the page text otherwise.
           const captured = await notificationCapture.wait(account.partition, since, source === 'captured' ? 8000 : 4000);
-          if (captured || source === 'captured') {
+          if (captured) {
             extractedReaders.add(webview);
-            return captured || notificationCapture.last(account.partition) || [];
+            return captured;
+          }
+          // An account that used to receive X's data reports the miss (its last notifications
+          // stay listed); after repeated misses it reads the page like any other account.
+          if (source === 'captured' && notificationCapture.missed(account.partition) === 'captured') {
+            extractedReaders.add(webview);
+            throw new Error('Xから通知データが届きませんでした');
           }
         }
         const items = await webview.executeJavaScript(script) || [];
