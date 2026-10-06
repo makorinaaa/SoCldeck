@@ -638,7 +638,7 @@ button:disabled{cursor:not-allowed}
 #x-post-detail .chead{gap:4px}
 #x-post-detail .chead h2{flex:1}
 .x-native-acts .x-more{margin-left:auto}
-.col[data-kind="x-native"] .cbadge{cursor:pointer}
+.col[data-kind="x-native"] .cbadge,.col[data-kind="bsky"] .cbadge{cursor:pointer}
 /* Off-screen posts skip layout and paint; the browser remembers each post's last size. */
 .x-native-feed>.x-native-post{content-visibility:auto;contain-intrinsic-size:auto 180px}
 /* Native X notification Column: replies, mentions and quotes are posts; the rest are rows. */

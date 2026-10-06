@@ -146,6 +146,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   widgetGetTop: () => ipcRenderer.invoke('widget-get-top'),
   widgetSetOpacity: (v) => ipcRenderer.invoke('widget-set-opacity', toFiniteNumber(v, 1)),
   widgetGetOpacity: () => ipcRenderer.invoke('widget-get-opacity'),
+  widgetGetState: () => ipcRenderer.invoke('widget-get-state'),
+  widgetToggleLock: () => ipcRenderer.invoke('widget-toggle-lock'),
+  widgetSetBackgroundOnly: (enabled) => ipcRenderer.invoke('widget-set-background-only', enabled === true),
 
   // Electron環境かどうかの判定
   isElectron: true,

@@ -5,6 +5,9 @@
   const PAGE_LIMIT = 40;
   const PREPEND_LIMIT = 30;
   const RELATIVE_TIME_INTERVAL_MS = 60_000;
+  // Below this scroll offset a Column counts as "at the top" for the new-post badge.
+  const AT_TOP_PX = 50;
+  const BADGE_AT_TOP_MS = 5000;
 
   function trimRenderedItems(host, { removeFrom = 'end', preserveScroll = false } = {}) {
     const items = Array.from(host?.querySelectorAll?.('.post, .notif') || []);
@@ -351,8 +354,16 @@
         pointerOutHandler,
         pointerOverHandler,
       } = createDelegatedHandlers(id);
+      // 先頭から離れている間に届いた新着は件数を溜め、先頭に戻るまで残す
       const scrollHandler = () => {
-        if (badge) badge.style.display = 'none';
+        const column = columns.get(id);
+        if (column?.unseen && (Number(host.scrollTop) || 0) < AT_TOP_PX) clearBadge(column);
+      };
+      const badgeClickHandler = event => {
+        event?.stopPropagation?.();
+        host.scrollTo?.({ top: 0, behavior: 'smooth' });
+        const column = columns.get(id);
+        if (column) clearBadge(column);
       };
       const searchHandler = () => search(id).catch(() => {});
       const searchKeyHandler = event => {
@@ -367,6 +378,7 @@
       host.addEventListener?.('pointerover', pointerOverHandler);
       host.addEventListener?.('pointerout', pointerOutHandler);
       host.addEventListener?.('scroll', scrollHandler);
+      badge?.addEventListener?.('click', badgeClickHandler);
       searchInput?.addEventListener?.('keydown', searchKeyHandler);
       searchButton?.addEventListener?.('click', searchHandler);
       columns.set(id, {
@@ -375,6 +387,9 @@
         feedUri,
         host,
         badge,
+        badgeClickHandler,
+        unseen: 0,
+        badgeToken: 0,
         cursor: null,
         revision: 0,
         clickHandler,
@@ -516,7 +531,7 @@
       if (isPrepend && !gapReplaced) {
         if (!renderedItems) return { status: 'succeeded', detail: 'filtered' };
         const previousScrollTop = Number(column.host.scrollTop) || 0;
-        const wasAtTop = previousScrollTop < 50;
+        const wasAtTop = previousScrollTop < AT_TOP_PX;
         const previousChildCount = column.host.children?.length || 0;
         column.host.insertAdjacentHTML?.('afterbegin', renderedItems);
         const addedCount = Math.max(0, (column.host.children?.length || 0) - previousChildCount);
@@ -532,11 +547,7 @@
         }
         schedule?.(() => addedElements.forEach(element => element.classList?.remove?.('sd-new')), 600);
         trimRenderedItems(column.host, { removeFrom: 'end' });
-        if (column.badge) {
-          column.badge.textContent = `+${items.length}`;
-          column.badge.style.display = '';
-          schedule?.(() => { column.badge.style.display = 'none'; }, 5000);
-        }
+        announceNewItems(column, items.length, wasAtTop);
         return { status: 'succeeded', detail: 'new-items' };
       }
       column.host.innerHTML = (renderedItems
@@ -556,6 +567,26 @@
       return { status: 'succeeded', detail: gapReplaced ? 'gap-replaced' : 'replaced' };
     }
 
+    function clearBadge(column) {
+      column.badgeToken += 1;
+      column.unseen = 0;
+      if (column.badge) column.badge.style.display = 'none';
+    }
+
+    function announceNewItems(column, count, atTop) {
+      if (!column.badge) return;
+      column.badgeToken += 1;
+      column.unseen = atTop ? 0 : column.unseen + count;
+      column.badge.textContent = `+${atTop ? count : column.unseen}`;
+      column.badge.title = atTop ? '新着ポスト' : '新着ポスト（クリックで先頭へ）';
+      column.badge.style.display = '';
+      if (!atTop) return;
+      const token = column.badgeToken;
+      schedule?.(() => {
+        if (column.badgeToken === token) clearBadge(column);
+      }, BADGE_AT_TOP_MS);
+    }
+
     function dispose(id) {
       const column = columns.get(id);
       if (!column) return false;
@@ -567,6 +598,7 @@
       column.host.removeEventListener?.('pointerover', column.pointerOverHandler);
       column.host.removeEventListener?.('pointerout', column.pointerOutHandler);
       column.host.removeEventListener?.('scroll', column.scrollHandler);
+      column.badge?.removeEventListener?.('click', column.badgeClickHandler);
       column.searchInput?.removeEventListener?.('keydown', column.searchKeyHandler);
       column.searchButton?.removeEventListener?.('click', column.searchHandler);
       columns.delete(id);

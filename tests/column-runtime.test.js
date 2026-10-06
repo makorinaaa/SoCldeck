@@ -4,17 +4,17 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function createRuntime() {
+function createRuntime({ items = {}, search = '' } = {}) {
   const storage = {
-    getItem: () => null,
-    setItem: () => {},
-    removeItem: () => {},
+    getItem: key => items[key] ?? null,
+    setItem: (key, value) => { items[key] = String(value); },
+    removeItem: key => { delete items[key]; },
   };
   const context = {
     URL,
     URLSearchParams,
     window: {
-      location: { search: '' },
+      location: { search },
       localStorage: storage,
     },
   };
@@ -210,4 +210,36 @@ test('captures a native X Home Column with its account partition', () => {
     interval: 300000,
     collapsed: false,
   }]);
+});
+
+test('restores every widget tab Column and drops tabs whose Column was removed', () => {
+  const layout = [
+    { id: 'b-home', title: 'Following', width: '400px', collapsed: true },
+    { id: 'x0-home-1', title: 'Home' },
+    { id: 'b-notif', title: 'Notifications' },
+  ];
+  const items = {
+    socialdeck_cols: JSON.stringify(layout),
+    socialdeck_widget_tabs: JSON.stringify(['x0-home-1', 'missing', 'b-home']),
+  };
+  const runtime = createRuntime({ items, search: '?widget=1' });
+
+  const widgetLayout = runtime.getLayoutForCurrentMode();
+  assert.deepEqual([...widgetLayout.map(column => column.id)], ['x0-home-1', 'b-home']);
+  assert.equal(widgetLayout[1].collapsed, false);
+  assert.equal(widgetLayout[1].width, '');
+  assert.deepEqual([...runtime.getWidgetTabIds()], ['x0-home-1', 'b-home']);
+
+  runtime.setWidgetTabIds(['b-notif']);
+  assert.deepEqual([...runtime.getLayoutForCurrentMode().map(column => column.id)], ['b-notif']);
+});
+
+test('uses the previously selected widget Column when no tabs were saved', () => {
+  const items = {
+    socialdeck_cols: JSON.stringify([{ id: 'b-home' }, { id: 'x0-home-1' }]),
+    socialdeck_widget_col: 'x0-home-1',
+    socialdeck_widget_tabs: 'not json',
+  };
+  const runtime = createRuntime({ items, search: '?widget=1' });
+  assert.deepEqual([...runtime.getLayoutForCurrentMode().map(column => column.id)], ['x0-home-1']);
 });
