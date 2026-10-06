@@ -47,7 +47,7 @@ function createWebView({ id = '', partition = '', src = '' } = {}) {
   };
 }
 
-function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false, notificationCapture = null } = {}) {
+function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false, notificationCapture = null, getFontSize } = {}) {
   const elements = new Map();
   const webviews = [];
   const columns = [];
@@ -83,7 +83,7 @@ function createHarness({ loginPending = false, loginGate = null, allowDevTools =
   vm.runInNewContext(source, context);
   const runtime = context.window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
     documentRef,
-    storage: context.window.localStorage,
+    getFontSize,
     loginGate: loginGate || {
       register: () => loginPending,
       isActive: () => false,
@@ -116,6 +116,16 @@ test('ready post content is not covered while slow subresources keep navigation 
   webview.emit('dom-ready');
   assert.notEqual(webview.style.opacity, '0', 'ready post remains hidden until every resource finishes');
   assert.equal(overlay.style.display, 'none');
+});
+
+test('applies the saved column font size to the X page after it loads', () => {
+  const { runtime } = createHarness({ getFontSize: id => (id === 'x-home' ? 15 : null) });
+  const webview = runtime.mountColumn({ id: 'x-home', networkId: 'x', partition: 'persist:x-0', targetUrl: 'https://x.com/home',
+    host: { insertBefore() {} } });
+  const css = [];
+  webview.insertCSS = text => { css.push(text); return Promise.resolve(); };
+  webview.emit('did-finish-load');
+  assert.deepEqual(css, ['* { font-size: 15px !important; }']);
 });
 
 test('opens X WebView DevTools only when the host explicitly allows development tools', () => {

@@ -1,7 +1,6 @@
 (function (global) {
   function createSettingsModalsRuntime({
     documentRef = global.document,
-    storage = global.localStorage,
     muteRules,
     appearance,
     memoryCleaner,
@@ -100,7 +99,7 @@
 
     function openColumnSettings(id, colType) {
       const currentSeconds = Math.round((columns.getRefreshInterval?.(id) || 0) / 1000);
-      const currentFontSize = parseInt(storage.getItem(`col_fs_${id}`)) || 13;
+      const currentFontSize = columns.getFontSize?.(id) || 13;
       openOverlay('col-settings-ov', `<div class="modal" style="width:300px">
         <h2 style="margin-bottom:14px">カラム設定</h2>
         <div class="modal-label">自動更新の間隔</div>
@@ -133,7 +132,6 @@
     }
 
     function applyColumnFontSize(id, colType, fontSize) {
-      storage.setItem(`col_fs_${id}`, fontSize);
       columns.setFontSize?.(id, colType, fontSize);
       toast(`文字サイズ: ${fontSize}px`);
       closeOverlay('col-settings-ov');

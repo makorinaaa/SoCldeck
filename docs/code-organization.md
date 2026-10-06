@@ -13,6 +13,7 @@
 | `src/main/x-video-file.js` | X用動画トリム、一時動画のサイズ・パス検査、読取と削除 |
 | `src/main/bluesky-video-file.js` | Bluesky用動画検証・トリム・アップロード用データ作成 |
 | `src/main/ffmpeg-runtime.js` | FFmpeg実行と共通の出力サイズ予算 |
+| `src/main/window-bounds.js` | 保存したウィンドウ位置が今の画面に収まるかの判定 |
 | `src/main/x-timeline-tap.js` | 非表示XページへのDevTools Protocol接続、応答の読み取り、画像・動画の読み込み停止 |
 | `src/main/x-timeline-normalizer.js` | XのGraphQL応答（タイムライン・ポスト詳細・投稿）を表示用データへ変換 |
 | `src/main/x-notification-normalizer.js` | Xの通知データ（GraphQL・REST）を通知センター用データへ変換 |
@@ -32,6 +33,7 @@ XとBlueskyで異なる形式・サイズ・時間制限は各モジュールで
 | `src/renderer/app-shell-runtime.mjs` | ショートカット、メニュー、トースト、ホストイベントと購読解除 |
 | `src/renderer/keyboard-navigation.mjs` | 1文字ショートカット（投稿・カラム間の移動、いいね／リポスト／返信、ヘルプ表示） |
 | `src/renderer/network-adapters.js` | X / Bluesky等の機能・カラム定義 |
+| `src/renderer/column-mounts.mjs` | カラムの種類ごとの見た目と、中身を動かすモジュールへの接続 |
 | `src/renderer/compose-*.js` | 共通の投稿画面、下書き、試行状態、同時投稿 |
 | `src/renderer/x-composer-submit.mjs` | Xページ内への入力、添付の準備確認、送信 |
 | `src/renderer/x-composer-dom.js` | Xの投稿欄と添付メディアの検出（投稿準備・投稿確認で共用） |
@@ -45,7 +47,9 @@ XとBlueskyで異なる形式・サイズ・時間制限は各モジュールで
 | `src/renderer/x-native-reactions.js` | いいね・リポスト・削除とそのメニュー |
 | `src/renderer/x-post-view.js` | ネイティブXのポストと会話のHTML |
 | `src/renderer/x-status-*.js` | 操作用の非表示ポストページと、その中で動かすスクリプト |
+| `src/renderer/x-accounts.mjs` | Xアカウントの partition の規則、アカウントの検索、本当の @handle の学習 |
 | `src/renderer/x-notification-capture.js` | X通知データのアカウント別保持と取得元の決定 |
+| `src/renderer/x-notification-loader.mjs` | 非表示の通知ページからのX通知の取得（同時実行の共有、未読バッジによる再利用） |
 | `src/renderer/notification-*.js` | 通知の取得、表示、未読状態、会話表示 |
 | `src/renderer/column-*.js` | カラムの生成・保存・並べ替え・削除取り消し |
 | `src/renderer/workspace-*.js` | ワークスペースの保存、検証、バックアップ、復旧 |

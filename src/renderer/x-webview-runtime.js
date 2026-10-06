@@ -1,7 +1,7 @@
 (function (global) {
   function createXWebViewRuntime({
     documentRef = global.document,
-    storage = global.localStorage,
+    getFontSize = () => null,
     isElectron = true,
     loginGate,
     isLoginPending = () => false,
@@ -167,7 +167,7 @@
         if (networkId === 'x') observeLogin(partition, id, webview.getURL());
         if (webview.dataset.sdLoginParked === 'true') return;
         finishReload(id, webview);
-        const savedFontSize = Number(storage?.getItem?.(`col_fs_${id}`));
+        const savedFontSize = getFontSize(id);
         if (savedFontSize && savedFontSize !== 13) {
           webview.insertCSS(`* { font-size: ${savedFontSize}px !important; }`).catch(() => {});
         }

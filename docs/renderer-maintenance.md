@@ -14,11 +14,12 @@ preload のイベント購読は解除関数を返します。
 | 変更したいこと | 主な変更先 |
 | --- | --- |
 | カラムの種類・ネットワーク固有の動作 | `src/renderer/network-adapters.js` |
+| カラムの種類ごとの見た目（ヘッダーのボタン・中身の器）と各 runtime への接続 | `src/renderer/column-mounts.mjs` |
 | 追加画面 | `src/renderer/column-picker.js` |
 | ヘッダー・メニュー・幅・折りたたみ | `src/renderer/column-shell-runtime.js` |
 | ドラッグによる並べ替え | `src/renderer/column-reorder-runtime.js` |
 | 保存・復元・削除時の連携 | `src/renderer/column-lifecycle.js` |
-| 保存形式とレイアウトの取得 | `src/renderer/column-runtime.js` |
+| 保存形式とレイアウトの取得、カラムごとの文字サイズ | `src/renderer/column-runtime.js` |
 | 添付ファイルのドラッグ保護 | `src/renderer/file-drag-shield.js` |
 | 直前のカラム削除の取り消し | `src/renderer/column-undo.js` |
 | バックアップ形式・検証・アカウント照合・復元 | `src/renderer/workspace-backup.js` |

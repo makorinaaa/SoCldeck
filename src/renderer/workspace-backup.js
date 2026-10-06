@@ -4,6 +4,10 @@
   const STATE_KEY = 'socialdeck_v4';
   const LAYOUT_KEY = 'socialdeck_cols';
   function fail() { throw new Error('バックアップの形式または値が不正です'); }
+  // x-accounts.mjs と同じ規則（このファイルは ES モジュールを読み込めない）
+  function xPartitionOf(account, index) {
+    return account?.partition || `persist:x-${index}`;
+  }
   function string(value, max = 2000) {
     if (typeof value !== 'string' || value.length > max) fail();
     return value;
@@ -106,7 +110,7 @@
           const network = definition.network;
           const font = storage.getItem(`col_fs_${column.id}`);
           const account = network === 'x'
-            ? state.xs.find(item => (item.partition || 'persist:x') === column.partition)?.username
+            ? state.xs.find((item, index) => xPartitionOf(item, index) === column.partition)?.username
             : network === 'b' ? state.b?.did : undefined;
           return { ...column, network, definitionId: definition.id, account,
             ...(font !== null ? { fontSize: Number(font) } : {}) };
@@ -122,7 +126,7 @@
         if (column.network === 'x') {
           const matches = state.xs.filter(item => item.username === column.account);
           if (matches.length !== 1) throw new Error(`X のアカウント ${column.account} を一意に確認できません。アカウント設定を確認してください`);
-          restored.partition = matches[0].partition || 'persist:x';
+          restored.partition = xPartitionOf(matches[0], state.xs.indexOf(matches[0]));
         }
         if (column.network === 'b') {
           if (state.b?.did !== column.account) throw new Error('バックアップと同じ Bluesky アカウントでログインしてください');

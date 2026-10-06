@@ -1,3 +1,5 @@
+import { xPartitionOf } from './x-accounts.mjs';
+
 function createXListDialogRuntime({ documentRef, getAccounts, esc, icon, toast, nextColumnId, createColumn }) {
   function openXListDialog(accountIdx) {
     documentRef.getElementById('x-list-dialog-ov')?.remove();
@@ -50,7 +52,7 @@ function createXListDialogRuntime({ documentRef, getAccounts, esc, icon, toast, 
     const url = `https://x.com/i/lists/${listId}`;
     const title = nameInput || `リスト ${listId}`;
     const acc = getAccounts()?.[accountIdx ?? 0];
-    const xPart = acc?.partition || `persist:x-${accountIdx ?? 0}`;
+    const xPart = xPartitionOf(acc, accountIdx ?? 0);
     const accLabel = acc ? ` - ${acc.username}` : '';
 
     const id = nextColumnId(`x${accountIdx}-list-${listId}`);

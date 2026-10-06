@@ -2,6 +2,8 @@
   const COLUMN_LAYOUT_KEY = 'socialdeck_cols';
   const WIDGET_COLUMN_KEY = 'socialdeck_widget_col';
   const WIDGET_TABS_KEY = 'socialdeck_widget_tabs';
+  // カラムごとの文字サイズ。workspace-backup.js も同じキーを書き出し・復元する
+  const fontSizeKey = id => `col_fs_${id}`;
   const SAFE_X_PATHS = new Set(['/home', '/notifications', '/messages', '/explore', '/search', '/settings']);
 
   function isWidgetLocation(locationLike = global.location) {
@@ -117,6 +119,12 @@
       storage.setItem(COLUMN_LAYOUT_KEY, JSON.stringify(normalizeLayout(layout)));
     }
 
+    // 未設定なら null
+    function getFontSize(id) {
+      const size = parseInt(storage.getItem(fontSizeKey(id)), 10);
+      return size > 0 ? size : null;
+    }
+
     function getLayoutForCurrentMode() {
       const layout = readStoredLayout();
       if (!isWidgetLocation(locationLike) || layout.length === 0) return layout;
@@ -155,6 +163,9 @@
       writeStoredLayout,
       getLayoutForCurrentMode,
       clearStoredLayout: () => storage.removeItem(COLUMN_LAYOUT_KEY),
+      getFontSize,
+      setFontSize: (id, size) => storage.setItem(fontSizeKey(id), String(size)),
+      removeFontSize: id => storage.removeItem(fontSizeKey(id)),
       getWidgetColumnId: () => storage.getItem(WIDGET_COLUMN_KEY),
       setWidgetColumnId: (id) => storage.setItem(WIDGET_COLUMN_KEY, id),
       getWidgetTabIds: () => getWidgetTabColumns().map(col => col.id),
