@@ -957,18 +957,84 @@ test('preserves the visible Timeline position while prepending a post', async ()
   assert.equal(host.scrollTop, 250);
 });
 
-test('hides the Timeline new-post badge after the user scrolls', () => {
-  const host = createFeedHost();
-  const badge = { style: { display: '' } };
+function createScrolledFeedHost(scrollTop) {
+  const children = [];
+  return {
+    innerHTML: '',
+    scrollTop,
+    children,
+    listeners: {},
+    addEventListener(type, handler) { this.listeners[type] = handler; },
+    removeEventListener() {},
+    scrollTo({ top }) { this.scrollTop = top; },
+    querySelector: () => null,
+    querySelectorAll(selector) { return selector === '.post[data-uri]' ? [] : children; },
+    insertAdjacentHTML(position) {
+      if (position === 'afterbegin') children.unshift({ classList: { add() {}, remove() {} }, offsetHeight: 40 });
+    },
+  };
+}
+
+function createBadge() {
+  const badge = { textContent: '', title: '', style: { display: 'none' }, listeners: {} };
+  badge.addEventListener = (type, handler) => { badge.listeners[type] = handler; };
+  badge.removeEventListener = () => {};
+  return badge;
+}
+
+test('accumulates new-post counts while scrolled away and clears them back at the top', async () => {
+  const host = createScrolledFeedHost(400);
+  const badge = createBadge();
+  let postNumber = 0;
+  const scheduled = [];
   const runtime = loadRuntime().createBlueskyColumnsRuntime({
-    adapter: {},
-    muteRules: {},
-    ui: {},
+    adapter: { getTimeline: async () => {
+      postNumber += 1;
+      return { feed: [{ post: { uri: `at://post/${postNumber}`, cid: `c${postNumber}`, author: { handle: 'a.test' }, record: { text: 'x' } } }] };
+    } },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+    requestFrame: callback => callback(),
+    schedule: callback => { scheduled.push(callback); return scheduled.length; },
   });
-
   runtime.mount({ id: 'b-home', type: 'timeline', host, badge });
-  host.dispatch('scroll', { target: host });
 
+  await runtime.refresh('b-home', { mode: 'prepend' });
+  await runtime.refresh('b-home', { mode: 'prepend' });
+  assert.equal(badge.textContent, '+2');
+  assert.equal(badge.style.display, '');
+  // 先頭から離れている間は時間経過で消さない
+  scheduled.forEach(callback => callback());
+  assert.equal(badge.style.display, '');
+
+  // 先頭に戻るまでスクロールしても、途中では消さない
+  host.scrollTop = 300;
+  host.listeners.scroll();
+  assert.equal(badge.style.display, '');
+
+  badge.listeners.click({ stopPropagation() {} });
+  assert.equal(host.scrollTop, 0);
+  assert.equal(badge.style.display, 'none');
+});
+
+test('shows an at-top new-post badge briefly', async () => {
+  const host = createScrolledFeedHost(0);
+  const badge = createBadge();
+  const scheduled = [];
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [
+      { post: { uri: 'at://post/new', cid: 'new', author: { handle: 'a.test' }, record: { text: 'x' } } },
+    ] }) },
+    muteRules: { blocksPost: () => false },
+    ui: { formatText: text => text, relTime: () => '', renderAvatar: () => '' },
+    requestFrame: callback => callback(),
+    schedule: (callback, delay) => { scheduled.push({ callback, delay }); return scheduled.length; },
+  });
+  runtime.mount({ id: 'b-home', type: 'timeline', host, badge });
+
+  await runtime.refresh('b-home', { mode: 'prepend' });
+  assert.equal(badge.textContent, '+1');
+  scheduled.filter(item => item.delay === 5000).forEach(item => item.callback());
   assert.equal(badge.style.display, 'none');
 });
 

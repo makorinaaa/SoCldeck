@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net, webContents, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net, webContents, screen, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
@@ -360,6 +360,23 @@ handleTrustedIpc('clear-all-x-sessions', () => xAccountRuntime.clearAll());
 handleTrustedIpc('minimize', () => mainWindow.minimize());
 
 // ── ウィジェットウィンドウ制御 ──
+// どのアプリを使っていてもウィジェットを出し入れできるようにする
+const WIDGET_SHORTCUT = 'CommandOrControl+Shift+W';
+function registerWidgetShortcut() {
+  let registered = false;
+  try {
+    registered = globalShortcut.register(WIDGET_SHORTCUT, () => widgetWindowController.toggleVisibility());
+  } catch (error) {
+    console.warn('[Widget] ショートカットを登録できませんでした:', error.message);
+  }
+  if (registered || !Notification.isSupported()) return;
+  new Notification({
+    title: 'SocialDeck',
+    body: 'Ctrl+Shift+W が他のアプリで使われているため、ウィジェットのショートカットを登録できませんでした。',
+  }).show();
+}
+app.on('will-quit', () => globalShortcut.unregisterAll());
+
 const ownsWidget = e => widgetWindowController.owns(BrowserWindow.fromWebContents(e.sender));
 handleTrustedIpc('open-widget', () => { widgetWindowController.open(); return true; });
 handleTrustedIpc('close-widget', (e) => {
@@ -426,6 +443,7 @@ app.whenReady().then(async () => {
 
   createWindow();
   widgetWindowController.restoreOnLaunch();
+  registerWidgetShortcut();
 
   appUpdaterController = createAppUpdater({
     autoUpdater,

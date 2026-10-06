@@ -242,14 +242,32 @@ function saveColLayout() {
   columnRuntime.writeStoredLayout(layout);
 }
 
-// ウィジェットの表示カラムを、ページを読み直さずに差し替える
-function swapWidgetColumn() {
-  if (!state.b && !(state.xs || []).length) {
+// ウィジェットのタブとしてカラムを1つ追加で開く。ログイン前なら読み直して全体を組み直す
+function mountWidgetColumn(columnId) {
+  const column = columnRuntime.readStoredLayout().find(item => item.id === columnId);
+  const [active] = column
+    ? columnRuntime.filterLayoutForAccounts([{ ...column, collapsed: false, width: '' }], { bluesky: Boolean(state.b) })
+    : [];
+  if (!active || (!state.b && !(state.xs || []).length)) {
     location.reload();
     return;
   }
-  columnLifecycle.clear({ removeElements: true });
-  if (!restoreColLayout()) location.reload();
+  columnLifecycle.restore([active]);
+}
+
+function unmountWidgetColumn(columnId) {
+  columnLifecycle.remove(columnId);
+}
+
+function getColumnFontSize(columnId) {
+  return parseInt(localStorage.getItem(`col_fs_${columnId}`)) || null;
+}
+
+function setColumnFontSize(columnId, fontSize) {
+  localStorage.setItem(`col_fs_${columnId}`, fontSize);
+  if (xWebViewRuntime.setFontSize(columnId, fontSize)) return;
+  const feed = document.getElementById(`feed-${columnId}`);
+  if (feed) feed.style.fontSize = fontSize + 'px';
 }
 
 function loadColLayout() {
@@ -457,7 +475,14 @@ const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
       }
     : null,
   columnRuntime,
-  intents: { toast, reload: () => location.reload(), swapColumn: swapWidgetColumn },
+  intents: {
+    toast,
+    reload: () => location.reload(),
+    mountColumn: mountWidgetColumn,
+    unmountColumn: unmountWidgetColumn,
+    getFontSize: getColumnFontSize,
+    setFontSize: setColumnFontSize,
+  },
 });
 const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   documentRef: document,
@@ -1996,6 +2021,12 @@ function createUiActionHandlers() {
     'widget-toggle-top': () => widgetMode.toggleTop(),
     'widget-toggle-lock': () => widgetMode.toggleLock(),
     'widget-toggle-background-only': () => widgetMode.toggleBackgroundOnly(),
+    'widget-toggle-menu': () => widgetMode.toggleMenu(),
+    'widget-open-picker': () => widgetMode.openPicker(),
+    'widget-select-tab': ({ dataset }) => widgetMode.selectTab(dataset.columnId),
+    'widget-add-tab': ({ dataset }) => widgetMode.addTab(dataset.columnId),
+    'widget-close-tab': ({ dataset }) => widgetMode.closeTab(dataset.columnId),
+    'widget-font-step': ({ dataset }) => widgetMode.stepFontSize(Number(dataset.step)),
     'widget-close': () => widgetMode.close(),
   };
 }

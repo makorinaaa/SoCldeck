@@ -8,6 +8,8 @@ const MIN_OPACITY = 0.3;
 // これ以上見えていればモニター上にあるとみなす（タイトルバーを掴める大きさ）
 const MIN_VISIBLE = 80;
 const SAVE_DELAY_MS = 500;
+// 画面の端にこの距離まで近づけたら吸着させる
+const SNAP_DISTANCE = 16;
 // Windows では別の最前面ウィンドウに z-order を奪われるため、最も高いレベルで固定する
 const TOP_LEVEL = 'screen-saver';
 
@@ -52,6 +54,20 @@ function fitBoundsToDisplays(saved, { displays = [], primary } = {}) {
   };
 }
 
+// 作業領域の端に近い辺を端へぴったり寄せる。寄せる必要がなければ null
+function snapBoundsToWorkArea(bounds, area, distance = SNAP_DISTANCE) {
+  if (!bounds || !area) return null;
+  let { x, y } = bounds;
+  const right = area.x + area.width - bounds.width;
+  const bottom = area.y + area.height - bounds.height;
+  if (Math.abs(x - area.x) <= distance) x = area.x;
+  else if (Math.abs(x - right) <= distance) x = right;
+  if (Math.abs(y - area.y) <= distance) y = area.y;
+  else if (Math.abs(y - bottom) <= distance) y = bottom;
+  if (x === bounds.x && y === bounds.y) return null;
+  return { ...bounds, x, y };
+}
+
 function createWidgetWindowController({
   BrowserWindow,
   screen,
@@ -67,6 +83,7 @@ function createWidgetWindowController({
 } = {}) {
   let widgetWindow = null;
   let wantsTop = false;
+  let locked = false;
   let saveTimer = null;
   let pendingPatch = {};
 
@@ -98,9 +115,9 @@ function createWidgetWindowController({
     }
   }
 
-  function applyLock(win, locked) {
-    win.setMovable(!locked);
-    win.setResizable(!locked);
+  function applyLock(win, isLocked) {
+    win.setMovable(!isLocked);
+    win.setResizable(!isLocked);
   }
 
   function applyOpacity(win, config) {
@@ -121,7 +138,7 @@ function createWidgetWindowController({
     });
     const alwaysOnTop = config.widgetAlwaysOnTop === true;
     wantsTop = alwaysOnTop;
-    const locked = config.widgetLocked === true;
+    locked = config.widgetLocked === true;
 
     const win = new BrowserWindow({
       ...bounds,
@@ -164,6 +181,15 @@ function createWidgetWindowController({
     };
     win.on('move', saveBounds);
     win.on('resize', saveBounds);
+    // 'moved' はドラッグを離したときに来る（Windows / macOS）。ドラッグ中には吸着させない
+    win.on('moved', () => {
+      if (win.isDestroyed() || locked) return;
+      const bounds = win.getBounds();
+      const snapped = snapBoundsToWorkArea(bounds, screen?.getDisplayMatching?.(bounds)?.workArea);
+      if (!snapped) return;
+      win.setBounds(snapped);
+      scheduleSave({ widgetBounds: snapped });
+    });
 
     win.on('close', () => {
       if (win.isDestroyed()) return;
@@ -178,6 +204,18 @@ function createWidgetWindowController({
     return win;
   }
 
+  // ショートカット用: 開いていなければ開き、表示中なら隠し、隠れていれば出す
+  function toggleVisibility() {
+    if (!isOpen()) return open();
+    if (widgetWindow.isVisible()) {
+      widgetWindow.hide();
+    } else {
+      widgetWindow.show();
+      widgetWindow.focus();
+    }
+    return widgetWindow;
+  }
+
   function restoreOnLaunch() {
     if (loadConfig().widgetOpen === true) open();
   }
@@ -190,7 +228,7 @@ function createWidgetWindowController({
     const config = loadConfig();
     return {
       alwaysOnTop: isOpen() ? wantsTop : config.widgetAlwaysOnTop === true,
-      locked: config.widgetLocked === true,
+      locked: isOpen() ? locked : config.widgetLocked === true,
       opacity: clampOpacity(config.widgetOpacity) ?? 1,
       backgroundOnly: config.widgetBackgroundOnly === true,
     };
@@ -205,7 +243,8 @@ function createWidgetWindowController({
   }
 
   function toggleLock() {
-    const next = loadConfig().widgetLocked !== true;
+    const next = !locked;
+    locked = next;
     applyLock(widgetWindow, next);
     updateConfig({ widgetLocked: next });
     return next;
@@ -245,8 +284,9 @@ function createWidgetWindowController({
     setOpacity,
     toggleLock,
     toggleTop,
+    toggleVisibility,
     get window() { return isOpen() ? widgetWindow : null; },
   };
 }
 
-module.exports = { createWidgetWindowController, fitBoundsToDisplays, clampOpacity };
+module.exports = { createWidgetWindowController, fitBoundsToDisplays, snapBoundsToWorkArea, clampOpacity };

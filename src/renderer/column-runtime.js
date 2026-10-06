@@ -1,6 +1,7 @@
 (function (global) {
   const COLUMN_LAYOUT_KEY = 'socialdeck_cols';
   const WIDGET_COLUMN_KEY = 'socialdeck_widget_col';
+  const WIDGET_TABS_KEY = 'socialdeck_widget_tabs';
   const SAFE_X_PATHS = new Set(['/home', '/notifications', '/messages', '/explore', '/search', '/settings']);
 
   function isWidgetLocation(locationLike = global.location) {
@@ -120,9 +121,27 @@
       const layout = readStoredLayout();
       if (!isWidgetLocation(locationLike) || layout.length === 0) return layout;
 
+      return getWidgetTabColumns(layout).map(col => ({ ...col, collapsed: false, width: '' }));
+    }
+
+    function readWidgetTabIds() {
+      try {
+        const ids = JSON.parse(storage.getItem(WIDGET_TABS_KEY) || '[]');
+        return Array.isArray(ids) ? ids.filter(id => typeof id === 'string') : [];
+      } catch {
+        return [];
+      }
+    }
+
+    // ウィジェットのタブとして開くカラム。消えたカラムは除き、空なら選択中か先頭の1つにする
+    function getWidgetTabColumns(layout = readStoredLayout()) {
+      const tabs = readWidgetTabIds()
+        .map(id => layout.find(col => col.id === id))
+        .filter(Boolean);
+      if (tabs.length) return tabs;
       const selectedId = storage.getItem(WIDGET_COLUMN_KEY);
       const selected = layout.find(col => col.id === selectedId) || layout[0];
-      return [{ ...selected, collapsed: false, width: '' }];
+      return selected ? [selected] : [];
     }
 
     return {
@@ -138,12 +157,15 @@
       clearStoredLayout: () => storage.removeItem(COLUMN_LAYOUT_KEY),
       getWidgetColumnId: () => storage.getItem(WIDGET_COLUMN_KEY),
       setWidgetColumnId: (id) => storage.setItem(WIDGET_COLUMN_KEY, id),
+      getWidgetTabIds: () => getWidgetTabColumns().map(col => col.id),
+      setWidgetTabIds: (ids) => storage.setItem(WIDGET_TABS_KEY, JSON.stringify(ids)),
     };
   }
 
   global.SocialDeckColumnRuntime = {
     COLUMN_LAYOUT_KEY,
     WIDGET_COLUMN_KEY,
+    WIDGET_TABS_KEY,
     createColumnRuntime,
     filterLayoutForAccounts,
     normalizeXUrl,

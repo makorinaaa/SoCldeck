@@ -1,7 +1,11 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { EventEmitter } = require('node:events');
-const { createWidgetWindowController, fitBoundsToDisplays } = require('../src/main/widget-window');
+const {
+  createWidgetWindowController,
+  fitBoundsToDisplays,
+  snapBoundsToWorkArea,
+} = require('../src/main/widget-window');
 
 const primary = { workArea: { x: 0, y: 0, width: 1920, height: 1040 } };
 const secondary = { workArea: { x: 1920, y: 0, width: 1280, height: 1024 } };
@@ -26,6 +30,15 @@ test('re-centers a widget whose drag bar is above the visible work area', () => 
 
 test('uses default size when no bounds were saved', () => {
   assert.deepEqual(fitBoundsToDisplays(undefined, { displays: [primary], primary }), { width: 400, height: 700 });
+});
+
+test('snaps widget edges that are dropped near the work area edges', () => {
+  const area = primary.workArea;
+  assert.deepEqual(snapBoundsToWorkArea({ x: 10, y: 300, width: 400, height: 600 }, area),
+    { x: 0, y: 300, width: 400, height: 600 });
+  assert.deepEqual(snapBoundsToWorkArea({ x: 1510, y: 430, width: 400, height: 600 }, area),
+    { x: 1520, y: 440, width: 400, height: 600 });
+  assert.equal(snapBoundsToWorkArea({ x: 200, y: 200, width: 400, height: 600 }, area), null);
 });
 
 function createHarness(initialConfig = {}) {
@@ -56,6 +69,9 @@ function createHarness(initialConfig = {}) {
     setMovable(value) { this.movable = value; }
     setResizable(value) { this.resizable = value; }
     getBounds() { return { ...this.bounds }; }
+    setBounds(bounds) { this.bounds = { ...bounds }; }
+    isVisible() { return this.shown === true; }
+    hide() { this.shown = false; }
     show() { this.shown = true; this.emit('show'); }
     focus() {}
     close() {
@@ -67,7 +83,11 @@ function createHarness(initialConfig = {}) {
 
   const controller = createWidgetWindowController({
     BrowserWindow: FakeWindow,
-    screen: { getAllDisplays: () => [primary], getPrimaryDisplay: () => primary },
+    screen: {
+      getAllDisplays: () => [primary],
+      getPrimaryDisplay: () => primary,
+      getDisplayMatching: () => primary,
+    },
     loadConfig: () => ({ ...config }),
     updateConfig: patch => { updates.push(patch); config = { ...config, ...patch }; },
     loadContents: () => {},
@@ -186,4 +206,31 @@ test('only the widget window is owned by the controller', () => {
   win.close();
   assert.equal(harness.controller.owns(win), false);
   assert.equal(harness.controller.window, null);
+});
+
+test('snaps to the screen edge after a drag unless the widget is locked', () => {
+  const harness = createHarness();
+  const win = harness.controller.open();
+  win.bounds = { x: 8, y: 12, width: 400, height: 700 };
+  win.emit('moved');
+  assert.deepEqual(win.bounds, { x: 0, y: 0, width: 400, height: 700 });
+  harness.runTimers();
+  assert.deepEqual(harness.getConfig().widgetBounds, { x: 0, y: 0, width: 400, height: 700 });
+
+  harness.controller.toggleLock();
+  win.bounds = { x: 8, y: 12, width: 400, height: 700 };
+  win.emit('moved');
+  assert.deepEqual(win.bounds, { x: 8, y: 12, width: 400, height: 700 });
+});
+
+test('the shortcut opens, hides and shows the widget', () => {
+  const harness = createHarness();
+  const win = harness.controller.toggleVisibility();
+  assert.equal(harness.windows.length, 1);
+  win.show();
+  harness.controller.toggleVisibility();
+  assert.equal(win.isVisible(), false);
+  harness.controller.toggleVisibility();
+  assert.equal(win.isVisible(), true);
+  assert.equal(harness.windows.length, 1);
 });

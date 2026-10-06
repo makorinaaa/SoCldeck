@@ -15,253 +15,371 @@ function loadModule() {
   return context.window.SocialDeckWidgetModeRuntime;
 }
 
+function createElement(id = '') {
+  const classes = new Set();
+  const element = {
+    id,
+    hidden: false,
+    value: '',
+    textContent: '',
+    style: { display: '' },
+    classes,
+    classList: {
+      add: name => classes.add(name),
+      remove: name => classes.delete(name),
+      contains: name => classes.has(name),
+      toggle(name, force) {
+        const next = force === undefined ? !classes.has(name) : force;
+        if (next) classes.add(name); else classes.delete(name);
+        return next;
+      },
+    },
+  };
+  return element;
+}
+
+// innerHTML を代入したら id 付きの要素を登録するだけの最小限の DOM
 function createDocument() {
   const elements = {};
   const appended = { head: [], body: [] };
-  const bodyClasses = new Set();
+  const body = createElement('body');
   const bodyStyle = {};
+  body.style.setProperty = (name, value) => { bodyStyle[name] = value; };
+  const register = element => { elements[element.id] = element; return element; };
+  const createWithMarkup = () => {
+    const element = createElement();
+    let html = '';
+    Object.defineProperty(element, 'innerHTML', {
+      get: () => html,
+      set(value) {
+        html = value;
+        for (const match of value.matchAll(/id="([^"]+)"([^>]*)>/g)) {
+          if (elements[match[1]]) continue;
+          const child = createWithMarkup();
+          child.id = match[1];
+          register(child);
+          child.hidden = /\shidden(\s|$)/.test(match[2]);
+          const valueMatch = match[2].match(/value="([^"]*)"/);
+          if (valueMatch) child.value = valueMatch[1];
+        }
+      },
+    });
+    return element;
+  };
+  const cols = register(createElement('cols'));
+  cols.columns = [];
+  cols.querySelectorAll = () => cols.columns;
   return {
     elements,
     appended,
-    bodyClasses,
+    body,
     bodyStyle,
-    register(element) { elements[element.id] = element; },
-    getElementById(id) { return elements[id] || null; },
-    createElement: () => ({ id: '', innerHTML: '', textContent: '', style: {} }),
+    cols,
+    register,
+    getElementById: id => elements[id] || null,
+    createElement: () => createWithMarkup(),
+    addEventListener() {},
     head: { appendChild: element => appended.head.push(element) },
-    body: {
-      classList: {
-        add: name => bodyClasses.add(name),
-        toggle(name, force) {
-          if (force) bodyClasses.add(name); else bodyClasses.delete(name);
-        },
-      },
-      style: { setProperty: (name, value) => { bodyStyle[name] = value; } },
-      prepend(element) {
-        appended.body.push(element);
-        elements[element.id] = element;
-      },
+    addColumn(id, { badge } = {}) {
+      const column = register(createElement(`col-${id}`));
+      column.feed = { scrolls: [], scrollTo(options) { this.scrolls.push({ ...options }); } };
+      column.querySelector = () => column.feed;
+      cols.columns.push(column);
+      if (badge) {
+        const badgeElement = register(createElement(`badge-${id}`));
+        badgeElement.style.display = 'none';
+        badgeElement.clicks = 0;
+        badgeElement.click = () => { badgeElement.clicks += 1; };
+        column.badge = badgeElement;
+      }
+      return column;
     },
   };
 }
 
-test('escapes imported layout metadata in widget options', async () => {
+function prepareBody(documentRef) {
+  documentRef.body.prepend = element => {
+    documentRef.appended.body.push(element);
+    documentRef.register(element);
+  };
+}
+
+class FakeMutationObserver {
+  static instances = [];
+  constructor(callback) {
+    this.callback = callback;
+    FakeMutationObserver.instances.push(this);
+  }
+  observe(target) { this.target = target; }
+  disconnect() { this.disconnected = true; }
+  static notify(target) {
+    FakeMutationObserver.instances.filter(item => item.target === target && !item.disconnected)
+      .forEach(item => item.callback([]));
+  }
+}
+
+function createColumnRuntime({ layout = [], tabs = null, active = null } = {}) {
+  const calls = { tabs: [], active: [] };
+  return {
+    calls,
+    readStoredLayout: () => layout,
+    getWidgetColumnId: () => active,
+    setWidgetColumnId: id => { active = id; calls.active.push(id); },
+    getWidgetTabIds: () => tabs || (layout[0] ? [layout[0].id] : []),
+    setWidgetTabIds: ids => { tabs = [...ids]; calls.tabs.push([...ids]); },
+  };
+}
+
+async function createRuntime({ layout, tabs, active, widgetHost = null, intents = {}, columns = [] } = {}) {
   const documentRef = createDocument();
-  const payload = '</option></select><img src=x onerror=alert(1)>';
+  prepareBody(documentRef);
+  columns.forEach(column => documentRef.addColumn(column.id, column));
+  const columnRuntime = createColumnRuntime({ layout, tabs, active });
   const runtime = loadModule().createWidgetModeRuntime({
     documentRef,
-    columnRuntime: {
-      readStoredLayout: () => [{ id: '" data-injected="yes', title: payload, sub: payload }],
-      getWidgetColumnId: () => null,
-    },
+    widgetHost,
+    columnRuntime,
+    intents,
+    MutationObserverRef: FakeMutationObserver,
   });
   await runtime.init();
-  const html = documentRef.getElementById('widget-bar').innerHTML;
-  assert.doesNotMatch(html, /<img|value="" data-injected=/);
-  assert.match(html, /&lt;img/);
-  assert.match(html, /&quot; data-injected=&quot;yes/);
+  return { runtime, documentRef, columnRuntime };
+}
+
+const LAYOUT = [
+  { id: 'b-home', title: 'Following', sub: '@me', network: 'b' },
+  { id: 'x0-home-1', title: 'Home', network: 'x' },
+  { id: 'b-notif', title: 'Notifications', network: 'b' },
+];
+
+test('escapes imported layout metadata in widget tabs and the column picker', async () => {
+  const payload = '</div><img src=x onerror=alert(1)>';
+  const { runtime, documentRef } = await createRuntime({
+    layout: [
+      { id: '" data-injected="yes', title: payload, sub: payload },
+      { id: 'other', title: payload, sub: payload },
+    ],
+  });
+  const tabsHtml = documentRef.getElementById('wg-tabs').innerHTML;
+  assert.doesNotMatch(tabsHtml, /<img|data-column-id="" data-injected=/);
+  assert.match(tabsHtml, /&lt;img/);
+  assert.match(tabsHtml, /&quot; data-injected=&quot;yes/);
+
+  runtime.openPicker();
+  const pickerHtml = documentRef.getElementById('wg-picker').innerHTML;
+  assert.doesNotMatch(pickerHtml, /<img/);
+  assert.match(pickerHtml, /&lt;img/);
 });
 
-test('initializes widget chrome with stored layout options and host state', async () => {
+test('falls back to the selected Column when the Column Runtime has no tab list', async () => {
   const documentRef = createDocument();
-  const slider = { id: 'wg-opacity', value: '100' };
-  const topButton = {
-    id: 'wg-top-btn',
-    classes: new Set(),
-    classList: {
-      add(name) { topButton.classes.add(name); },
-      toggle(name, force) {
-        if (force) topButton.classes.add(name); else topButton.classes.delete(name);
-      },
-    },
-  };
-  const opacityCalls = [];
+  prepareBody(documentRef);
   const runtime = loadModule().createWidgetModeRuntime({
     documentRef,
-    widgetHost: {
-      getOpacity: async () => 0.8,
-      setOpacity: value => opacityCalls.push(value),
-      getTop: async () => true,
-      toggleTop: async () => false,
-      close: () => {},
-    },
-    columnRuntime: {
-      readStoredLayout: () => [
-        { id: 'bsky-home', title: 'Following', sub: '@me' },
-        { id: 'x0-home-1', title: 'Home' },
-      ],
-      getWidgetColumnId: () => 'x0-home-1',
-      setWidgetColumnId: () => {},
-    },
+    columnRuntime: { readStoredLayout: () => LAYOUT, getWidgetColumnId: () => 'x0-home-1' },
+    MutationObserverRef: FakeMutationObserver,
+  });
+  await runtime.init();
+  const html = documentRef.getElementById('wg-tabs').innerHTML;
+  assert.match(html, /data-column-id="x0-home-1"/);
+  assert.doesNotMatch(html, /data-column-id="b-home"/);
+});
+
+test('renders widget tabs and shows only the active tab Column', async () => {
+  const { documentRef } = await createRuntime({
+    layout: LAYOUT,
+    tabs: ['b-home', 'x0-home-1'],
+    active: 'x0-home-1',
+    columns: [{ id: 'b-home' }, { id: 'x0-home-1' }],
   });
 
-  const initPromise = runtime.init();
-  documentRef.register(slider);
-  documentRef.register(topButton);
-  await initPromise;
-
-  assert.equal(documentRef.bodyClasses.has('widget-mode'), true);
+  assert.equal(documentRef.body.classes.has('widget-mode'), true);
   assert.match(documentRef.appended.head[0].textContent, /#widget-bar/);
-  const bar = documentRef.getElementById('widget-bar');
-  assert.match(bar.innerHTML, /<option value="bsky-home" >Following · @me<\/option>/);
-  assert.match(bar.innerHTML, /<option value="x0-home-1" selected>Home<\/option>/);
-  assert.equal(slider.value, 80);
-  // 透明度は Main がウィンドウ表示時に適用するので、初期化で書き戻さない
-  assert.deepEqual(opacityCalls, []);
-  assert.equal(topButton.classes.has('active'), true);
-  assert.match(bar.innerHTML, /data-action="widget-toggle-lock"/);
-  assert.match(bar.innerHTML, /data-action="widget-toggle-background-only"/);
+  const html = documentRef.getElementById('wg-tabs').innerHTML;
+  assert.match(html, /class="wg-tab active" data-action="widget-select-tab"\s+data-column-id="x0-home-1" data-network="x"/);
+  assert.match(html, /data-column-id="b-home" data-network="b"/);
+  assert.match(html, /Following · @me/);
+  assert.equal(documentRef.getElementById('col-x0-home-1').classes.has('wg-active'), true);
+  assert.equal(documentRef.getElementById('col-b-home').classes.has('wg-active'), false);
 });
 
-function createToggleButton(id) {
-  const button = {
-    id,
-    classes: new Set(),
-    classList: {
-      toggle(name, force) {
-        if (force) button.classes.add(name); else button.classes.delete(name);
-      },
-    },
-  };
-  return button;
-}
-
-test('restores lock and background-only state from the widget host', async () => {
-  const documentRef = createDocument();
-  const lockButton = createToggleButton('wg-lock-btn');
-  const backgroundButton = createToggleButton('wg-bg-btn');
-  documentRef.register(lockButton);
-  documentRef.register(backgroundButton);
-  documentRef.register({ id: 'wg-opacity', value: '100' });
-  const runtime = loadModule().createWidgetModeRuntime({
-    documentRef,
+test('restores host state for opacity, always-on-top, lock and background-only', async () => {
+  const { documentRef } = await createRuntime({
+    layout: LAYOUT,
     widgetHost: {
-      getState: async () => ({ opacity: 0.6, alwaysOnTop: false, locked: true, backgroundOnly: true }),
+      getState: async () => ({ opacity: 0.6, alwaysOnTop: true, locked: true, backgroundOnly: true }),
       setOpacity: () => {},
-      toggleTop: async () => true,
-      close: () => {},
     },
-    columnRuntime: { readStoredLayout: () => [], getWidgetColumnId: () => null },
   });
 
-  await runtime.init();
-
-  assert.equal(documentRef.bodyClasses.has('widget-locked'), true);
-  assert.equal(documentRef.bodyClasses.has('widget-bg-only'), true);
+  assert.equal(documentRef.getElementById('wg-opacity').value, 60);
+  assert.equal(documentRef.getElementById('wg-top-btn').classes.has('active'), true);
+  assert.equal(documentRef.getElementById('wg-lock-btn').classes.has('active'), true);
+  assert.equal(documentRef.getElementById('wg-bg-btn').classes.has('active'), true);
+  assert.equal(documentRef.body.classes.has('widget-locked'), true);
+  assert.equal(documentRef.body.classes.has('widget-bg-only'), true);
   assert.equal(documentRef.bodyStyle['--wg-bg-alpha'], '60%');
-  assert.equal(lockButton.classes.has('active'), true);
-  assert.equal(backgroundButton.classes.has('active'), true);
 });
 
-test('toggles position lock and background-only transparency through the host', async () => {
-  const documentRef = createDocument();
-  const lockButton = createToggleButton('wg-lock-btn');
-  const backgroundButton = createToggleButton('wg-bg-btn');
-  documentRef.register(lockButton);
-  documentRef.register(backgroundButton);
-  documentRef.register({ id: 'wg-opacity', value: '50' });
-  const backgroundRequests = [];
+test('falls back to the legacy opacity and always-on-top host calls', async () => {
+  const { documentRef } = await createRuntime({
+    layout: LAYOUT,
+    widgetHost: { getOpacity: async () => 0.8, getTop: async () => true, setOpacity: () => {} },
+  });
+  assert.equal(documentRef.getElementById('wg-opacity').value, 80);
+  assert.equal(documentRef.getElementById('wg-top-btn').classes.has('active'), true);
+});
+
+test('toggles always-on-top, lock and background-only transparency through the host', async () => {
+  const toasts = [];
   const opacityCalls = [];
-  const toasts = [];
-  const runtime = loadModule().createWidgetModeRuntime({
-    documentRef,
+  const backgroundRequests = [];
+  const { runtime, documentRef } = await createRuntime({
+    layout: LAYOUT,
     widgetHost: {
+      getState: async () => ({ opacity: 0.5 }),
       setOpacity: value => opacityCalls.push(value),
-      toggleLock: async () => true,
-      setBackgroundOnly: async enabled => {
-        backgroundRequests.push(enabled);
-        return enabled;
-      },
-    },
-    columnRuntime: { readStoredLayout: () => [], getWidgetColumnId: () => null },
-    intents: { toast: message => toasts.push(message) },
-  });
-
-  await runtime.toggleLock();
-  assert.equal(documentRef.bodyClasses.has('widget-locked'), true);
-  assert.equal(lockButton.classes.has('active'), true);
-
-  await runtime.toggleBackgroundOnly();
-  assert.deepEqual(backgroundRequests, [true]);
-  assert.equal(documentRef.bodyClasses.has('widget-bg-only'), true);
-  assert.equal(documentRef.bodyStyle['--wg-bg-alpha'], '50%');
-  assert.equal(backgroundButton.classes.has('active'), true);
-
-  runtime.setOpacity(70);
-  assert.deepEqual(opacityCalls, [0.7]);
-  assert.equal(documentRef.bodyStyle['--wg-bg-alpha'], '70%');
-  assert.deepEqual(toasts, ['Position locked', 'Background-only transparency']);
-});
-
-test('swaps the widget Column in place when the host page supports it', () => {
-  const selected = [];
-  let swaps = 0;
-  let reloads = 0;
-  const runtime = loadModule().createWidgetModeRuntime({
-    documentRef: createDocument(),
-    columnRuntime: {
-      readStoredLayout: () => [],
-      getWidgetColumnId: () => null,
-      setWidgetColumnId: columnId => selected.push(columnId),
-    },
-    intents: { swapColumn: () => { swaps += 1; }, reload: () => { reloads += 1; } },
-  });
-
-  runtime.selectColumn('x0-home-1');
-  assert.deepEqual(selected, ['x0-home-1']);
-  assert.equal(swaps, 1);
-  assert.equal(reloads, 0);
-});
-
-test('toggles always-on-top through the widget host and reports the result', async () => {
-  const documentRef = createDocument();
-  const topButton = {
-    id: 'wg-top-btn',
-    classes: new Set(),
-    classList: {
-      toggle(name, force) {
-        if (force) topButton.classes.add(name); else topButton.classes.delete(name);
-      },
-    },
-  };
-  documentRef.register(topButton);
-  const toasts = [];
-  const runtime = loadModule().createWidgetModeRuntime({
-    documentRef,
-    widgetHost: {
-      getOpacity: async () => 1,
-      setOpacity: () => {},
-      getTop: async () => false,
       toggleTop: async () => true,
-      close: () => {},
-    },
-    columnRuntime: {
-      readStoredLayout: () => [],
-      getWidgetColumnId: () => null,
-      setWidgetColumnId: () => {},
+      toggleLock: async () => true,
+      setBackgroundOnly: async enabled => { backgroundRequests.push(enabled); return enabled; },
     },
     intents: { toast: message => toasts.push(message) },
   });
 
   await runtime.toggleTop();
-  assert.equal(topButton.classes.has('active'), true);
-  assert.deepEqual(toasts, ['Always on top enabled']);
+  assert.equal(documentRef.getElementById('wg-top-btn').classes.has('active'), true);
+  await runtime.toggleLock();
+  assert.equal(documentRef.body.classes.has('widget-locked'), true);
+  await runtime.toggleBackgroundOnly();
+  assert.deepEqual(backgroundRequests, [true]);
+  assert.equal(documentRef.body.classes.has('widget-bg-only'), true);
+  assert.equal(documentRef.bodyStyle['--wg-bg-alpha'], '50%');
+
+  runtime.setOpacity(70);
+  assert.deepEqual(opacityCalls, [0.7]);
+  assert.equal(documentRef.bodyStyle['--wg-bg-alpha'], '70%');
+  assert.deepEqual(toasts, ['Always on top enabled', 'Position locked', 'Background-only transparency']);
 });
 
-test('persists the selected widget Column and reloads', () => {
-  const documentRef = createDocument();
-  const selected = [];
+test('switches tabs and scrolls the active tab to the top when clicked again', async () => {
+  const { runtime, documentRef, columnRuntime } = await createRuntime({
+    layout: LAYOUT,
+    tabs: ['b-home', 'x0-home-1'],
+    active: 'b-home',
+    columns: [{ id: 'b-home' }, { id: 'x0-home-1', badge: true }],
+  });
+
+  runtime.selectTab('x0-home-1');
+  assert.deepEqual(columnRuntime.calls.active, ['x0-home-1']);
+  assert.equal(documentRef.getElementById('col-x0-home-1').classes.has('wg-active'), true);
+  assert.equal(documentRef.getElementById('col-b-home').classes.has('wg-active'), false);
+
+  // 新着がなければ先頭へスクロールするだけ
+  runtime.selectTab('x0-home-1');
+  assert.deepEqual(documentRef.getElementById('col-x0-home-1').feed.scrolls, [{ top: 0, behavior: 'smooth' }]);
+
+  // 新着があればカラムのバッジ操作（先頭へ移動して件数を消す）に任せる
+  const badge = documentRef.getElementById('badge-x0-home-1');
+  badge.style.display = '';
+  badge.textContent = '+4';
+  runtime.selectTab('x0-home-1');
+  assert.equal(badge.clicks, 1);
+});
+
+test('mirrors Column new-post badges as tab counts', async () => {
+  const { documentRef } = await createRuntime({
+    layout: LAYOUT,
+    tabs: ['b-home', 'x0-home-1'],
+    active: 'b-home',
+    columns: [{ id: 'b-home', badge: true }, { id: 'x0-home-1', badge: true }],
+  });
+  const badge = documentRef.getElementById('badge-x0-home-1');
+  badge.style.display = '';
+  badge.textContent = '+3';
+  FakeMutationObserver.notify(badge);
+  assert.match(documentRef.getElementById('wg-tabs').innerHTML,
+    /data-column-id="x0-home-1"[\s\S]*?<span class="wg-tab-count">3<\/span>/);
+
+  badge.style.display = 'none';
+  FakeMutationObserver.notify(badge);
+  assert.doesNotMatch(documentRef.getElementById('wg-tabs').innerHTML, /wg-tab-count/);
+});
+
+test('adds and closes widget tabs without reloading the page', async () => {
+  const mounted = [];
+  const unmounted = [];
   let reloads = 0;
+  const { runtime, documentRef, columnRuntime } = await createRuntime({
+    layout: LAYOUT,
+    tabs: ['b-home'],
+    active: 'b-home',
+    columns: [{ id: 'b-home' }],
+    intents: {
+      mountColumn: id => { mounted.push(id); documentRef.addColumn(id); },
+      unmountColumn: id => unmounted.push(id),
+      reload: () => { reloads += 1; },
+    },
+  });
+
+  runtime.openPicker();
+  assert.equal(documentRef.getElementById('wg-picker').hidden, false);
+  assert.doesNotMatch(documentRef.getElementById('wg-picker').innerHTML, /data-column-id="b-home"/);
+
+  runtime.addTab('b-notif');
+  assert.equal(documentRef.getElementById('wg-picker').hidden, true);
+  assert.deepEqual(mounted, ['b-notif']);
+  assert.deepEqual(columnRuntime.calls.tabs.at(-1), ['b-home', 'b-notif']);
+  assert.equal(columnRuntime.calls.active.at(-1), 'b-notif');
+  assert.equal(documentRef.getElementById('col-b-notif').classes.has('wg-active'), true);
+
+  runtime.closeTab('b-notif');
+  assert.deepEqual(unmounted, ['b-notif']);
+  assert.deepEqual(columnRuntime.calls.tabs.at(-1), ['b-home']);
+  assert.equal(columnRuntime.calls.active.at(-1), 'b-home');
+
+  // 最後のタブは閉じない
+  runtime.closeTab('b-home');
+  assert.deepEqual(unmounted, ['b-notif']);
+  assert.equal(reloads, 0);
+});
+
+test('steps the active Column font size within limits', async () => {
+  const sizes = { 'b-home': 19 };
+  const { runtime, documentRef } = await createRuntime({
+    layout: LAYOUT,
+    intents: {
+      getFontSize: id => sizes[id],
+      setFontSize: (id, size) => { sizes[id] = size; },
+    },
+  });
+
+  runtime.toggleMenu();
+  assert.equal(documentRef.getElementById('wg-menu').hidden, false);
+  assert.equal(documentRef.getElementById('wg-font-size').textContent, '19px');
+  runtime.stepFontSize(1);
+  runtime.stepFontSize(1);
+  assert.equal(sizes['b-home'], 20);
+  assert.equal(documentRef.getElementById('wg-font-size').textContent, '20px');
+  runtime.toggleMenu();
+  assert.equal(documentRef.getElementById('wg-menu').hidden, true);
+});
+
+test('legacy Column selection reloads when the widget has no tabs', async () => {
+  let reloads = 0;
+  const selected = [];
+  const documentRef = createDocument();
+  prepareBody(documentRef);
   const runtime = loadModule().createWidgetModeRuntime({
     documentRef,
     columnRuntime: {
       readStoredLayout: () => [],
       getWidgetColumnId: () => null,
-      setWidgetColumnId: columnId => selected.push(columnId),
+      setWidgetColumnId: id => selected.push(id),
     },
     intents: { reload: () => { reloads += 1; } },
+    MutationObserverRef: FakeMutationObserver,
   });
-
+  await runtime.init();
   runtime.selectColumn('bsky-home');
   assert.deepEqual(selected, ['bsky-home']);
   assert.equal(reloads, 1);
