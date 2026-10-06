@@ -242,6 +242,16 @@ function saveColLayout() {
   columnRuntime.writeStoredLayout(layout);
 }
 
+// ウィジェットの表示カラムを、ページを読み直さずに差し替える
+function swapWidgetColumn() {
+  if (!state.b && !(state.xs || []).length) {
+    location.reload();
+    return;
+  }
+  columnLifecycle.clear({ removeElements: true });
+  if (!restoreColLayout()) location.reload();
+}
+
 function loadColLayout() {
   return columnRuntime.getLayoutForCurrentMode();
 }
@@ -436,15 +446,18 @@ const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
   documentRef: document,
   widgetHost: IS_ELECTRON
     ? {
+        getState: () => window.electronAPI.widgetGetState(),
         getOpacity: () => window.electronAPI.widgetGetOpacity(),
         setOpacity: opacity => window.electronAPI.widgetSetOpacity(opacity),
         getTop: () => window.electronAPI.widgetGetTop(),
         toggleTop: () => window.electronAPI.widgetToggleTop(),
+        toggleLock: () => window.electronAPI.widgetToggleLock(),
+        setBackgroundOnly: enabled => window.electronAPI.widgetSetBackgroundOnly(enabled),
         close: () => window.electronAPI.closeWidget(),
       }
     : null,
   columnRuntime,
-  intents: { toast, reload: () => location.reload() },
+  intents: { toast, reload: () => location.reload(), swapColumn: swapWidgetColumn },
 });
 const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   documentRef: document,
@@ -1981,6 +1994,8 @@ function createUiActionHandlers() {
     'widget-select-column': ({ value }) => widgetMode.selectColumn(value),
     'widget-set-opacity': ({ value }) => widgetMode.setOpacity(value),
     'widget-toggle-top': () => widgetMode.toggleTop(),
+    'widget-toggle-lock': () => widgetMode.toggleLock(),
+    'widget-toggle-background-only': () => widgetMode.toggleBackgroundOnly(),
     'widget-close': () => widgetMode.close(),
   };
 }

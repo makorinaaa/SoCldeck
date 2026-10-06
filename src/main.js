@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net, webContents } = require('electron');
+const { app, BrowserWindow, ipcMain, session, Menu, shell, dialog, Notification, safeStorage, net, webContents, screen } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
 const { createAppConfigStore } = require('./main/app-config-store');
+const { createWidgetWindowController } = require('./main/widget-window');
 const { createXPageDiagnostics } = require('./main/x-page-diagnostics');
 const { pathToFileURL } = require('node:url');
 const { ensureDefaultXDarkTheme, getXSessionUserId, isXSessionAuthenticated } = require('./main/x-session-theme');
@@ -67,7 +68,7 @@ const isDevelopment = !app.isPackaged && process.argv.includes('--dev');
 function handleTrustedIpc(channel, handler) {
   return registerTrustedIpcHandler({
     ipcMain, indexPath: INDEX_PATH, channel, handler,
-    isAllowedContents: contents => [mainWindow, widgetWindow].some(window =>
+    isAllowedContents: contents => [mainWindow, widgetWindowController.window].some(window =>
       window && !window.isDestroyed() && window.webContents === contents),
   });
 }
@@ -168,7 +169,6 @@ const updateConfig = patch => appConfigStore.update(patch);
 
 // ── メインウィンドウ ──
 let mainWindow;
-let widgetWindow = null;
 let appUpdaterController = null;
 const desktopNotificationService = createDesktopNotificationService({
   NotificationClass: Notification,
@@ -176,58 +176,34 @@ const desktopNotificationService = createDesktopNotificationService({
 });
 
 // ── ウィジェットウィンドウ（デスクトップTL表示） ──
-function createWidgetWindow() {
-  if (widgetWindow && !widgetWindow.isDestroyed()) {
-    widgetWindow.focus();
-    return;
-  }
-  const config = loadConfig();
-  const wb = config.widgetBounds || { width: 400, height: 700, x: undefined, y: undefined };
+let isAppQuitting = false;
+app.on('before-quit', () => {
+  isAppQuitting = true;
+  widgetWindowController.flushSave();
+});
 
-  widgetWindow = new BrowserWindow({
-    width: wb.width,
-    height: wb.height,
-    x: wb.x,
-    y: wb.y,
-    minWidth: 280,
-    minHeight: 300,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    skipTaskbar: true,
-    alwaysOnTop: config.widgetAlwaysOnTop ?? false,
-    title: 'SocialDeck Widget',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      webviewTag: true,
-      preload: APP_PRELOAD_PATH,
-      spellcheck: false,
-    },
-    show: false,
-  });
-
-  secureApplicationWebContents(widgetWindow.webContents, {
+const widgetWindowController = createWidgetWindowController({
+  BrowserWindow,
+  screen,
+  loadConfig,
+  updateConfig,
+  isAppQuitting: () => isAppQuitting,
+  isMainWindowOpen: () => Boolean(mainWindow && !mainWindow.isDestroyed()),
+  webPreferences: {
+    nodeIntegration: false,
+    contextIsolation: true,
+    sandbox: true,
+    webviewTag: true,
+    preload: APP_PRELOAD_PATH,
+    spellcheck: false,
+  },
+  configureWindow: win => secureApplicationWebContents(win.webContents, {
     indexPath: INDEX_PATH,
     webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
     openExternalUrl,
-  });
-  widgetWindow.loadFile(INDEX_PATH, { query: { widget: '1' } });
-
-  widgetWindow.once('ready-to-show', () => widgetWindow.show());
-
-  widgetWindow.on('close', () => {
-    if (!widgetWindow || widgetWindow.isDestroyed()) return;
-    updateConfig({
-      widgetBounds: widgetWindow.getBounds(),
-      widgetAlwaysOnTop: widgetWindow.isAlwaysOnTop(),
-    });
-  });
-
-  widgetWindow.on('closed', () => { widgetWindow = null; });
-
-}
+  }),
+  loadContents: win => win.loadFile(INDEX_PATH, { query: { widget: '1' } }),
+});
 
 function createWindow() {
   const config = loadConfig();
@@ -384,35 +360,21 @@ handleTrustedIpc('clear-all-x-sessions', () => xAccountRuntime.clearAll());
 handleTrustedIpc('minimize', () => mainWindow.minimize());
 
 // ── ウィジェットウィンドウ制御 ──
-handleTrustedIpc('open-widget', () => { createWidgetWindow(); return true; });
+const ownsWidget = e => widgetWindowController.owns(BrowserWindow.fromWebContents(e.sender));
+handleTrustedIpc('open-widget', () => { widgetWindowController.open(); return true; });
 handleTrustedIpc('close-widget', (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (win && win !== mainWindow) win.close();
+  if (ownsWidget(e)) widgetWindowController.close();
   return true;
 });
-handleTrustedIpc('widget-toggle-top', (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win || win === mainWindow) return false;
-  const next = !win.isAlwaysOnTop();
-  win.setAlwaysOnTop(next);
-  updateConfig({ widgetAlwaysOnTop: next });
-  return next;
-});
-handleTrustedIpc('widget-get-top', (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  return win ? win.isAlwaysOnTop() : false;
-});
-handleTrustedIpc('widget-set-opacity', (e, value) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win || win === mainWindow) return false;
-  const opacity = Number(value);
-  if (!Number.isFinite(opacity)) return false;
-  const clampedOpacity = Math.min(1, Math.max(0.3, opacity));
-  win.setOpacity(clampedOpacity);
-  updateConfig({ widgetOpacity: clampedOpacity });
-  return true;
-});
-handleTrustedIpc('widget-get-opacity', () => loadConfig().widgetOpacity ?? 1);
+handleTrustedIpc('widget-get-state', () => widgetWindowController.getState());
+handleTrustedIpc('widget-toggle-top', (e) => ownsWidget(e) ? widgetWindowController.toggleTop() : false);
+handleTrustedIpc('widget-get-top', () => widgetWindowController.getState().alwaysOnTop);
+handleTrustedIpc('widget-toggle-lock', (e) => ownsWidget(e) ? widgetWindowController.toggleLock() : false);
+handleTrustedIpc('widget-set-opacity', (e, value) => ownsWidget(e) ? widgetWindowController.setOpacity(value) : false);
+handleTrustedIpc('widget-get-opacity', () => widgetWindowController.getState().opacity);
+handleTrustedIpc('widget-set-background-only', (e, enabled) =>
+  ownsWidget(e) ? widgetWindowController.setBackgroundOnly(enabled) : false
+);
 handleTrustedIpc('maximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
   else mainWindow.maximize();
@@ -463,6 +425,7 @@ app.whenReady().then(async () => {
   }
 
   createWindow();
+  widgetWindowController.restoreOnLaunch();
 
   appUpdaterController = createAppUpdater({
     autoUpdater,
