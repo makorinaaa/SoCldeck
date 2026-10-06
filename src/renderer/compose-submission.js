@@ -270,7 +270,7 @@
       }
 
       modalRuntime.setBusy('b', false, '再試行');
-      toast(`Post error: ${result.error.message}`);
+      toast(`投稿エラー: ${result.error.message}`);
     }
 
     return {

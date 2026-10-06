@@ -9,7 +9,7 @@
     clearTimeoutFn = (...args) => global.clearTimeout?.(...args),
     log = () => {},
     storage = global.localStorage,
-    onFirstCapture = () => {},
+    onSourceChange = () => {},
     onItems = () => {},
   } = {}) {
     if (!tap?.attach || !tap?.onCaptured) throw new Error('X notification capture requires a timeline tap');
@@ -21,6 +21,8 @@
     const latest = new Map();
     const waiters = new Map();
     const misses = new Map();
+    // Loads in a row that brought no X data for an account that used to receive it.
+    const captureMisses = new Map();
     let capturedSources = {};
     try { capturedSources = JSON.parse(storage?.getItem(SOURCE_KEY) || '{}') || {}; } catch {}
 
@@ -29,7 +31,7 @@
       capturedSources = { ...capturedSources, [partition]: true };
       try { storage?.setItem(SOURCE_KEY, JSON.stringify(capturedSources)); } catch {}
       // Identities change with the source: let the notification runtimes re-baseline once.
-      onFirstCapture(partition);
+      onSourceChange(partition);
     }
 
     // A continued page holds only newer or older notifications, not the newest list: it is
@@ -59,6 +61,7 @@
       latest.set(partition, { at: now(), items });
       onItems(partition, items);
       misses.delete(partition);
+      captureMisses.delete(partition);
       rememberCaptured(partition);
       log('notifications captured', payload.notifications.length);
       (waiters.get(partition) || []).splice(0).forEach(resolve => resolve());
@@ -125,6 +128,31 @@
       return latest.has(partition) || Boolean(capturedSources[partition]);
     }
 
+    function forgetSource(partition) {
+      const { [partition]: removed, ...rest } = capturedSources;
+      capturedSources = rest;
+      try { storage?.setItem(SOURCE_KEY, JSON.stringify(capturedSources)); } catch {}
+    }
+
+    // A load of an account known to receive X's data brought none. When X stops sending it
+    // (the account's page shows something else, or X sends a shape we do not recognize),
+    // the account goes back to reading the page instead of showing old notifications as
+    // current. Data arriving again switches it back. Returns the account's mode.
+    function missed(partition) {
+      if (!hasCaptured(partition)) return mode(partition);
+      const count = (captureMisses.get(partition) || 0) + 1;
+      if (count < MAX_MISSES) {
+        captureMisses.set(partition, count);
+        return 'captured';
+      }
+      captureMisses.delete(partition);
+      latest.delete(partition);
+      forgetSource(partition);
+      misses.set(partition, MAX_MISSES);
+      onSourceChange(partition);
+      return 'page';
+    }
+
     // 'captured': always X's data. 'page': X sent nothing recognizable, read the page.
     // 'unknown': not decided yet; wait briefly for X's data, then read the page.
     function mode(partition) {
@@ -146,17 +174,18 @@
       if (partition) {
         latest.delete(partition);
         misses.delete(partition);
-        const { [partition]: removed, ...rest } = capturedSources;
-        capturedSources = rest;
-      } else {
-        latest.clear();
-        misses.clear();
-        capturedSources = {};
+        captureMisses.delete(partition);
+        forgetSource(partition);
+        return;
       }
+      latest.clear();
+      misses.clear();
+      captureMisses.clear();
+      capturedSources = {};
       try { storage?.setItem(SOURCE_KEY, JSON.stringify(capturedSources)); } catch {}
     }
 
-    return { attach, detach, forget, hasCaptured, items, last, mode, wait };
+    return { attach, detach, forget, hasCaptured, items, last, missed, mode, wait };
   }
 
   global.SocialDeckXNotificationCapture = { createXNotificationCapture };

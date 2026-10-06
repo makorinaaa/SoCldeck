@@ -88,3 +88,16 @@ test('empty workspace survives backup validation', () => {
   backup.restore(JSON.stringify(data));
   assert.equal(values.get('socialdeck_cols'), '[]');
 });
+
+test('an account saved without a partition uses the one for its position', () => {
+  const { backup, values, state } = harness();
+  state.xs.unshift({ username: '@first', partition: 'persist:x-0' });
+  state.xs[1] = { username: '@alice' };
+  const stored = JSON.parse(values.get('socialdeck_cols'));
+  stored[0].partition = 'persist:x-1';
+  values.set('socialdeck_cols', JSON.stringify(stored));
+  const data = JSON.parse(backup.exportText());
+  assert.equal(data.columns[0].account, '@alice');
+  backup.restore(JSON.stringify(data));
+  assert.equal(JSON.parse(values.get('socialdeck_cols'))[0].partition, 'persist:x-1');
+});

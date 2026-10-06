@@ -95,7 +95,7 @@ test('creates a Column with a unique account-scoped id and closes the picker', (
   assert.equal(calls.created[0].account.username, 'stl');
   assert.equal(calls.created[0].account.index, 0);
   assert.equal(calls.scrolled, 1);
-  assert.deepEqual(calls.toasts, ['Column added']);
+  assert.deepEqual(calls.toasts, ['カラムを追加しました']);
 });
 
 test('routes an x-list input request instead of creating the Column', () => {
@@ -116,7 +116,7 @@ test('reports an unavailable Column type', () => {
 
   picker.addColumn('b-home', 'b');
 
-  assert.deepEqual(calls.toasts, ['Column type is unavailable']);
+  assert.deepEqual(calls.toasts, ['このカラムは追加できません']);
   assert.equal(calls.scrolled, 0);
 });
 

@@ -98,7 +98,7 @@
         if (resolvedFacets.length) record.facets = resolvedFacets;
         await createPostRecord(record);
         close();
-        toast('Quote posted');
+        toast('引用ポストを投稿しました');
         global.setTimeout(() => intents.refreshTimelines?.(), 1000);
       } catch (error) {
         toast(`エラー: ${error.message}`);

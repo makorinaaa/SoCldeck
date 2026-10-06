@@ -19,17 +19,17 @@ function setup({ storage = createStorage() } = {}) {
   let clock = 1000;
   let captured = null;
   const timers = [];
-  const firsts = [];
+  const sourceChanges = [];
   const capture = load().createXNotificationCapture({
     tap: { attach: async () => true, onCaptured: fn => { captured = fn; } },
     now: () => clock,
     storage,
     setTimeoutFn: fn => { timers.push(fn); return timers.length; },
     clearTimeoutFn: () => {},
-    onFirstCapture: partition => firsts.push(partition),
+    onSourceChange: partition => sourceChanges.push(partition),
   });
   return {
-    capture, storage, timers, firsts,
+    capture, storage, timers, sourceChanges,
     tick: ms => { clock += ms; },
     emit: payload => captured({ operation: 'Notifications', requestCursor: '', ...payload }),
   };
@@ -76,10 +76,10 @@ test('the first capture is remembered across restarts and re-baselines once', as
   await first.capture.attach(7, 'persist:x-0');
   first.emit({ webContentsId: 7, notifications: [item] });
   first.emit({ webContentsId: 7, notifications: [item] });
-  assert.deepEqual(first.firsts, ['persist:x-0']);
+  assert.deepEqual(first.sourceChanges, ['persist:x-0']);
   const restarted = setup({ storage });
   assert.equal(restarted.capture.mode('persist:x-0'), 'captured');
-  assert.deepEqual(restarted.firsts, []);
+  assert.deepEqual(restarted.sourceChanges, []);
   restarted.capture.forget('persist:x-0');
   assert.equal(restarted.capture.mode('persist:x-0'), 'unknown');
 });
@@ -106,4 +106,33 @@ test('a continued page merges newer notifications into the newest list', async (
   const plain = value => JSON.parse(JSON.stringify(value));
   assert.deepEqual(plain(raw.map(entry => entry.text)), ['liked', 'liked by 2']);
   assert.deepEqual(plain(capture.last('persist:x-0').map(entry => entry.indexedAt)), [newer.indexedAt, older.indexedAt]);
+});
+
+test('an account whose X data stops arriving reads the page after two misses', async () => {
+  const storage = createStorage();
+  const { capture, emit, sourceChanges } = setup({ storage });
+  await capture.attach(7, 'persist:x-1');
+  emit({ webContentsId: 7, notifications: [item] });
+
+  assert.equal(capture.missed('persist:x-1'), 'captured');
+  assert.equal(capture.mode('persist:x-1'), 'captured');
+  assert.equal(capture.missed('persist:x-1'), 'page');
+  assert.equal(capture.mode('persist:x-1'), 'page');
+  assert.equal(capture.last('persist:x-1'), null, 'old X data is not shown as new');
+  assert.deepEqual(sourceChanges, ['persist:x-1', 'persist:x-1'], 'switching sources re-baselines');
+  assert.equal(setup({ storage }).capture.mode('persist:x-1'), 'unknown', 'the switch is not remembered as captured');
+
+  emit({ webContentsId: 7, notifications: [item] });
+  assert.equal(capture.mode('persist:x-1'), 'captured', 'data arriving again switches back');
+  assert.deepEqual(sourceChanges, ['persist:x-1', 'persist:x-1', 'persist:x-1']);
+});
+
+test('X data arriving between misses keeps the account on X data', async () => {
+  const { capture, emit } = setup();
+  await capture.attach(7, 'persist:x-1');
+  emit({ webContentsId: 7, notifications: [item] });
+  capture.missed('persist:x-1');
+  emit({ webContentsId: 7, notifications: [item] });
+  assert.equal(capture.missed('persist:x-1'), 'captured');
+  assert.equal(capture.mode('persist:x-1'), 'captured');
 });

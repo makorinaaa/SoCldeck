@@ -107,14 +107,14 @@
         return;
       }
       if (result.status !== 'created') {
-        toast('Column type is unavailable');
+        toast('このカラムは追加できません');
         return;
       }
 
       const columns = documentRef.getElementById('cols');
       const lastColumn = columns.querySelector('.col:last-of-type');
       if (lastColumn) lastColumn.scrollIntoView({ behavior: 'smooth', inline: 'end' });
-      toast('Column added');
+      toast('カラムを追加しました');
     }
 
     return { addColumn, open, nextColumnId };

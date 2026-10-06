@@ -47,7 +47,7 @@ function createWebView({ id = '', partition = '', src = '' } = {}) {
   };
 }
 
-function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false, notificationCapture = null } = {}) {
+function createHarness({ loginPending = false, loginGate = null, allowDevTools = false, realTimers = false, deferTimers = false, notificationCapture = null, getFontSize } = {}) {
   const elements = new Map();
   const webviews = [];
   const columns = [];
@@ -83,7 +83,7 @@ function createHarness({ loginPending = false, loginGate = null, allowDevTools =
   vm.runInNewContext(source, context);
   const runtime = context.window.SocialDeckXWebViewRuntime.createXWebViewRuntime({
     documentRef,
-    storage: context.window.localStorage,
+    getFontSize,
     loginGate: loginGate || {
       register: () => loginPending,
       isActive: () => false,
@@ -116,6 +116,16 @@ test('ready post content is not covered while slow subresources keep navigation 
   webview.emit('dom-ready');
   assert.notEqual(webview.style.opacity, '0', 'ready post remains hidden until every resource finishes');
   assert.equal(overlay.style.display, 'none');
+});
+
+test('applies the saved column font size to the X page after it loads', () => {
+  const { runtime } = createHarness({ getFontSize: id => (id === 'x-home' ? 15 : null) });
+  const webview = runtime.mountColumn({ id: 'x-home', networkId: 'x', partition: 'persist:x-0', targetUrl: 'https://x.com/home',
+    host: { insertBefore() {} } });
+  const css = [];
+  webview.insertCSS = text => { css.push(text); return Promise.resolve(); };
+  webview.emit('did-finish-load');
+  assert.deepEqual(css, ['* { font-size: 15px !important; }']);
 });
 
 test('opens X WebView DevTools only when the host explicitly allows development tools', () => {
@@ -559,12 +569,14 @@ function createCaptureHarness(options = {}) {
   const captured = [{ captured: true, reason: 'like', targetUrl: 'https://x.com/me/status/9', text: 'liked' }];
   const waits = [];
   let fresh = true;
+  let misses = 0;
   const notificationCapture = {
     attach: async () => true,
     mode: () => 'captured',
     wait: async (partition, since, timeoutMs) => { waits.push(timeoutMs); return fresh ? captured : null; },
     last: () => captured,
     hasCaptured: () => true,
+    missed: () => (++misses >= 2 ? 'page' : 'captured'),
   };
   const harness = createHarness({ notificationCapture, ...options });
   harness.runtime.syncAccounts([{ username: '@alice', partition: 'persist:x-0' }]);
@@ -603,9 +615,26 @@ test('an account whose tab press brings no data falls back to reloading, then st
     reader.emit('dom-ready');
   };
   harness.setFresh(false);
-  await harness.read();
-  await harness.read();
-  await harness.read();
+  await harness.read().catch(() => {});
+  await harness.read().catch(() => {});
+  await harness.read().catch(() => {});
   assert.equal(reader.scripts.filter(script => script === 'refresh:notifications').length, 2);
   assert.equal(reader.reloadCount, 3);
+});
+
+test('an account whose X data stops arriving reports it, then reads the page', async () => {
+  const harness = createCaptureHarness({ realTimers: true });
+  const reader = await harness.start();
+  reader.executeJavaScript = async script => {
+    reader.scripts.push(script);
+    return script === 'extract' ? [{ text: 'from the page' }] : 'notifications-clicked';
+  };
+  reader.reload = () => {
+    reader.dataset.ready = 'true';
+    reader.emit('dom-ready');
+  };
+  harness.setFresh(false);
+
+  await assert.rejects(harness.read(), /Xから通知データが届きませんでした/);
+  assert.deepEqual(JSON.parse(JSON.stringify(await harness.read())), [{ text: 'from the page' }]);
 });

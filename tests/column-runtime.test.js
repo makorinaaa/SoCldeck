@@ -243,3 +243,13 @@ test('uses the previously selected widget Column when no tabs were saved', () =>
   const runtime = createRuntime({ items, search: '?widget=1' });
   assert.deepEqual([...runtime.getLayoutForCurrentMode().map(column => column.id)], ['x0-home-1']);
 });
+
+test('stores a font size per column', () => {
+  const runtime = createRuntime();
+  assert.equal(runtime.getFontSize('b-home'), null);
+  runtime.setFontSize('b-home', 15);
+  assert.equal(runtime.getFontSize('b-home'), 15);
+  assert.equal(runtime.getFontSize('b-notif'), null);
+  runtime.removeFontSize('b-home');
+  assert.equal(runtime.getFontSize('b-home'), null);
+});

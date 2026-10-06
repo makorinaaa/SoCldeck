@@ -103,7 +103,7 @@
     function materialize(plan, fallbackId) {
       if (!plan || !plan.config || !plan.refresh) {
         if (!materializedColumnIds.has(fallbackId)) cleanupRefresh(fallbackId);
-        throw new Error('Column Definition could not be resolved');
+        throw new Error('カラムの種類を判別できませんでした');
       }
 
       const id = plan.config.id;

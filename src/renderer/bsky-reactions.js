@@ -212,7 +212,7 @@
       }
       const active = button.classList.contains('rted');
       menu.innerHTML = `
-        <button type="button" data-bsky-menu-action="confirm-repost">${icons.repost || ''} ${active ? 'Undo repost' : 'Repost'}</button>
+        <button type="button" data-bsky-menu-action="confirm-repost">${icons.repost || ''} ${active ? 'リポストを取り消す' : 'リポスト'}</button>
         <button type="button" data-bsky-menu-action="quote">引用リポスト</button>`;
       menu.addEventListener?.('click', async event => {
         const action = event.target?.closest?.('[data-bsky-menu-action]');

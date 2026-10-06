@@ -258,7 +258,7 @@ test('toggles always-on-top, lock and background-only transparency through the h
   runtime.setOpacity(70);
   assert.deepEqual(opacityCalls, [0.7]);
   assert.equal(documentRef.bodyStyle['--wg-bg-alpha'], '70%');
-  assert.deepEqual(toasts, ['Always on top enabled', 'Position locked', 'Background-only transparency']);
+  assert.deepEqual(toasts, ['常に手前に表示します', '位置を固定しました', '背景だけ透過します']);
 });
 
 test('switches tabs and scrolls the active tab to the top when clicked again', async () => {

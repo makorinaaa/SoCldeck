@@ -36,12 +36,16 @@
 
   function normalizeState(value) {
     if (!value || typeof value !== 'object') return defaultState();
+    // 複数アカウント対応前は X アカウントを1つだけ `x` に保存していた
+    const { x: legacyXAccount, ...current } = value;
+    const xs = Array.isArray(current.xs) ? current.xs : [];
+    const migrated = xs.length === 0 && Boolean(legacyXAccount);
     return {
       ...defaultState(),
-      ...value,
-      xs: Array.isArray(value.xs) ? value.xs : [],
-      activeX: Number.isInteger(value.activeX) ? value.activeX : 0,
-      b: value.b || null,
+      ...current,
+      xs: migrated ? [{ ...legacyXAccount, partition: 'persist:x-0' }] : xs,
+      activeX: !migrated && Number.isInteger(current.activeX) ? current.activeX : 0,
+      b: current.b || null,
       appearance: normalizeAppearance(value.appearance),
       composePreferences: {
         ...defaultState().composePreferences,
@@ -59,13 +63,7 @@
           const v4 = JSON.parse(storage.getItem(STATE_KEY));
           if (v4) return normalizeState(v4);
           const v3 = JSON.parse(storage.getItem(LEGACY_STATE_KEY));
-          if (v3) {
-            return normalizeState({
-              xs: v3.x ? [{ ...v3.x, partition: 'persist:x-0' }] : [],
-              activeX: 0,
-              b: v3.b || null,
-            });
-          }
+          if (v3) return normalizeState({ x: v3.x, b: v3.b });
         } catch {}
         return defaultState();
       },

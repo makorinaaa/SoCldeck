@@ -5,6 +5,9 @@ import { createAppInfoRuntime } from './renderer/app-info-runtime.mjs';
 import { createPostMenuRuntime } from './renderer/post-menu-runtime.mjs';
 import { createXListDialogRuntime } from './renderer/x-list-dialog-runtime.mjs';
 import { createSubmissionScript } from './renderer/x-composer-submit.mjs';
+import { createXAccounts, isSameXAccount, xPartitionOf } from './renderer/x-accounts.mjs';
+import { createXNotificationLoader } from './renderer/x-notification-loader.mjs';
+import { createColumnMounts } from './renderer/column-mounts.mjs';
 import {
   SocialDeckAccountSessionRuntime,
   SocialDeckAnimeScheduleRuntime,
@@ -188,7 +191,7 @@ const columnShellRuntime = SocialDeckColumnShellRuntime.createColumnShellRuntime
 });
 const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
   createPlan: request => networkAdapters.createColumnPlan(request),
-  insertPlan: insertColumnPlan,
+  insertPlan: plan => columnMounts.insertPlan(plan),
   scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
   clearRefreshSchedule: id => refreshScheduler.remove(id),
   executeRefresh: (id, plan, context) => networkAdapters.executeColumnRefresh(id, plan, {
@@ -206,13 +209,13 @@ const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
   }),
   applyWidth: (id, width) => columnShellRuntime.applyWidth(id, width),
   applyCollapsed: id => columnShellRuntime.setCollapsed(id, true),
-  reportRestoreError: insertColumnRestoreError,
+  reportRestoreError: (column, error) => columnMounts.mountRestoreError(column, error),
   cleanupRuntimeState: id => {
     bskyColumnsRuntime?.dispose(id);
     xWebViewRuntime?.disposeColumn(id);
     animeScheduleRuntime.dispose(id);
     xNativeTimelineRuntime?.dispose(id);
-    localStorage.removeItem(`col_fs_${id}`);
+    columnRuntime.removeFontSize(id);
   },
   listElementIds: () => columnShellRuntime.listIds(),
   removeElement: id => columnShellRuntime.remove(id),
@@ -231,7 +234,7 @@ const composeCoordinator = SocialDeckComposeCoordinator.createComposeCoordinator
 });
 
 function saveColLayout() {
-  if (new URLSearchParams(location.search).get('widget') === '1') return;
+  if (columnRuntime.isWidgetMode()) return;
   const cols = document.getElementById('cols');
   if (!cols) return;
   const layout = columnRuntime.captureLayout(cols.querySelectorAll('.col'), {
@@ -259,55 +262,13 @@ function unmountWidgetColumn(columnId) {
   columnLifecycle.remove(columnId);
 }
 
-function getColumnFontSize(columnId) {
-  return parseInt(localStorage.getItem(`col_fs_${columnId}`)) || null;
-}
-
 function setColumnFontSize(columnId, fontSize) {
-  localStorage.setItem(`col_fs_${columnId}`, fontSize);
-  if (xWebViewRuntime.setFontSize(columnId, fontSize)) return;
-  const feed = document.getElementById(`feed-${columnId}`);
-  if (feed) feed.style.fontSize = fontSize + 'px';
+  columnRuntime.setFontSize(columnId, fontSize);
+  if (!xWebViewRuntime.setFontSize(columnId, fontSize)) columnMounts.applyFontSize(columnId, 'feed', fontSize);
 }
 
 function loadColLayout() {
   return columnRuntime.getLayoutForCurrentMode();
-}
-
-function insertColumnPlan(plan) {
-  if (plan?.kind === 'wv') {
-    mountWebViewColumn(plan.config, null, plan.partition);
-    return true;
-  }
-  if (plan?.kind === 'bsky') {
-    mountBlueskyColumn(plan.config);
-    return true;
-  }
-  if (plan?.kind === 'schedule') {
-    mountAnimeScheduleColumn(plan.config);
-    return true;
-  }
-  if (plan?.kind === 'x-native' && plan.config.definitionId === 'x-notif-native') {
-    mountXNativeNotificationColumn(plan.config, null, plan.partition);
-    return true;
-  }
-  if (plan?.kind === 'x-native') {
-    mountXNativeColumn(plan.config, null, plan.partition);
-    return true;
-  }
-  return false;
-}
-
-function insertColumnRestoreError(col, error) {
-  const { hosts } = columnShellRuntime.mount({
-    id: col.id,
-    title: col.title || 'Column restore failed',
-    subtitle: 'Workspace State was preserved',
-    interactiveHeader: false,
-    actions: ['remove'],
-    hosts: [{ name: 'content', className: 'feed-empty' }],
-  });
-  hosts.content.textContent = error.message || 'Column Definition could not be resolved';
 }
 
 function restoreColLayout() {
@@ -359,13 +320,7 @@ const blueskySessionRuntime = SocialDeckBlueskySessionRuntime.createBlueskySessi
       : Promise.resolve(true),
   },
 });
-let state = {
-  xs: [],
-  activeX: 0,
-  b: null,
-  composePreferences: { crossPostFromX: false, crossPostFromBluesky: false },
-  appearance: { theme: 'dark', accent: '#4e9af0' },
-};
+let state = SocialDeckStateStore.defaultState();
 const appearanceRuntime = SocialDeckAppearanceRuntime.createAppearanceRuntime({
   root: document.documentElement,
   persist: appearance => {
@@ -416,7 +371,6 @@ const memoryCleaner = SocialDeckMemoryCleaner.createMemoryCleaner({
 });
 const settingsModals = SocialDeckSettingsModalsRuntime.createSettingsModalsRuntime({
   documentRef: document,
-  storage: localStorage,
   muteRules,
   appearance: appearanceRuntime,
   memoryCleaner,
@@ -424,13 +378,10 @@ const settingsModals = SocialDeckSettingsModalsRuntime.createSettingsModalsRunti
     getRefreshInterval: id => columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS),
     setRefreshInterval: (id, ms) => columnLifecycle.setRefreshInterval(id, ms),
     persistLayout: () => columnLifecycle.persist(),
+    getFontSize: id => columnRuntime.getFontSize(id),
     setFontSize: (id, colType, fontSize) => {
-      if (colType === 'wv') {
-        xWebViewRuntime.setFontSize(id, fontSize);
-      } else {
-        const feed = document.getElementById(`feed-${id}`);
-        if (feed) feed.style.fontSize = fontSize + 'px';
-      }
+      columnRuntime.setFontSize(id, fontSize);
+      columnMounts.applyFontSize(id, colType, fontSize);
     },
   },
   ui: { escape: esc },
@@ -480,7 +431,7 @@ const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
     reload: () => location.reload(),
     mountColumn: mountWidgetColumn,
     unmountColumn: unmountWidgetColumn,
-    getFontSize: getColumnFontSize,
+    getFontSize: id => columnRuntime.getFontSize(id),
     setFontSize: setColumnFontSize,
   },
 });
@@ -540,7 +491,7 @@ const columnUndo = SocialDeckColumnUndo.createColumnUndo({
     if (index < 0) return null;
     const column = layout[index];
     return { column, index, nextId: layout[index + 1]?.id,
-      fontSize: localStorage.getItem(`col_fs_${id}`),
+      fontSize: columnRuntime.getFontSize(id),
       account: column.network === 'b' ? state.b?.did
         : state.xs.find(account => account.partition === column.partition)?.username };
   },
@@ -550,7 +501,7 @@ const columnUndo = SocialDeckColumnUndo.createColumnUndo({
   restore: snapshot => {
     const { column, index, nextId, fontSize } = snapshot;
     if (columnShellRuntime.getRoot(column.id)) throw new Error('同じカラムが既に存在します');
-    if (fontSize !== null) localStorage.setItem(`col_fs_${column.id}`, fontSize);
+    if (fontSize !== null) columnRuntime.setFontSize(column.id, fontSize);
     const result = columnLifecycle.restore([column]);
     if (result.failures.length) {
       columnShellRuntime.remove(column.id);
@@ -710,9 +661,6 @@ function renderApp() {
 }
 function closeAmenu() { document.getElementById('amenu').classList.remove('open'); }
 
-// ─── DEFAULT COLUMNS ────────────────────────────
-let colIdSeq = 0;
-
 // X画像ライトボックス用WebViewプリロードパス
 // enterApp前に確定させてカラム生成時に確実に使えるようにする
 let wvPreloadPath = '';
@@ -725,7 +673,6 @@ async function initWvPreloadPath() {
 }
 const refreshScheduler = SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
-const ANIME_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
   ? {
       attach: id => window.electronAPI.attachXTimelineTap(id),
@@ -733,83 +680,34 @@ const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
       onCaptured: fn => window.electronAPI.onXTimelineCaptured(fn),
     }
   : null;
-// Notifications fetched per account, reused while X's badge shows nothing new. They are
-// fetched again at least this often in case the badge cannot be read.
-const xNotificationCache = new Map();
-const X_NOTIFICATION_MAX_AGE_MS = 5 * 60 * 1000;
-const xNotificationLoads = new Map();
-
-// Every reader of an account's X notifications (the notification center, its 30-second
-// background check, native notification Columns) shares one hidden notification page.
-// With a native Home Column, X's own notification badge on its hidden page says when
-// something new arrived; the notification page is then loaded only for that, and closed
-// right after. Without a badge, or while a native notification Column shows the account,
-// the page is kept and refreshed in place, instead of being created for every check.
-function loadXNotifications(account, accountIndex, { force = false } = {}) {
-  const partition = account.partition || `persist:x-${accountIndex}`;
-  const running = xNotificationLoads.get(partition);
-  if (running && !force) return running;
-  const load = (async () => {
-    // A forced load must not reuse one that started earlier: it runs after it instead.
-    if (running) await running.catch(() => {});
-    const cached = xNotificationCache.get(partition);
-    const badge = await xNativeTimelineRuntime?.readNotificationBadge(partition) ?? null;
-    const recent = cached && Date.now() - cached.at < X_NOTIFICATION_MAX_AGE_MS;
-    if (!force && badge !== null && recent && (badge === 0 || badge === cached.badge)) return cached.items;
-    const items = await xWebViewRuntime.listNotifications({
-      accountId: account.username || account.partition || `persist:x-${accountIndex}`,
-      host: document.getElementById('notif-center-x-readers'),
-      script: notificationCenter.buildXNotificationExtractionScript(40),
-      retainReader: badge === null || xNativeTimelineRuntime?.hasNotificationColumn?.(partition) === true,
-      refreshReader: true,
-      forceHidden: true,
-    });
-    xNotificationCache.set(partition, { items, badge, at: Date.now() });
-    return items;
-  })();
-  xNotificationLoads.set(partition, load);
-  load.finally(() => {
-    if (xNotificationLoads.get(partition) === load) xNotificationLoads.delete(partition);
-  }).catch(() => {});
-  return load;
-}
-
-// X accounts are told apart by their real @handle, learned from the account's own posts
-// (matched by the user id in the session cookie). The display name stays as entered.
-const xAccountIds = new Map();
-function refreshXAccountIds(accounts = state.xs || []) {
-  accounts.forEach((account, index) => {
-    const partition = account.partition || `persist:x-${index}`;
-    window.electronAPI?.getXAccountId?.(partition)
-      .then(id => { if (id) xAccountIds.set(partition, String(id)); })
-      .catch(() => {});
-  });
-}
-function learnXHandle(partition, author) {
-  const id = xAccountIds.get(partition);
-  if (!id || !author?.handle || String(author.id || '') !== id) return;
-  const account = getXAccountByPartition(partition);
-  if (!account || account.handle === author.handle) return;
-  account.handle = author.handle;
-  saveState();
-}
-function learnXHandlesFromPosts(partition, posts = []) {
-  posts.forEach(post => {
-    learnXHandle(partition, post?.author);
-    learnXHandle(partition, post?.quoted?.author);
-  });
-}
+const xNotificationLoader = createXNotificationLoader({
+  readBadge: partition => xNativeTimelineRuntime?.readNotificationBadge(partition),
+  hasNotificationColumn: partition => xNativeTimelineRuntime?.hasNotificationColumn?.(partition) === true,
+  fetchNotifications: ({ accountId, retainReader }) => xWebViewRuntime.listNotifications({
+    accountId,
+    host: document.getElementById('notif-center-x-readers'),
+    script: notificationCenter.buildXNotificationExtractionScript(40),
+    retainReader,
+    refreshReader: true,
+    forceHidden: true,
+  }),
+});
+const xAccounts = createXAccounts({
+  getAccounts: () => state.xs,
+  getAccountId: partition => window.electronAPI?.getXAccountId?.(partition),
+  onHandleLearned: () => saveState(),
+});
 
 const xNotificationCapture = xTimelineTap
   ? SocialDeckXNotificationCapture.createXNotificationCapture({
       tap: xTimelineTap,
       log: (...args) => console.debug('[XNative]', ...args),
       onItems: (partition, items) => {
-        items.forEach(item => learnXHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle }));
+        items.forEach(item => xAccounts.learnHandle(partition, { id: item.targetAuthorId, handle: item.targetAuthorHandle }));
         xNativeTimelineRuntime?.setNotifications(partition, items);
       },
-      onFirstCapture: partition => {
-        const account = getXAccountByPartition(partition);
+      onSourceChange: partition => {
+        const account = xAccounts.byPartition(partition);
         if (account) replyNotificationRuntime?.rebaseline(account);
         desktopNotificationRuntime?.rebaseline?.();
       },
@@ -818,10 +716,10 @@ const xNotificationCapture = xTimelineTap
 xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
   notificationCapture: xNotificationCapture,
   documentRef: document,
-  storage: localStorage,
+  getFontSize: id => columnRuntime.getFontSize(id),
   isElectron: IS_ELECTRON,
   loginGate: xLoginGate,
-  isLoginPending: partition => getXAccountByPartition(partition)?.loginPending === true,
+  isLoginPending: partition => xAccounts.byPartition(partition)?.loginPending === true,
   completeLogin: completeXLogin,
   getRefreshInterval: id => columnLifecycle.getRefreshInterval(id),
   setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
@@ -865,17 +763,17 @@ const xNativeTimelineRuntime = xTimelineTap
       createToggleScript: options => SocialDeckXStatusActions.createToggleScript(options),
       log: (...args) => console.debug('[XNative]', ...args),
       loadNotifications: (partition, options) => {
-        const accountIndex = getXAccountIndexByPartition(partition);
+        const accountIndex = xAccounts.indexOfPartition(partition);
         const account = state.xs?.[accountIndex];
         if (!account) return Promise.reject(new Error('X アカウントが見つかりません'));
-        return loadXNotifications(account, accountIndex, options);
+        return xNotificationLoader.load(account, accountIndex, options);
       },
       getNotifications: partition => xNotificationCapture?.items(partition) || null,
       intents: {
         openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
         openExternal: ({ url }) => window.open(url, '_blank', 'noopener'),
         reply: target => openXReply(target),
-        postsSeen: (partition, posts) => learnXHandlesFromPosts(partition, posts),
+        postsSeen: (partition, posts) => xAccounts.learnHandlesFromPosts(partition, posts),
         loginCompleted: partition => completeXLogin(partition),
         quote: target => openXQuote(target),
         onOutcome: outcome => {
@@ -900,6 +798,18 @@ const xNativeTimelineRuntime = xTimelineTap
     })
   : null;
 if (xNativeTimelineRuntime) setInterval(() => xNativeTimelineRuntime.updateRelativeTimes(), 60_000);
+const columnMounts = createColumnMounts({
+  documentRef: document,
+  shell: columnShellRuntime,
+  xWebView: xWebViewRuntime,
+  bluesky: bskyColumnsRuntime,
+  animeSchedule: animeScheduleRuntime,
+  xNative: xNativeTimelineRuntime,
+  setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
+  getFontSize: id => columnRuntime.getFontSize(id),
+  getPreloadPath: () => wvPreloadPath,
+  intervals: { standard: DEFAULT_INTERVAL_MS, animeSchedule: 5 * 60 * 1000 },
+});
 function openUnreadReplies() {
   notificationReplyRuntime.back();
   notificationCenterRuntime.open({ network: 'x', reason: 'all', unreadOnly: true });
@@ -954,14 +864,14 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
           (Number(item.accountIndex) || 0) === accountIndex
         );
       }
-      return loadXNotifications(account, accountIndex);
+      return xNotificationLoader.load(account, accountIndex);
     },
     markBlueskySeen: seenAt => authenticatedBskyAdapter.markNotificationsSeen({ seenAt }),
   },
   view: notificationCenterView,
   intents: {
     close: () => closeOv('notifCenterMod'),
-    openXAccountNotifications: ({ accountIndex }) => goToNotifCol('x', accountIndex),
+    openXAccountNotifications: ({ accountIndex }) => goToXNotifCol(accountIndex),
     observeX: (items, accounts, errors, enabled = accounts.map(() => true)) => {
       replyNotificationRuntime.syncAccounts(accounts);
       accounts.forEach((account, index) => {
@@ -973,7 +883,7 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
       const retained = replyNotificationRuntime.unreadItems().filter(entry =>
         !currentKeys.has(replyNotificationRuntime.getItemKey(entry)));
       return [...items, ...retained].map(item => ({ ...item,
-        accountIndex: accounts.findIndex(account => (account.partition || account.username) === (item.account.partition || item.account.username)),
+        accountIndex: accounts.findIndex(account => isSameXAccount(account, item.account)),
         isRead: ['reply', 'like'].includes(item.reason) ? replyNotificationRuntime.isRead(item) : null,
       }));
     },
@@ -1041,7 +951,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       : Promise.resolve(false),
     clear: partition => {
       xNativeTimelineRuntime?.forgetAccount(partition);
-      xNotificationCache.delete(partition);
+      xNotificationLoader.forget(partition);
       xNotificationCapture?.forget(partition);
       return IS_ELECTRON
         ? window.electronAPI?.clearXSession?.(partition)
@@ -1049,7 +959,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     },
     clearAll: () => {
       xNativeTimelineRuntime?.forgetAccount();
-      xNotificationCache.clear();
+      xNotificationLoader.forget();
       xNotificationCapture?.forget();
       return IS_ELECTRON
         ? window.electronAPI?.clearAllXSessions?.()
@@ -1057,7 +967,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     },
     sync: accounts => {
       xWebViewRuntime.syncAccounts(accounts);
-      refreshXAccountIds(accounts);
+      xAccounts.refreshUserIds(accounts);
       if (!IS_ELECTRON || !window.electronAPI?.syncXNetworkAccounts) {
         return Promise.resolve([]);
       }
@@ -1074,8 +984,8 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
   createDefaultState: SocialDeckStateStore.defaultState,
   view: accountSessionView,
   intents: {
-    confirmLogout: account => confirm(`Log out ${account.username}?`),
-    confirmLogoutAll: () => confirm('Log out all accounts?'),
+    confirmLogout: account => confirm(`${account.username} をログアウトしますか？`),
+    confirmLogoutAll: () => confirm('すべてのアカウントからログアウトしますか？'),
     enterRequested: () => enterApp(),
     workspaceResetRequested: async () => {
       columnLifecycle.clear({ removeElements: true });
@@ -1092,7 +1002,7 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       desktopNotificationRuntime.rebaseline().catch(() => {});
       if (network === 'all') {
         accountSessionRuntime.openSettings();
-        toast('All accounts logged out');
+        toast('すべてのアカウントからログアウトしました');
         return;
       }
       const app = document.getElementById('app');
@@ -1100,9 +1010,9 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       if (kind === 'login' && !appIsOpen) enterApp();
       else if (appIsOpen) renderApp();
       if (network === 'x') {
-        toast(kind === 'login' ? `${account.username} added` : 'X account removed');
+        toast(kind === 'login' ? `${account.username} を追加しました` : 'X アカウントを削除しました');
       } else {
-        toast(kind === 'login' ? `@${account.handle} logged in` : 'Bluesky logged out');
+        toast(kind === 'login' ? `@${account.handle} でログインしました` : 'Bluesky からログアウトしました');
       }
     },
   },
@@ -1141,7 +1051,7 @@ async function initializeXLoginStates() {
   if (!IS_ELECTRON || !window.electronAPI?.isXSessionAuthenticated) return;
   let changed = false;
   await Promise.all((state.xs || []).map(async (account, index) => {
-    const partition = account.partition || `persist:x-${index}`;
+    const partition = xPartitionOf(account, index);
     const authenticated = await window.electronAPI.isXSessionAuthenticated(partition);
     if (authenticated && account.loginPending) {
       delete account.loginPending;
@@ -1155,14 +1065,8 @@ async function initializeXLoginStates() {
   xWebViewRuntime.syncAccounts(state.xs || []);
 }
 
-function getXAccountByPartition(partition) {
-  return (state.xs || []).find((account, index) =>
-    (account.partition || `persist:x-${index}`) === partition
-  );
-}
-
 function completeXLogin(partition) {
-  const account = getXAccountByPartition(partition);
+  const account = xAccounts.byPartition(partition);
   if (account?.loginPending) {
     delete account.loginPending;
     saveState();
@@ -1171,54 +1075,6 @@ function completeXLogin(partition) {
 }
 
 // ─── WEBVIEW COLUMN (X) ─────────────────────────
-function mountWebViewColumn(columnConfig, before = null, partition = 'persist:x') {
-  const { root, hosts } = columnShellRuntime.mount({
-    id: columnConfig.id,
-    kind: 'x',
-    network: columnConfig.network,
-    definitionId: columnConfig.definitionId,
-    title: columnConfig.title,
-    subtitle: columnConfig.sub,
-    iconClass: columnConfig.icCls,
-    icon: columnConfig.icon,
-    indicatorColor: '#e7e9ea',
-    actions: ['collapse', 'back', 'refresh', { type: 'settings', columnType: 'wv' }, 'remove'],
-    hosts: [{
-      name: 'content',
-      className: 'col-webview',
-      style: { position: 'relative' },
-    }],
-    before,
-  });
-  const loading = document.createElement('div');
-  loading.className = 'webview-loading';
-  loading.id = `wvload-${columnConfig.id}`;
-  loading.innerHTML = '<div class="spinner"></div>読み込み中…';
-  const overlay = document.createElement('div');
-  overlay.id = `wvov-${columnConfig.id}`;
-  Object.assign(overlay.style, {
-    display: 'none',
-    position: 'absolute',
-    inset: '0',
-    zIndex: '10',
-    pointerEvents: 'none',
-    opacity: '1',
-    transition: 'opacity .4s ease',
-  });
-  hosts.content.appendChild(loading);
-  hosts.content.appendChild(overlay);
-  xWebViewRuntime.mountColumn({
-    id: columnConfig.id,
-    networkId: columnConfig.network || 'x',
-    partition,
-    targetUrl: columnConfig.url,
-    host: hosts.content,
-    preloadPath: wvPreloadPath,
-  });
-  return root;
-}
-
-
 function getXNotificationColumnUrl(id) {
   const column = document.getElementById(`col-${id}`);
   if (column?.dataset.definitionId !== 'x-notif-new') return null;
@@ -1231,10 +1087,9 @@ function wvBack(id) {
 }
 
 function openFirstXWebViewDevTools() {
-  if (!xWebViewRuntime.openDevTools()) toast('X WebView not found');
+  if (!xWebViewRuntime.openDevTools()) toast('X の WebView カラムが見つかりません');
 }
 
-// カラムヘッダークリックで先頭へスクロール
 // カラムヘッダークリックで先頭へ（元のURLに戻してリロード）
 function wvScrollTop(id) {
   // 折りたたみ中はシングルクリックでも展開
@@ -1269,7 +1124,7 @@ function animeScheduleScrollTop(cid) {
 const X_NATIVE_FOLLOW_UP_MS = 10_000;
 async function refreshAfterCompose(target) {
   if (target.kind === 'x-account-columns') {
-    const partition = getXPartitionForAccountId(target.accountId);
+    const partition = xAccounts.partitionForAccountId(target.accountId);
     console.info('[XNative] post-compose refresh', target.accountId, partition);
     await Promise.all([
       xWebViewRuntime.refreshAccount(target.accountId),
@@ -1295,199 +1150,7 @@ async function refreshAfterCompose(target) {
   throw new Error(`Unsupported compose refresh target: ${target.kind}`);
 }
 
-
-// ─── BLUESKY COLUMN ─────────────────────────────
-function mountBlueskyColumn(columnConfig, before = null) {
-  const columnId = columnConfig.id || `b-${++colIdSeq}`;
-  const hasSearch = columnConfig.type === 'search';
-  const hostDefinitions = [];
-  if (hasSearch) hostDefinitions.push({ name: 'search', className: 'col-search-bar' });
-  hostDefinitions.push({
-    name: 'content',
-    id: `feed-${columnId}`,
-    className: 'feed',
-    loadingText: '読み込み中…',
-  });
-  const { root, hosts, badge } = columnShellRuntime.mount({
-    id: columnId,
-    kind: 'bsky',
-    network: columnConfig.network,
-    definitionId: columnConfig.definitionId,
-    metadata: {
-      type: columnConfig.type || 'timeline',
-      feeduri: columnConfig.feedUri || '',
-    },
-    title: columnConfig.title,
-    subtitle: columnConfig.sub,
-    iconClass: columnConfig.icCls,
-    icon: columnConfig.icon,
-    badge: true,
-    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'bsky' }, 'remove'],
-    hosts: hostDefinitions,
-    before,
-  });
-
-  let searchInput = null;
-  let searchButton = null;
-  if (hasSearch) {
-    searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.id = `sq-${columnId}`;
-    searchInput.placeholder = 'Bluesky を検索…';
-    searchButton = document.createElement('button');
-    searchButton.type = 'button';
-    searchButton.id = `sq-btn-${columnId}`;
-    searchButton.textContent = '検索';
-    hosts.search.appendChild(searchInput);
-    hosts.search.appendChild(searchButton);
-  }
-
-  // 自動ロードとデフォルト自動更新開始
-  if (columnConfig.type === 'timeline' || columnConfig.type === 'feed' || columnConfig.type === 'notif' || hasSearch) {
-    bskyColumnsRuntime.mount({
-      id: columnId,
-      type: columnConfig.type,
-      feedUri: columnConfig.feedUri || null,
-      host: hosts.content,
-      badge,
-      searchInput,
-      searchButton,
-    });
-    if (!hasSearch) {
-      bskyColumnsRuntime.refresh(columnId, { mode: 'replace' }).catch(() => {});
-      columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
-    } else {
-      hosts.content.innerHTML = '<div class="feed-empty">検索キーワードを入力してください</div>';
-    }
-  } else if (!hasSearch) {
-    loadBskyFeed(columnId, columnConfig.type, columnConfig.feedUri);
-    columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
-  }
-  // フォントサイズ設定を復元
-  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
-  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
-  return root;
-}
-
-function mountAnimeScheduleColumn(columnConfig, before = null) {
-  const columnId = columnConfig.id;
-  const { root, hosts } = columnShellRuntime.mount({
-    id: columnId,
-    kind: 'schedule',
-    network: columnConfig.network,
-    definitionId: columnConfig.definitionId,
-    title: columnConfig.title,
-    subtitle: columnConfig.sub,
-    subtitleId: `anime-sub-${columnId}`,
-    iconClass: columnConfig.icCls,
-    icon: columnConfig.icon,
-    indicatorColor: '#ffd166',
-    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'schedule' }, 'remove'],
-    hosts: [{
-      name: 'content',
-      id: `feed-${columnId}`,
-      className: 'feed anime-schedule',
-      loadingText: '放送予定を取得中…',
-    }],
-    before,
-  });
-  columnLifecycle.setRefreshInterval(columnId, ANIME_REFRESH_INTERVAL_MS);
-  animeScheduleRuntime.load(columnId).catch(() => {});
-
-  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
-  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
-  return root;
-}
-
-// ─── X HOME (NATIVE) COLUMN ─────────────────────
-// 非表示のX WebViewが取得したタイムラインを SocialDeck の表示で描画する
-function mountXNativeColumn(columnConfig, before = null, partition = 'persist:x-0') {
-  const columnId = columnConfig.id;
-  const { root, hosts, badge } = columnShellRuntime.mount({
-    id: columnId,
-    kind: 'x-native',
-    network: columnConfig.network,
-    definitionId: columnConfig.definitionId,
-    metadata: { partition },
-    title: columnConfig.title,
-    subtitle: columnConfig.sub,
-    subtitleId: `xn-sub-${columnId}`,
-    iconClass: columnConfig.icCls,
-    icon: columnConfig.icon,
-    indicatorColor: '#e7e9ea',
-    badge: true,
-    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'x-native' }, 'remove'],
-    hosts: [{
-      name: 'content',
-      id: `feed-${columnId}`,
-      className: 'feed x-native-feed',
-      loadingText: 'X のタイムラインを読み込み中…',
-    }],
-    before,
-  });
-  if (xNativeTimelineRuntime) {
-    xNativeTimelineRuntime.mount({
-      id: columnId,
-      partition,
-      host: hosts.content,
-      subtitle: document.getElementById(`xn-sub-${columnId}`),
-      badge,
-    });
-  } else {
-    hosts.content.innerHTML = '<div class="feed-empty">このカラムはデスクトップ版でのみ使えます</div>';
-  }
-  columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
-
-  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
-  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
-  return root;
-}
-
-// ─── X NOTIFICATIONS (NATIVE) COLUMN ────────────
-// 非表示の通知ページ（通知センターと共有）が取得した通知を SocialDeck の表示で描画する
-function mountXNativeNotificationColumn(columnConfig, before = null, partition = 'persist:x-0') {
-  const columnId = columnConfig.id;
-  const { root, hosts, badge } = columnShellRuntime.mount({
-    id: columnId,
-    kind: 'x-native',
-    network: columnConfig.network,
-    definitionId: columnConfig.definitionId,
-    metadata: { partition },
-    title: columnConfig.title,
-    subtitle: columnConfig.sub,
-    iconClass: columnConfig.icCls,
-    icon: columnConfig.icon,
-    indicatorColor: '#e7e9ea',
-    badge: true,
-    actions: ['refresh', 'collapse', { type: 'settings', columnType: 'x-native' }, 'remove'],
-    hosts: [{
-      name: 'content',
-      id: `feed-${columnId}`,
-      className: 'feed x-native-feed x-native-notif-feed',
-      loadingText: 'X の通知を読み込み中…',
-    }],
-    before,
-  });
-  if (xNativeTimelineRuntime) {
-    xNativeTimelineRuntime.mountNotifications({ id: columnId, partition, host: hosts.content, badge });
-  } else {
-    hosts.content.innerHTML = '<div class="feed-empty">このカラムはデスクトップ版でのみ使えます</div>';
-  }
-  columnLifecycle.setRefreshInterval(columnId, DEFAULT_INTERVAL_MS);
-
-  const savedFs = parseInt(localStorage.getItem(`col_fs_${columnId}`));
-  if (savedFs) hosts.content.style.fontSize = savedFs + 'px';
-  return root;
-}
-
-async function loadBskyFeed(cid, type, feedUri = null, append = false) {
-  if (!state.b) return;
-  if (!['timeline', 'feed', 'notif'].includes(type)) {
-    return { status: 'deferred', detail: 'unsupported-column-type' };
-  }
-  return bskyColumnsRuntime.refresh(cid, { mode: append ? 'append' : 'replace' });
-}
-
+// ─── COLUMN ACTIONS ─────────────────────────────
 function removeCol(id) {
   try { columnUndo.remove(id); }
   catch (error) { toast(`カラムを削除できませんでした: ${error.message}`); }
@@ -1508,7 +1171,6 @@ async function openReply(uri, cid, handle) {
   replyTarget = { uri, cid, rootUri: uri, rootCid: cid, handle };
 
   openComp();
-  setTimeout(() => document.getElementById('cta')?.focus(), 50);
 
   if (state.b) {
     try {
@@ -1602,24 +1264,12 @@ function openXPost() {
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
 }
 
-function getXAccountIndexByPartition(partition) {
-  return (state.xs || []).findIndex((account, index) =>
-    (account.partition || `persist:x-${index}`) === partition);
-}
-
-function getXPartitionForAccountId(accountId) {
-  const accounts = state.xs || [];
-  const index = accounts.findIndex((account, position) =>
-    account.username === accountId || (account.partition || `persist:x-${position}`) === accountId);
-  return index >= 0 ? accounts[index].partition || `persist:x-${index}` : null;
-}
-
 // ネイティブXカラムからの返信・引用は、そのカラムのアカウントで投稿する
 function openXReply({ id, url, handle, partition }) {
   xNativeTimelineRuntime?.closeDetail();
   const result = composeModalRuntime.open('x', {
     reply: { id, url, handle },
-    accountIndex: getXAccountIndexByPartition(partition),
+    accountIndex: xAccounts.indexOfPartition(partition),
   });
   if (result?.status !== 'blocked' && result?.status !== 'cancelled') {
     setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
@@ -1629,7 +1279,7 @@ function openXReply({ id, url, handle, partition }) {
 function openXQuote({ url, partition }) {
   xNativeTimelineRuntime?.closeDetail();
   composeModalRuntime.open('x', {
-    accountIndex: getXAccountIndexByPartition(partition),
+    accountIndex: xAccounts.indexOfPartition(partition),
     appendText: url,
   });
   setTimeout(() => {
@@ -1671,7 +1321,7 @@ async function withXMediaAllowed(webview, delivery, task) {
 function executeXComposeDelivery(delivery, context = {}) {
   // 返信はそのポストのページを操作用ビューで開き、ページ内の返信欄から送る
   if (delivery.replyTo) {
-    const partition = getXPartitionForAccountId(delivery.accountId);
+    const partition = xAccounts.partitionForAccountId(delivery.accountId);
     if (!xStatusRuntime || !partition) return Promise.reject(new Error('X の返信先を開けませんでした'));
     return xWebViewRuntime.withPosting(() => xStatusRuntime.run(partition, delivery.replyTo, async webview => {
       const composer = await webview.executeJavaScript(SocialDeckXStatusActions.createOpenReplyScript(delivery.replyTo.id));
@@ -1748,8 +1398,8 @@ const appInfo = createAppInfoRuntime({
 // 通知センターのXポストも、タイムラインと同じ詳細画面で開く
 function openXNotificationNatively(item) {
   if (item?.networkId !== 'x' || !xNativeTimelineRuntime) return false;
-  const partition = item.account?.partition || `persist:x-${Number(item.accountIndex) || 0}`;
-  if (getXAccountIndexByPartition(partition) < 0) return false;
+  const partition = xPartitionOf(item.account, Number(item.accountIndex) || 0);
+  if (xAccounts.indexOfPartition(partition) < 0) return false;
   const match = /^https:\/\/(?:www\.)?(?:x|twitter)\.com\/([^/?#]+)\/status\/(\d+)/.exec(item.targetUrl || '');
   if (!match) {
     // Like / repost cells link only to the actor: follow the cell on X to find the post.
@@ -1785,11 +1435,10 @@ function openXNotificationNatively(item) {
 }
 
 async function openXNotificationCenterItem(item) {
-  const accountIndex = state.xs?.findIndex(account =>
-    (account.partition || account.username) === (item.account?.partition || item.account?.username));
+  const accountIndex = state.xs?.findIndex(account => isSameXAccount(account, item.account));
   const account = state.xs?.[accountIndex];
   if (!account) return false;
-  const targetCol = goToNotifCol('x', accountIndex, { webView: true });
+  const targetCol = goToXNotifCol(accountIndex, { webView: true });
   const columnId = targetCol?.id?.replace(/^col-/, '');
   if (!columnId) return false;
 
@@ -1823,62 +1472,39 @@ async function fetchBskyUnread() {
   return data.count || 0;
 }
 
-// ─── SCROLL TO START ────────────────────────────
+// ─── REFRESH ALL ────────────────────────────────
 async function refreshAll() {
+  toast('すべてのカラムを更新しています…');
   await columnLifecycle.refreshAll({ force: true });
-  toast('Refreshing all feeds...');
 }
 
-// ─── NOTIF SHORTCUTS & SCROLL ───────────────────
+// ─── X NOTIFICATION COLUMN ──────────────────────
 
 // The native notification Column is preferred: it runs no X page of its own. Opening a
 // notification by its place on X's page (`webView`) needs the WebView Column.
-function goToNotifCol(plat, xIdx, { webView = false } = {}) {
-  let targetCol = null;
-
-  if (plat === 'x') {
-    const acc = state.xs?.[xIdx];
-    if (!acc) return;
-    const xPart = acc.partition || `persist:x-${xIdx}`;
-    const nativeCol = webView || !xNativeTimelineRuntime ? null : [...document.querySelectorAll('.col')].find(col =>
-      col.dataset.definitionId === 'x-notif-native' && col.dataset.partition === xPart) || null;
-    targetCol = nativeCol || notificationCenter.findXNotificationColumn(
-      document.querySelectorAll('.col'),
-      xPart
-    );
-    if (!targetCol) {
-      const native = !webView && Boolean(xNativeTimelineRuntime);
-      const id = native ? `x${xIdx}-notif-native-auto` : `x${xIdx}-notif-auto`;
-      const result = columnLifecycle.create({
-        networkId: 'x',
-        definitionId: native ? 'x-notif-native' : 'x-notif-new',
-        id,
-        account: { ...acc, index: xIdx, partition: xPart },
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      targetCol = document.getElementById(`col-${id}`);
-      toast(`${acc.username} notifications column added`);
-    }
-  } else {
-    document.querySelectorAll('.col').forEach(col => {
-      const feed = col.querySelector('.feed');
-      if (feed && feed.id && feed.id.includes('notif')) targetCol = col;
+function goToXNotifCol(accountIndex, { webView = false } = {}) {
+  const account = state.xs?.[accountIndex];
+  if (!account) return null;
+  const partition = xPartitionOf(account, accountIndex);
+  const native = !webView && Boolean(xNativeTimelineRuntime);
+  const columns = document.querySelectorAll('.col');
+  const nativeCol = native ? [...columns].find(col =>
+    col.dataset.definitionId === 'x-notif-native' && col.dataset.partition === partition) : null;
+  let targetCol = nativeCol || notificationCenter.findXNotificationColumn(columns, partition);
+  if (!targetCol) {
+    const id = native ? `x${accountIndex}-notif-native-auto` : `x${accountIndex}-notif-auto`;
+    const result = columnLifecycle.create({
+      networkId: 'x',
+      definitionId: native ? 'x-notif-native' : 'x-notif-new',
+      id,
+      account: { ...account, index: accountIndex, partition },
     });
-    if (!targetCol) {
-      const id = 'b-notif-auto';
-      const result = columnLifecycle.create({
-        networkId: 'b', definitionId: 'b-notif-new', id,
-      });
-      if (result.status !== 'created') {
-        toast('Notifications column could not be added');
-        return;
-      }
-      targetCol = document.getElementById(`col-${id}`);
-      toast('Bluesky notifications column added');
+    if (result.status !== 'created') {
+      toast('通知カラムを追加できませんでした');
+      return null;
     }
+    targetCol = document.getElementById(`col-${id}`);
+    toast(`${account.username} の通知カラムを追加しました`);
   }
 
   // カラムにスクロール
@@ -2061,12 +1687,6 @@ if (!window.electronAPI?.devToolsEnabled) {
 }
 state = E2E_FIXTURES?.state ? structuredClone(E2E_FIXTURES.state) : stateStore.load();
 state.appearance = appearanceRuntime.apply(state.appearance);
-if (state.x && !(state.xs && state.xs.length > 0)) {
-  state.xs = [{ ...state.x, partition: 'persist:x-0' }];
-  state.activeX = 0;
-  delete state.x;
-  saveState();
-}
 webviewPreloadReady = initWvPreloadPath();
 const blueskySessionReady = initializeBlueskySession();
 const accountSessionReady = blueskySessionReady.then(() => accountSessionRuntime.start());
@@ -2114,11 +1734,7 @@ startMemoryCleaner();
 // ═══════════════════════════════════════════════
 //  WIDGET MODE — デスクトップTLウィジェット
 // ═══════════════════════════════════════════════
-const IS_WIDGET = new URLSearchParams(location.search).get('widget') === '1';
-
-if (IS_WIDGET) {
-  widgetMode.init();
-}
+if (columnRuntime.isWidgetMode()) widgetMode.init();
 
 Promise.all([xLoginStatesReady, webviewPreloadReady]).then(() => {
   const pollReplies = () => {

@@ -5,6 +5,7 @@ const { createWorkspaceBackupFiles } = require('./main/workspace-backup-files');
 const { createAppConfigStore } = require('./main/app-config-store');
 const { createWidgetWindowController } = require('./main/widget-window');
 const { createXPageDiagnostics } = require('./main/x-page-diagnostics');
+const { resolveWindowBounds } = require('./main/window-bounds');
 const { pathToFileURL } = require('node:url');
 const { ensureDefaultXDarkTheme, getXSessionUserId, isXSessionAuthenticated } = require('./main/x-session-theme');
 const { createAppUpdater } = require('./main/app-updater');
@@ -175,6 +176,13 @@ const desktopNotificationService = createDesktopNotificationService({
   getWindow: () => mainWindow,
 });
 
+function restoreWindowBounds(saved, defaults) {
+  return resolveWindowBounds(saved, {
+    defaults,
+    displays: screen.getAllDisplays().map(display => display.workArea),
+  });
+}
+
 // ── ウィジェットウィンドウ（デスクトップTL表示） ──
 let isAppQuitting = false;
 app.on('before-quit', () => {
@@ -207,13 +215,9 @@ const widgetWindowController = createWidgetWindowController({
 
 function createWindow() {
   const config = loadConfig();
-  const winBounds = config.windowBounds || { width: 1400, height: 900 };
 
   mainWindow = new BrowserWindow({
-    width: winBounds.width,
-    height: winBounds.height,
-    x: winBounds.x,
-    y: winBounds.y,
+    ...restoreWindowBounds(config.windowBounds, { width: 1400, height: 900 }),
     minWidth: 600,
     minHeight: 500,
     backgroundColor: '#0d0d0d',
@@ -254,9 +258,10 @@ function createWindow() {
   mainWindow.on('restore', () => sendWindowVisibility(false));
   mainWindow.on('show', () => sendWindowVisibility(false));
 
+  // 最大化・最小化中に閉じても、元に戻したときの大きさと位置を保存する
   mainWindow.on('close', () => {
     updateConfig({
-      windowBounds: mainWindow.getBounds(),
+      windowBounds: mainWindow.getNormalBounds(),
       maximized: mainWindow.isMaximized(),
     });
   });

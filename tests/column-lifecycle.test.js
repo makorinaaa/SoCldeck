@@ -473,7 +473,7 @@ test('isolates a failed Column and preserves the original Workspace State', () =
 
   assert.equal(result.restoredCount, 1);
   assert.equal(result.failures.length, 1);
-  assert.deepEqual(errors, [['broken', 'Column Definition could not be resolved']]);
+  assert.deepEqual(errors, [['broken', 'カラムの種類を判別できませんでした']]);
   assert.deepEqual(events, [
     ['clear-refresh', 'broken'],
     ['insert', 'timeline'],

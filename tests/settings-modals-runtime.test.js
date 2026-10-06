@@ -80,11 +80,6 @@ function createHarness({
   };
   const runtime = loadRuntime().createSettingsModalsRuntime({
     documentRef,
-    storage: {
-      values: {},
-      getItem(key) { return this.values[key] ?? null; },
-      setItem(key, value) { this.values[key] = String(value); },
-    },
     muteRules: {
       getRules: () => rules,
       add: (kind, value) => {
@@ -110,6 +105,7 @@ function createHarness({
       getRefreshInterval: () => 60000,
       setRefreshInterval: (id, ms) => calls.intervals.push([id, ms]),
       persistLayout: () => { calls.persisted += 1; },
+      getFontSize: id => (id === 'bsky-large' ? 15 : null),
       setFontSize: (id, colType, fontSize) => calls.fontSizes.push([id, colType, fontSize]),
     },
     intents: {
@@ -161,12 +157,22 @@ test('marks the active column interval and applies changes through the column bo
   runtime.applyColumnInterval('bsky-1', 30000);
   assert.deepEqual(calls.intervals, [['bsky-1', 30000]]);
   assert.equal(calls.persisted, 1);
-  assert.equal(calls.toasts.at(-1), 'Auto refresh: 30 sec');
+  assert.equal(calls.toasts.at(-1), '自動更新: 30秒');
   assert.equal(overlay.removed, true);
 
   runtime.applyColumnFontSize('bsky-1', 'bsky', 15);
   assert.deepEqual(calls.fontSizes, [['bsky-1', 'bsky', 15]]);
   assert.equal(calls.toasts.at(-1), '文字サイズ: 15px');
+});
+
+test('marks the saved font size of the column', () => {
+  const documentRef = createDocument();
+  const { runtime } = createHarness({ documentRef });
+
+  runtime.openColumnSettings('bsky-large', 'bsky');
+  const html = documentRef.appended[0].innerHTML;
+  assert.match(html, /class="chip-btn on"[^>]*data-font-size="15"/);
+  assert.doesNotMatch(html, /class="chip-btn on"[^>]*data-font-size="13"/);
 });
 
 test('renders memory metrics after opening the memory settings modal', async () => {
