@@ -535,6 +535,8 @@
     function render(snapshot) {
       const modal = elements[modalId(snapshot.networkId)];
       modal?.setAttribute('aria-busy', String(snapshot.busy));
+      // 返信元かプレビューがあるときだけ、広い画面では右列に並べる（CSS で幅 1000px 以上のとき）
+      modal?.classList?.toggle('compose-has-side', Boolean(snapshot.reply || snapshot.previewOpen));
       const status = documentRef.getElementById(`${snapshot.networkId}-compose-status`);
       if (status) {
         const labels = { succeeded: '投稿済み', failed: '失敗', unknown: '結果を確認してください', sending: '送信中', pending: '待機中' };

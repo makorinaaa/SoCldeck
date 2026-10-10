@@ -957,6 +957,43 @@ test('Compose reorders attached images with their ALT text and opens them enlarg
   assert.equal(await page.locator('#compMod').evaluate(element => element.classList.contains('on')), true);
 });
 
+test('wide Compose puts the reply, cross-post and preview beside the text, and stacks them when narrow', { timeout: 30000 }, async t => {
+  const { electronApp, page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const resize = width => electronApp.evaluate(({ BrowserWindow }, size) => {
+    BrowserWindow.getAllWindows()[0].setContentSize(size, 860);
+  }, width);
+  const box = selector => page.locator(selector).boundingBox();
+  await resize(1280);
+  await openCompose(page, 'b');
+
+  // No reply and no preview: one column, as before
+  assert.ok((await box('#cross-post-controls')).y < (await box('#cta')).y);
+
+  await page.locator('#compMod [data-compose-action="toggle-preview"]').click();
+  await page.locator('#b-compose-preview').waitFor({ state: 'visible' });
+  const text = await box('#cta');
+  for (const selector of ['#cross-post-controls', '#b-compose-preview']) {
+    const side = await box(selector);
+    assert.ok(side.x >= text.x + text.width, `${selector} should sit to the right of the text`);
+  }
+  assert.ok((await box('#compMod .cmodal')).width > 700);
+  if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'compose-wide.png') });
+
+  // Keyboard order still goes from the cross-post switch to the text
+  await page.locator('#cross-post-x').focus();
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'cta');
+
+  await resize(900);
+  await page.locator('#cta').waitFor();
+  const narrowText = await box('#cta');
+  assert.ok((await box('#cross-post-controls')).y < narrowText.y);
+  assert.ok((await box('#b-compose-preview')).y > narrowText.y);
+  assert.ok((await box('#compMod .cmodal')).width <= 520);
+  if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'compose-narrow.png') });
+});
+
 test('polish journey restores drafts, previews density and opens column actions', async t => {
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
