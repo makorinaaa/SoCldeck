@@ -74,3 +74,23 @@ test('explains the risk, links X rules and offers both choices', async () => {
   consent.close();
   assert.equal(documentRef.getElementById('x-automation-ov'), null);
 });
+
+test('lists paused accounts with a way to resume them', async () => {
+  const { createXAutomationConsent } = await load();
+  const documentRef = createDocument();
+  const consent = createXAutomationConsent({
+    documentRef,
+    getDecision: () => 'enabled',
+    listPaused: () => [{ partition: 'persist:x-0', label: '@alice<b>', description: 'X の回数制限（429）が返されました' }],
+  });
+
+  consent.open();
+  const html = documentRef.getElementById('x-automation-ov').innerHTML;
+  assert.match(html, /止めているアカウント/);
+  assert.match(html, /@alice&lt;b&gt;/);
+  assert.match(html, /data-action="resume-x-account" data-partition="persist:x-0"/);
+
+  const empty = createXAutomationConsent({ documentRef, getDecision: () => 'enabled' });
+  empty.open();
+  assert.doesNotMatch(documentRef.getElementById('x-automation-ov').innerHTML, /止めているアカウント/);
+});

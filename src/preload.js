@@ -113,6 +113,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('x-timeline-captured', listener);
     return () => ipcRenderer.removeListener('x-timeline-captured', listener);
   },
+  // X がアカウントの制限・本人確認を求めた（そのアカウントの X の自動操作を止める）
+  onXAccountRestricted: fn => {
+    if (typeof fn !== 'function') return () => {};
+    const listener = (_, payload) => {
+      if (isXPartition(payload?.partition) && ['locked', 'rate-limit'].includes(payload?.reason)) {
+        fn({ partition: payload.partition, reason: payload.reason });
+      }
+    };
+    ipcRenderer.on('x-account-restricted', listener);
+    return () => ipcRenderer.removeListener('x-account-restricted', listener);
+  },
 
   // メモリクリア
   clearMemory: () => ipcRenderer.invoke('clear-memory'),

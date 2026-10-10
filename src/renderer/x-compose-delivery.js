@@ -75,7 +75,10 @@
         hadMedia: Boolean(delivery.video) || delivery.imageFiles.length > 0,
       }));
       if (confirmation.status === 'failed') {
-        throw new Error(confirmation.message || 'X rejected the post');
+        const error = new Error(confirmation.message || 'X rejected the post');
+        // X が回数制限・上限・本人確認などを示した。renderer はそのアカウントの X の自動操作を止める
+        if (confirmation.limited) error.code = 'X_LIMITED';
+        throw error;
       }
       return confirmation;
     }

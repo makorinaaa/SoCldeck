@@ -324,6 +324,11 @@ async function launchApp(t, fixtures) {
         const notificationsHtml = global.__e2eNotificationHtml || (partition === 'persist:x-1'
           ? fixture.notificationsHtml
           : fixture.notificationsHtml.replaceAll('Alice', 'Other'));
+        // X がアカウントをロックし、本人確認の画面へ移す
+        if (network === 'x' && (global.__e2eXLock ?? fixture.simulateXLock) && url.pathname === '/home') {
+          callback({ mimeType: 'text/html', charset: 'utf-8', data: Buffer.from('<!doctype html><html><body><script>location.replace("https://x.com/account/access")</script></body></html>') });
+          return;
+        }
         const body = network === 'x' && fixture.simulateXLogin && url.pathname !== '/i/flow/login'
           ? '<!doctype html><html><body><script>location.replace("https://x.com/i/flow/login")</script></body></html>'
           : network === 'x' && fixture.redirectNotifications && url.pathname === '/notifications' && !url.searchParams.has('ready')
@@ -381,6 +386,7 @@ async function launchApp(t, fixtures) {
     hasBluesky: Boolean(fixtures.state.b),
     blueskyFeed: fixtures.blueskyFeed || [],
     simulateXLogin: Boolean(fixtures.simulateXLogin),
+    simulateXLock: Boolean(fixtures.simulateXLock),
     redirectNotifications: Boolean(fixtures.redirectNotifications),
     slowResourceDelay: fixtures.slowResourceDelay || 0,
     avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -1039,6 +1045,41 @@ test('X automation stays off until the user agrees, and turns on after agreeing'
   assert.doesNotMatch(await page.locator('#feed-xn-consent').textContent(), /使わない設定/);
   await openCompose(page, 'x');
   assert.equal(await page.locator('#xPostMod').evaluate(element => element.classList.contains('on')), true);
+});
+
+test('an X lock page stops that account until the user resumes it', { timeout: 60000 }, async t => {
+  const { electronApp, page } = await launchApp(t, { ...COMPOSE_FIXTURES, simulateXLock: true });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.evaluate(async () => {
+    const { columnLifecycle, state } = await import('./renderer.js');
+    columnLifecycle.create({
+      networkId: 'x', definitionId: 'x-home-native', id: 'xn-lock',
+      account: { ...state.xs[0], index: 0, partition: 'persist:x-0' },
+    });
+  });
+  const column = page.locator('#feed-xn-lock');
+  await column.locator('[data-action="resume-x-account"]').waitFor({ timeout: 20000 });
+  assert.match(await column.textContent(), /ロック・本人確認/);
+  assert.equal(await page.locator('#x-home-readers webview').count(), 0, 'the hidden X page is closed');
+
+  // Still stopped after a restart, without opening X again
+  await page.reload();
+  await column.locator('[data-action="resume-x-account"]').waitFor();
+  assert.equal(await page.locator('#x-home-readers webview').count(), 0);
+
+  // Posting from SocialDeck refuses to touch the stopped account
+  await openCompose(page, 'x');
+  await page.locator('#x-cta').fill('止めている間の投稿');
+  await page.locator('#x-sndb').click();
+  await page.locator('#toast', { hasText: '止めています' }).waitFor();
+  assert.equal(await page.locator('#xPostMod').evaluate(element => element.classList.contains('on')), true);
+  await page.locator('#xPostMod [data-compose-action="close"]').click();
+
+  await electronApp.evaluate(() => { global.__e2eXLock = false; });
+  await Promise.all([page.waitForEvent('load'), column.locator('[data-action="resume-x-account"]').click()]);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#x-home-readers webview').first().waitFor({ state: 'attached', timeout: 20000 });
+  assert.doesNotMatch(await page.locator('#feed-xn-lock').textContent(), /止めています/);
 });
 
 test('polish journey restores drafts, previews density and opens column actions', async t => {

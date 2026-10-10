@@ -20,6 +20,8 @@ function createColumnMounts({
   xNative = null,
   // xNative が無いときにネイティブ版カラムへ出す説明（X の自動化に同意していないときなど）
   xNativeUnavailableHtml = UNAVAILABLE_HTML,
+  // アカウントを止めているときの説明（X が制限・本人確認を求めたときなど）。止めていなければ null
+  xNativeBlockedHtml = () => null,
   setRefreshInterval,
   getFontSize = () => null,
   getPreloadPath = () => '',
@@ -156,8 +158,9 @@ function createColumnMounts({
         ? feedHost(id, 'feed x-native-feed x-native-notif-feed', 'X の通知を読み込み中…')
         : feedHost(id, 'feed x-native-feed', 'X のタイムラインを読み込み中…')],
     });
-    if (!xNative) {
-      hosts.content.innerHTML = xNativeUnavailableHtml;
+    const blocked = xNativeBlockedHtml(partition);
+    if (!xNative || blocked) {
+      hosts.content.innerHTML = blocked || xNativeUnavailableHtml;
     } else if (notifications) {
       xNative.mountNotifications({ id, partition, host: hosts.content, badge });
     } else {

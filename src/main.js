@@ -25,6 +25,7 @@ const { executeBlueskyOperation } = require('./main/bluesky-operation-result');
 const { createBlueskyVideoFileService } = require('./main/bluesky-video-file');
 const { createMemoryMetricsService } = require('./main/memory-metrics');
 const { createXTimelineTap } = require('./main/x-timeline-tap');
+const { createXRestrictionMonitor } = require('./main/x-restriction-monitor');
 const {
   registerTrustedIpcHandler,
   secureApplicationWebContents,
@@ -53,9 +54,16 @@ const ADBLOCK_CACHE = path.join(app.getPath('userData'), 'adblocker-cache.bin');
 
 let blocker = null;
 const X_PAGE_DIAGNOSTICS_PATH = path.join(app.getPath('userData'), 'x-page-diagnostics.json');
+// X のアカウントの制限・本人確認を見つけたら、そのアカウントの X の自動操作を止めるよう renderer に知らせる
+const xRestrictionMonitor = createXRestrictionMonitor({
+  partitionOf: contents => xAccountRuntime.getPartitions()
+    .find(partition => session.fromPartition(partition) === contents.session) || null,
+  fromId: id => webContents.fromId(id),
+});
 const xPageDiagnostics = createXPageDiagnostics({
   save: data => fs.promises.writeFile(X_PAGE_DIAGNOSTICS_PATH, JSON.stringify(data)),
   saveSync: data => fs.writeFileSync(X_PAGE_DIAGNOSTICS_PATH, JSON.stringify(data)),
+  observeResponse: details => xRestrictionMonitor.observeResponse(details),
 });
 app.on('before-quit', () => xPageDiagnostics.flush());
 
@@ -278,6 +286,7 @@ function createWindow() {
 app.on('web-contents-created', (_, contents) => {
   if (contents.getType() === 'webview') {
     xPageDiagnostics.attachContents(contents);
+    xRestrictionMonitor.watch(contents);
     denyWebviewPermissions(contents.session);
     secureWebviewContents(contents, { openExternalUrl });
     webviewBrowserIdentity.apply(contents);

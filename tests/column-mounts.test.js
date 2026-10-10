@@ -6,7 +6,7 @@ function element(tagName = 'div') {
     appendChild(child) { this.children.push(child); } };
 }
 
-async function harness({ xNative = true, fontSizes = {}, xNativeUnavailableHtml } = {}) {
+async function harness({ xNative = true, fontSizes = {}, xNativeUnavailableHtml, xNativeBlockedHtml } = {}) {
   const { createColumnMounts } = await import('../src/renderer/column-mounts.mjs');
   const calls = { shells: [], intervals: [], xWebView: [], bluesky: [], refreshes: [], anime: [], xNative: [], fontSizes: [] };
   const elements = new Map();
@@ -43,6 +43,7 @@ async function harness({ xNative = true, fontSizes = {}, xNativeUnavailableHtml 
       mountNotifications: request => calls.xNative.push(['notifications', request]),
     } : null,
     ...(xNativeUnavailableHtml ? { xNativeUnavailableHtml } : {}),
+    ...(xNativeBlockedHtml ? { xNativeBlockedHtml } : {}),
     setRefreshInterval: (id, interval) => calls.intervals.push([id, interval]),
     getFontSize: id => fontSizes[id] ?? null,
     getPreloadPath: () => 'file:///webview-preload.js',
@@ -165,4 +166,17 @@ test('applies a new font size to the Column it belongs to', async () => {
 
   assert.equal(elements.get('feed-b-home').style.fontSize, '14px');
   assert.deepEqual(calls.fontSizes, [['wv', 'x-home', 16]]);
+});
+
+test('native X Columns of a paused account show why and start no reader', async () => {
+  const { mounts, elements, calls } = await harness({
+    xNativeBlockedHtml: partition => (partition === 'persist:x-1' ? '<div>止めています</div>' : null),
+  });
+  mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-1',
+    config: { ...common, id: 'paused', network: 'x', definitionId: 'x-home-native' } });
+  mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-0',
+    config: { ...common, id: 'running', network: 'x', definitionId: 'x-home-native' } });
+
+  assert.match(elements.get('feed-paused').innerHTML, /止めています/);
+  assert.deepEqual(calls.xNative.map(([, request]) => request.id), ['running']);
 });
