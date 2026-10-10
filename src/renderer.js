@@ -442,7 +442,9 @@ const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   getAccount: () => state.b,
   buildFacets: text => buildFacets(text),
   resolveMentionDids: facets => resolveMentionDids(facets),
-  createPostRecord: record => authenticatedBskyAdapter.createPostRecord({ record }),
+  createPostRecord: (record, { rkey } = {}) => authenticatedBskyAdapter.createPostRecord({ record, rkey }),
+  createPostKey: () => SocialDeckBskyComposeDelivery.createPostKey(),
+  isUnknownOutcome: error => SocialDeckBskyComposeDelivery.isUnknownPostOutcome(error),
   avatarFallbackBackground: AVBG[0],
   ui: { escape: esc },
   intents: {

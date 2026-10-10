@@ -11,6 +11,9 @@
       const count = String(value || '').trim().length;
       return { count, limit: characterLimit, valid: count <= characterLimit };
     },
+    // 投稿の rkey を作る関数と、結果が分からない失敗かを見分ける関数（bsky-compose-delivery.js）
+    createPostKey = () => null,
+    isUnknownOutcome = () => false,
     avatarFallbackBackground = '',
     ui = {},
     intents = {},
@@ -23,14 +26,31 @@
       .replaceAll('"', '&quot;').replaceAll("'", '&#39;'));
     const toast = intents.toast || (() => {});
     let target = null;
+    // 開いている間は同じ rkey で再送する。結果不明の引用は、本文と rkey を引用先ごとに覚えておき、
+    // 開き直しても同じ投稿として再送する（重複しない）
+    let attempt = null;
+    const unknownAttempts = new Map();
 
     function close() {
       documentRef.getElementById('quote-modal-ov')?.remove();
       target = null;
+      attempt = null;
+    }
+
+    function showUnknownAttempt() {
+      const textarea = documentRef.getElementById('quote-ta');
+      if (textarea) {
+        textarea.value = attempt.text;
+        textarea.readOnly = true;
+      }
+      const button = documentRef.getElementById('quote-sndb');
+      if (button) { button.disabled = false; button.textContent = '再試行'; }
     }
 
     function open(uri, cid, handle) {
       target = { uri, cid, handle };
+      const unknown = unknownAttempts.get(uri);
+      attempt = unknown ? { ...unknown, unknown: true } : { rkey: createPostKey(), text: null, unknown: false };
       documentRef.getElementById('quote-modal-ov')?.remove();
 
       const overlay = documentRef.createElement('div');
@@ -67,6 +87,7 @@
           </div>
         </div>`;
       documentRef.body.appendChild(overlay);
+      if (attempt.unknown) showUnknownAttempt();
       global.setTimeout(() => documentRef.getElementById('quote-ta')?.focus(), 50);
     }
 
@@ -85,7 +106,9 @@
 
     async function submit() {
       if (!getAccount() || !target) return;
-      const text = documentRef.getElementById('quote-ta')?.value.trim() || '';
+      const current = attempt;
+      const quoted = target;
+      const text = current.unknown ? current.text : documentRef.getElementById('quote-ta')?.value.trim() || '';
       const button = documentRef.getElementById('quote-sndb');
       if (button) { button.disabled = true; button.textContent = '投稿中…'; }
       try {
@@ -97,15 +120,23 @@
           createdAt: new Date().toISOString(),
           embed: {
             $type: 'app.bsky.embed.record',
-            record: { uri: target.uri, cid: target.cid },
+            record: { uri: quoted.uri, cid: quoted.cid },
           },
         };
         if (resolvedFacets.length) record.facets = resolvedFacets;
-        await createPostRecord(record);
+        await createPostRecord(record, { rkey: current.rkey });
+        unknownAttempts.delete(quoted.uri);
         close();
         toast('引用ポストを投稿しました');
         global.setTimeout(() => intents.refreshTimelines?.(), 1000);
       } catch (error) {
+        if (isUnknownOutcome(error)) {
+          Object.assign(current, { text, unknown: true });
+          unknownAttempts.set(quoted.uri, { rkey: current.rkey, text });
+          if (attempt === current) showUnknownAttempt();
+          toast('引用ポストの投稿結果を確認できませんでした。再試行しても重複投稿にはなりません');
+          return;
+        }
         toast(`エラー: ${error.message}`);
         if (button) { button.disabled = false; button.textContent = '引用して投稿'; }
       }
