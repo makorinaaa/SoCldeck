@@ -292,6 +292,13 @@ async function launchApp(t, fixtures) {
           callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') });
           return;
         }
+        // X の回数制限（429）を返す操作
+        const limitedOperation = network === 'x' && url.pathname.includes('/graphql/')
+          && (fixture.rateLimitOperations || []).includes(url.pathname.split('/').pop());
+        if (limitedOperation) {
+          callback({ statusCode: 429, mimeType: 'application/json', charset: 'utf-8', data: Buffer.from('{"errors":[{"code":88}]}') });
+          return;
+        }
         // Responses for named GraphQL operations, like X's list timeline.
         const operationJson = network === 'x' && url.pathname.includes('/graphql/')
           ? fixture.graphql?.[url.pathname.split('/').pop()] : null;
@@ -387,6 +394,7 @@ async function launchApp(t, fixtures) {
     blueskyFeed: fixtures.blueskyFeed || [],
     simulateXLogin: Boolean(fixtures.simulateXLogin),
     simulateXLock: Boolean(fixtures.simulateXLock),
+    rateLimitOperations: fixtures.rateLimitOperations || [],
     redirectNotifications: Boolean(fixtures.redirectNotifications),
     slowResourceDelay: fixtures.slowResourceDelay || 0,
     avatarPng: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -1045,6 +1053,40 @@ test('X automation stays off until the user agrees, and turns on after agreeing'
   assert.doesNotMatch(await page.locator('#feed-xn-consent').textContent(), /使わない設定/);
   await openCompose(page, 'x');
   assert.equal(await page.locator('#xPostMod').evaluate(element => element.classList.contains('on')), true);
+});
+
+test('a rate limit on the timeline pauses SocialDeck for that account but keeps the column', { timeout: 60000 }, async t => {
+  const { page } = await launchApp(t, {
+    ...COMPOSE_FIXTURES,
+    rateLimitOperations: ['DataSaverMode', 'HomeTimeline'],
+    // X's page asks for a helper operation first, then the timeline
+    pageHtml: `<!doctype html><html><body>Page __PATH__<script>
+      fetch('/i/api/graphql/a/DataSaverMode').then(() => new Promise(resolve => setTimeout(resolve, 1500)))
+        .then(() => fetch('/i/api/graphql/a/HomeTimeline'));
+    </script></body></html>`,
+  });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.evaluate(async () => {
+    const { columnLifecycle, state } = await import('./renderer.js');
+    columnLifecycle.create({
+      networkId: 'x', definitionId: 'x-home-native', id: 'xn-limit',
+      account: { ...state.xs[0], index: 0, partition: 'persist:x-0' },
+    });
+  });
+  await page.locator('#toast', { hasText: 'HomeTimeline で回数制限' }).waitFor({ timeout: 20000 });
+  const saved = JSON.parse(await page.evaluate(() => localStorage.getItem('socialdeck_x_paused')));
+  assert.equal(saved['persist:x-0'].operation, 'HomeTimeline', 'the helper operation did not pause the account');
+  assert.ok(saved['persist:x-0'].until > saved['persist:x-0'].at);
+
+  // The column stays; only SocialDeck's own work pauses
+  assert.equal(await page.locator('#feed-xn-limit [data-action="resume-x-account"]').count(), 0);
+  assert.equal(await page.locator('#x-home-readers webview').count(), 1);
+  assert.equal(await page.locator('#refresh-state-xn-limit').textContent(), '停止中');
+
+  await openCompose(page, 'x');
+  await page.locator('#x-cta').fill('一時停止中の投稿');
+  await page.locator('#x-sndb').click();
+  await page.locator('#toast', { hasText: 'まで X の操作を止めています' }).waitFor();
 });
 
 test('an X lock page stops that account until the user resumes it', { timeout: 60000 }, async t => {

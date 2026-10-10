@@ -63,6 +63,11 @@ function createXPageDiagnostics({ save, saveSync = save, now = Date.now, setTime
     }
     session.webRequest.onCompleted(filter, details => {
       try { observeResponse(details); } catch {}
+      // どの操作が回数制限を受けたかを残す（URL は残さず、操作名だけ）
+      if (details.statusCode === 429) {
+        const name = String(details.url || '').match(/\/graphql\/[^/?]+\/([A-Za-z]+)(?:[?#]|$)/)?.[1] || 'unknown';
+        record({ type: 'rate-limit', view: details.webContentsId, operation: name });
+      }
       complete(details);
     });
     session.webRequest.onErrorOccurred(filter, details => complete(details, details.error || 'network-error'));

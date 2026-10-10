@@ -91,3 +91,21 @@ test('passes every X GraphQL response status to an observer', () => {
 
   assert.deepEqual(observed, [429, 200]);
 });
+
+test('records which X operation was rate limited, without its URL', () => {
+  const hooks = {};
+  const view = new EventEmitter();
+  view.id = 42;
+  view.getURL = () => 'https://x.com/home';
+  view.session = { webRequest: Object.fromEntries(['onSendHeaders', 'onCompleted', 'onErrorOccurred'].map(key => [key, (filter, callback) => { hooks[key] = callback; }])) };
+  let report;
+  const diagnostics = createXPageDiagnostics({ save: data => { report = data; }, setTimer: () => 1, clearTimer() {} });
+  diagnostics.attachContents(view);
+
+  hooks.onCompleted({ id: 1, webContentsId: 42, url: 'https://x.com/i/api/graphql/abc/DataSaverMode?variables=SECRET', statusCode: 429 });
+  hooks.onCompleted({ id: 2, webContentsId: 42, url: 'https://x.com/i/api/graphql/abc/HomeTimeline', statusCode: 200 });
+  diagnostics.flush();
+
+  assert.deepEqual(report.events.filter(event => event.type === 'rate-limit').map(event => event.operation), ['DataSaverMode']);
+  assert.doesNotMatch(JSON.stringify(report), /SECRET|https/);
+});

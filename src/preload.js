@@ -118,7 +118,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (typeof fn !== 'function') return () => {};
     const listener = (_, payload) => {
       if (isXPartition(payload?.partition) && ['locked', 'rate-limit'].includes(payload?.reason)) {
-        fn({ partition: payload.partition, reason: payload.reason });
+        const operation = /^[A-Za-z]{1,64}$/.test(payload.operation || '') ? payload.operation : null;
+        fn({ partition: payload.partition, reason: payload.reason, operation });
       }
     };
     ipcRenderer.on('x-account-restricted', listener);
