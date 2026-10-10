@@ -442,3 +442,30 @@ test('X compose capability carries a native Column reply target to delivery', ()
   });
   assert.deepEqual(plain(delivery.replyTo), { id: '123', url: 'https://x.com/bob/status/123' });
 });
+
+test('native X list Columns ask for the list, keep its URL and restore as native lists', () => {
+  const registry = createRegistry();
+  const account = { index: 0, username: 'alice', partition: 'persist:x-0' };
+  const pending = registry.createColumnPlan({ networkId: 'x', definitionId: 'x-list-native', id: 'x0-list', account });
+  assert.deepEqual(plain(pending), { kind: 'input-required', input: 'x-list' });
+
+  const plan = registry.createColumnPlan({
+    networkId: 'x',
+    definitionId: 'x-list-native',
+    id: 'x0-list-native-123',
+    account,
+    params: { url: 'https://x.com/i/lists/123', title: 'Friends', sub: 'X - alice' },
+  });
+  assert.equal(plan.kind, 'x-native');
+  assert.equal(plan.partition, 'persist:x-0');
+  assert.equal(plan.config.url, 'https://x.com/i/lists/123');
+  assert.equal(plan.config.title, 'Friends');
+  assert.deepEqual(plain(plan.refresh), { networkId: 'x', kind: 'x-native', definitionId: 'x-list-native' });
+
+  const stored = { kind: 'x-native', id: 'x0-list-native-123', partition: 'persist:x-0', url: 'https://x.com/i/lists/123' };
+  assert.equal(registry.resolveColumnDefinition(stored).id, 'x-list-native');
+  assert.equal(registry.createColumnPlan({ storedColumn: stored }).config.url, 'https://x.com/i/lists/123');
+  // Native Home and WebView list Columns keep their own definitions.
+  assert.equal(registry.resolveColumnDefinition({ kind: 'x-native', partition: 'persist:x-0' }).id, 'x-home-native');
+  assert.equal(registry.resolveColumnDefinition({ kind: 'wv', url: 'https://x.com/i/lists/123' }).id, 'x-list-new');
+});

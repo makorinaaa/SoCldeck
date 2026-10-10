@@ -40,7 +40,9 @@ function createHarness({ attachResult = true, now = () => 1_000_000, refreshResu
         scripts: [],
         removed: false,
         setAttribute(name, value) { this.attributes[name] = value; },
-        getWebContentsId: () => 41,
+        // Each page has its own id: 41 for the first, 42 for the second…
+        webContentsId: 41 + webviews.length,
+        getWebContentsId() { return this.webContentsId; },
         loadURL(url) { this.loads.push(url); return Promise.resolve(); },
         executeJavaScript(script) {
           this.scripts.push(script);
@@ -510,4 +512,97 @@ test('reads the unread count from X notification tab badge', () => {
   assert.equal(readNotificationBadge(doc(link(null, '通知12'))), 12);
   assert.equal(readNotificationBadge(doc(link('Notifications', 'Notifications'))), 0);
   assert.equal(readNotificationBadge({ querySelector: () => null }), null);
+});
+
+const listResponse = () => ({
+  data: { list: { tweets_timeline: { timeline: { instructions: fixture.data.home.home_timeline_urt.instructions } } } },
+});
+
+test('a native list Column reads its own hidden list page, apart from the account Home', async () => {
+  const harness = createHarness();
+  const home = harness.createHost();
+  const list = harness.createHost();
+  harness.runtime.mount({ id: 'home', partition: 'persist:x-0', host: home });
+  harness.runtime.mount({ id: 'list', partition: 'persist:x-0', listId: '123', host: list });
+  assert.equal(harness.webviews.length, 2);
+  const [homeReader, listReader] = harness.webviews;
+  assert.equal(listReader.attributes.partition, 'persist:x-0');
+
+  await homeReader.dispatch('dom-ready');
+  await listReader.dispatch('dom-ready');
+  assert.deepEqual(homeReader.loads, ['https://x.com/home']);
+  assert.deepEqual(listReader.loads, ['https://x.com/i/lists/123']);
+
+  harness.emit({ webContentsId: listReader.webContentsId, ...normalizeTimelineResponse(listResponse(), 'ListLatestTweetsTimeline') });
+  assert.match(list.innerHTML, /data-x-id="1800000000000000003"/);
+  // A list has no For you / Following tabs, and the Home has not received the list's posts.
+  assert.doesNotMatch(list.innerHTML, /data-x-native-tabs/);
+  assert.doesNotMatch(home.innerHTML, /data-x-id=/);
+
+  // Removing the list keeps the Home reader.
+  harness.runtime.dispose('list');
+  assert.equal(listReader.removed, true);
+  assert.equal(homeReader.removed, false);
+});
+
+test('a list refresh shows the posts X already polled instead of clicking Home', async () => {
+  let clock = 1_000_000;
+  const harness = createHarness({ now: () => clock, refreshResult: 'home-clicked' });
+  const host = harness.createHost();
+  harness.runtime.mount({ id: 'list', partition: 'persist:x-0', listId: '123', host });
+  const [reader] = harness.webviews;
+  await reader.dispatch('dom-ready');
+  harness.emit({ webContentsId: reader.webContentsId, ...normalizeTimelineResponse(listResponse(), 'ListLatestTweetsTimeline') });
+
+  clock += 60_000;
+  const result = await harness.runtime.refresh('list');
+  assert.equal(reader.scripts.some(script => script.includes('REFRESH:home')), false, 'never navigates to Home');
+  assert.ok(reader.scripts.some(script => script.includes('showNewListPosts')));
+  // No new posts shown by X and the last load is recent: no reload either.
+  assert.deepEqual(plain(result), { status: 'deferred', detail: 'throttled' });
+  assert.equal(reader.loads.length, 1);
+});
+
+test('a list Column shows replies; the Home leaves out replies to others', async () => {
+  const harness = createHarness();
+  const home = harness.createHost();
+  const list = harness.createHost();
+  harness.runtime.mount({ id: 'home', partition: 'persist:x-0', host: home });
+  harness.runtime.mount({ id: 'list', partition: 'persist:x-0', listId: '123', host: list });
+  const [homeReader, listReader] = harness.webviews;
+  await homeReader.dispatch('dom-ready');
+  await listReader.dispatch('dom-ready');
+  const reply = {
+    id: '1900000000000000001', url: 'https://x.com/bob/status/1900000000000000001', sortIndex: '1900000000000000001',
+    author: { id: '2', handle: 'bob', name: 'Bob' }, segments: [{ text: '@dave hi' }],
+    replyTo: 'dave', replyToId: '4', counts: {}, viewer: {}, media: [],
+  };
+  harness.emit({ webContentsId: homeReader.webContentsId, operation: 'HomeLatestTimeline', timeline: 'following', firstPage: true, posts: [reply] });
+  harness.emit({ webContentsId: listReader.webContentsId, operation: 'ListLatestTweetsTimeline', timeline: 'list', firstPage: true, posts: [reply] });
+  assert.doesNotMatch(home.innerHTML, /1900000000000000001/);
+  assert.match(list.innerHTML, /1900000000000000001/);
+});
+
+test('a list id that is not a number does not open a page', () => {
+  const harness = createHarness();
+  const host = harness.createHost();
+  assert.equal(harness.runtime.mount({ id: 'list', partition: 'persist:x-0', listId: '../home', host }), false);
+  assert.equal(harness.webviews.length, 0);
+});
+
+test('showNewListPosts presses X\'s new posts button only at the top of the list', async () => {
+  const { SocialDeckXNativePageScripts: scripts } = load();
+  const clicks = [];
+  const banner = { click: () => clicks.push('banner') };
+  const page = top => ({
+    scrollingElement: { scrollTop: top },
+    querySelector: selector => (selector.includes('newTweetsButton') ? banner : null),
+    querySelectorAll: () => [],
+  });
+  const schedule = fn => fn();
+  assert.equal(await scripts.showNewListPosts(page(500), schedule), 'deferred');
+  assert.equal(await scripts.showNewListPosts(page(0), schedule), 'banner-clicked');
+  assert.deepEqual(clicks, ['banner']);
+  const empty = { scrollingElement: { scrollTop: 0 }, querySelector: () => null, querySelectorAll: () => [] };
+  assert.equal(await scripts.showNewListPosts(empty, schedule), 'no-banner');
 });

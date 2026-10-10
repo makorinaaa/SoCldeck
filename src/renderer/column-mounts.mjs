@@ -138,13 +138,14 @@ function createColumnMounts({
   }
 
   // 非表示の X ページが取得したデータを SocialDeck の表示で描画するカラム。
-  // ホームは非表示のホームページ、通知は通知センターと共有する通知ページから読む。
+  // ホームは非表示のホームページ、リストはそのリストのページ、通知は通知センターと共有する通知ページから読む。
   function mountXNative(config, partition) {
     const id = config.id;
     const notifications = config.definitionId === 'x-notif-native';
+    const listId = /\/i\/lists\/(\d+)/.exec(config.url || '')?.[1] || null;
     const { hosts, badge } = mountShell(config, {
       kind: 'x-native',
-      metadata: { partition },
+      metadata: { partition, url: listId ? config.url : null },
       ...(notifications ? {} : { subtitleId: `xn-sub-${id}` }),
       indicatorColor: X_INDICATOR,
       badge: true,
@@ -161,6 +162,7 @@ function createColumnMounts({
       xNative.mount({
         id,
         partition,
+        listId,
         host: hosts.content,
         subtitle: documentRef.getElementById(`xn-sub-${id}`),
         badge,

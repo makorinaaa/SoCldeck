@@ -32,6 +32,7 @@
     const accountIndex = account?.index ?? 0;
     const accountLabel = account?.username ? ` · ${account.username}` : '';
     if (definition.defaultParams.native) {
+      const listUrl = definition.columnType === 'list' ? storedColumn?.url || params.url : null;
       return {
         kind: 'x-native',
         refresh: { networkId: 'x', kind: 'x-native', definitionId: definition.id },
@@ -44,6 +45,7 @@
           icon: definition.icon,
           network: definition.network,
           definitionId: definition.id,
+          ...(listUrl && { url: listUrl }),
         },
       };
     }
@@ -324,6 +326,16 @@
               defaultParams: { url: 'https://x.com/i/lists' },
             }),
             createDefinition({
+              id: 'x-list-native',
+              network: 'x',
+              columnType: 'list',
+              label: 'List（ネイティブ）',
+              description: 'SocialDeck の表示で読む',
+              icon: icons.x,
+              requiresAccount: true,
+              defaultParams: { native: true },
+            }),
+            createDefinition({
               id: 'x-settings',
               network: 'x',
               columnType: 'settings',
@@ -515,7 +527,9 @@
       const definitions = getColumnDefinitions(networkId);
       if (networkId === 'x') {
         if (storedColumn.kind === 'x-native') {
-          return definitions.find(definition => definition.defaultParams.native) || null;
+          const nativeType = getXColumnTypeFromUrl(storedColumn.url) || 'timeline';
+          return definitions.find(definition => definition.defaultParams.native
+            && definition.columnType === nativeType) || null;
         }
         const columnType = getXColumnTypeFromUrl(storedColumn.url);
         return definitions.find(definition => definition.columnType === columnType) || null;
