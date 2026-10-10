@@ -1013,3 +1013,60 @@ test('X account chips show the learned @handle and keep the entered name as a to
   view.render({ ...snapshot, xAccounts: [snapshot.xAccounts[0], { ...snapshot.xAccounts[1], handle: 'real_sub' }] });
   assert.match(elements['x-acc-select'].innerHTML, /@real_sub/);
 });
+
+test('does not show a deleted X account draft to a new account that reuses its partition', () => {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  let accounts = [{ username: '@alice', partition: 'persist:x-0' }];
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: accounts, b: null }),
+    mediaDrafts: { x: createMutableImageDraft() },
+    view: { connect: value => { handlers = value; } },
+  });
+  const runtime = make();
+  runtime.open('x');
+  handlers.textChanged('x', 'Alice の下書き');
+  handlers.filesAdded('x', [{ name: 'alice.png' }]);
+  runtime.close('x');
+
+  const removed = accounts[0];
+  accounts = [];
+  runtime.forgetXAccount(removed);
+  accounts = [{ username: '@bob', partition: 'persist:x-0' }];
+
+  const snapshot = runtime.open('x');
+  assert.equal(snapshot.text, '');
+  assert.equal(snapshot.media.images.length, 0);
+  assert.equal(make().open('x').text, '');
+});
+
+test('forgets every stored draft when all accounts log out', () => {
+  const values = new Map([
+    ['socialdeck_draft_v1_x_persist:x-0', JSON.stringify({ text: 'X の下書き' })],
+    ['socialdeck_draft_v1_b_did:plc:me', JSON.stringify({ text: 'Bluesky の下書き' })],
+    ['socialdeck_v4', '{}'],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    key: index => [...values.keys()][index] ?? null,
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  const runtime = loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [{ username: '@alice', partition: 'persist:x-0' }], b: { did: 'did:plc:me' } }),
+    view: { connect() {} },
+  });
+  assert.equal(runtime.open('x').text, 'X の下書き');
+  runtime.close('x');
+
+  runtime.forgetAllDrafts();
+
+  assert.deepEqual([...values.keys()], ['socialdeck_v4']);
+  assert.equal(runtime.open('x').text, '');
+});

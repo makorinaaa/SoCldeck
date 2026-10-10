@@ -34,6 +34,19 @@
     return publicAccount;
   }
 
+  // partition が無い古い X アカウントは並び順の partition（x-accounts.mjs の xPartitionOf と同じ規則）を
+  // 使ってきた。読込時に書き込んでおき、削除で並びがずれても、新規採番でも同じセッションを指さないようにする。
+  function withXPartitions(accounts) {
+    const used = new Set(accounts.map(account => account?.partition).filter(Boolean));
+    return accounts.map((account, index) => {
+      if (!account || typeof account !== 'object' || account.partition) return account;
+      let partition = `persist:x-${index}`;
+      for (let next = 0; used.has(partition); next++) partition = `persist:x-${next}`;
+      used.add(partition);
+      return { ...account, partition };
+    });
+  }
+
   function normalizeState(value) {
     if (!value || typeof value !== 'object') return defaultState();
     // 複数アカウント対応前は X アカウントを1つだけ `x` に保存していた
@@ -43,7 +56,7 @@
     return {
       ...defaultState(),
       ...current,
-      xs: migrated ? [{ ...legacyXAccount, partition: 'persist:x-0' }] : xs,
+      xs: migrated ? [{ ...legacyXAccount, partition: 'persist:x-0' }] : withXPartitions(xs),
       activeX: !migrated && Number.isInteger(current.activeX) ? current.activeX : 0,
       b: current.b || null,
       appearance: normalizeAppearance(value.appearance),

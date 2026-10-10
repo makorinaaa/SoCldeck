@@ -4,6 +4,10 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 function createStore(initialValue = null) {
   const values = new Map();
   if (initialValue !== null) values.set('socialdeck_v4', JSON.stringify(initialValue));
@@ -95,4 +99,24 @@ test('keeps the account list when a legacy X account is also present', () => {
   const { stateStore } = createStore({ x: { username: '@alice' }, xs, activeX: 0 });
 
   assert.deepEqual(JSON.parse(JSON.stringify(stateStore.load().xs)), xs);
+});
+
+test('fills in missing X partitions with the rule the app already uses', () => {
+  const { stateStore } = createStore({
+    xs: [{ username: '@legacy' }, { username: '@second', partition: 'persist:x-1' }, { username: '@third' }],
+  });
+
+  assert.deepEqual(plain(stateStore.load().xs.map(account => account.partition)), [
+    'persist:x-0', 'persist:x-1', 'persist:x-2',
+  ]);
+});
+
+test('gives an unused partition when the fallback is already taken', () => {
+  const { stateStore } = createStore({
+    xs: [{ username: '@first', partition: 'persist:x-1' }, { username: '@second' }],
+  });
+
+  assert.deepEqual(plain(stateStore.load().xs.map(account => account.partition)), [
+    'persist:x-1', 'persist:x-0',
+  ]);
 });
