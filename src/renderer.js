@@ -9,6 +9,13 @@ import { createXAccounts, isSameXAccount, xPartitionOf } from './renderer/x-acco
 import { createXNotificationLoader } from './renderer/x-notification-loader.mjs';
 import { createColumnMounts } from './renderer/column-mounts.mjs';
 import { readReplyPreview } from './renderer/reply-preview.mjs';
+import {
+  blueskyPostFacts,
+  createColumnFilterStore,
+  describeColumnFilter,
+  matchesColumnFilter,
+  xPostFacts,
+} from './renderer/column-filters.mjs';
 import { measurePost } from './renderer/post-length.mjs';
 import {
   SocialDeckAccountSessionRuntime,
@@ -175,9 +182,35 @@ const networkAdapters = SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
   icons: SVG,
   composeExecutors: { x: xComposeExecutor, b: bskyComposeExecutor },
 });
+// カラムごとの表示フィルター（全体ミュートとは別）
+const columnFilters = createColumnFilterStore({ storage: localStorage });
+
+// 使えるのは投稿を自前で描くカラム（Bluesky のタイムライン・フィード・検索、ネイティブ版 X のホーム・リスト）
+function supportsColumnFilter(id) {
+  const root = columnShellRuntime.getRoot(id);
+  if (!root) return false;
+  if (root.dataset.network === 'b') return ['timeline', 'feed', 'search'].includes(root.dataset.type);
+  return ['x-home-native', 'x-list-native'].includes(root.dataset.definitionId);
+}
+
+function setColumnFilter(id, filter) {
+  columnFilters.set(id, filter);
+  columnShellRuntime.update(id, { filterLabel: describeColumnFilter(columnFilters.get(id)) });
+  const root = columnShellRuntime.getRoot(id);
+  if (root?.dataset.network === 'b') {
+    const reload = root.dataset.type === 'search'
+      ? bskyColumnsRuntime.search(id)
+      : bskyColumnsRuntime.refresh(id, { mode: 'replace' });
+    Promise.resolve(reload).catch(() => {});
+  } else {
+    xNativeTimelineRuntime?.rerenderAll();
+  }
+}
+
 const columnShellRuntime = SocialDeckColumnShellRuntime.createColumnShellRuntime({
   documentRef: document,
   container: document.getElementById('cols'),
+  describeFilter: id => describeColumnFilter(columnFilters.get(id)),
   onCollapseChange: () => columnLifecycle.persist(),
   onWidthChange: () => columnLifecycle.persist(),
   onIntent: ({ type, id, kind, columnType, target }) => {
@@ -218,6 +251,7 @@ const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
     animeScheduleRuntime.dispose(id);
     xNativeTimelineRuntime?.dispose(id);
     columnRuntime.removeFontSize(id);
+    columnFilters.remove(id);
   },
   listElementIds: () => columnShellRuntime.listIds(),
   removeElement: id => columnShellRuntime.remove(id),
@@ -381,6 +415,8 @@ const settingsModals = SocialDeckSettingsModalsRuntime.createSettingsModalsRunti
     setRefreshInterval: (id, ms) => columnLifecycle.setRefreshInterval(id, ms),
     persistLayout: () => columnLifecycle.persist(),
     getFontSize: id => columnRuntime.getFontSize(id),
+    getFilter: id => (supportsColumnFilter(id) ? columnFilters.get(id) : undefined),
+    setFilter: setColumnFilter,
     setFontSize: (id, colType, fontSize) => {
       columnRuntime.setFontSize(id, fontSize);
       columnMounts.applyFontSize(id, colType, fontSize);
@@ -497,6 +533,7 @@ const columnUndo = SocialDeckColumnUndo.createColumnUndo({
     const column = layout[index];
     return { column, index, nextId: layout[index + 1]?.id,
       fontSize: columnRuntime.getFontSize(id),
+      filter: columnFilters.get(id),
       account: column.network === 'b' ? state.b?.did
         : state.xs.find(account => account.partition === column.partition)?.username };
   },
@@ -504,9 +541,10 @@ const columnUndo = SocialDeckColumnUndo.createColumnUndo({
   canRestore: ({ column, account }) => column.network === 'b' ? state.b?.did === account
     : column.network === 'x' ? state.xs.some(item => item.partition === column.partition && item.username === account) : true,
   restore: snapshot => {
-    const { column, index, nextId, fontSize } = snapshot;
+    const { column, index, nextId, fontSize, filter } = snapshot;
     if (columnShellRuntime.getRoot(column.id)) throw new Error('同じカラムが既に存在します');
     if (fontSize !== null) columnRuntime.setFontSize(column.id, fontSize);
+    if (filter) columnFilters.set(column.id, filter);
     const result = columnLifecycle.restore([column]);
     if (result.failures.length) {
       columnShellRuntime.remove(column.id);
@@ -587,6 +625,7 @@ const authenticatedBskyAdapter = bskyGateway;
 bskyColumnsRuntime = SocialDeckBlueskyColumnsRuntime.createBlueskyColumnsRuntime({
   adapter: authenticatedBskyAdapter,
   muteRules,
+  columnFilter: (id, item) => matchesColumnFilter(columnFilters.get(id), blueskyPostFacts(item)),
   ui: { formatText, relTime, renderAvatar },
   icons: { reply: SVG.reply, repost: SVG.rt, heart: SVG.heart, bell: SVG.bell, follow: SVG.follow },
   documentRef: document,
@@ -774,6 +813,7 @@ const xNativeTimelineRuntime = xTimelineTap
       confirmAction: message => confirm(message),
       relTime,
       blocksPost: item => muteRules.blocksPost(item),
+      columnFilter: (id, post) => matchesColumnFilter(columnFilters.get(id), xPostFacts(post)),
       isBusy: () => xWebViewRuntime.isPosting(),
       createRefreshScript: (destination, options) => SocialDeckXTimelineRefresh.createRefreshScript(destination, options),
       createToggleScript: options => SocialDeckXStatusActions.createToggleScript(options),
@@ -1656,6 +1696,12 @@ function createUiActionHandlers() {
       dataset.columnId,
       dataset.columnType,
       integer(dataset.fontSize, 13),
+    ),
+    'toggle-column-filter': ({ dataset }) => settingsModals.toggleColumnFilter(dataset.columnId, dataset.filterKey),
+    'add-column-filter-word': ({ dataset }) => settingsModals.addColumnFilterWord(dataset.columnId),
+    'remove-column-filter-word': ({ dataset }) => settingsModals.removeColumnFilterWord(
+      dataset.columnId,
+      integer(dataset.wordIndex, -1),
     ),
     'add-ng-user': ({ dataset }) => postMenu.addNgUser(dataset.handle),
     'copy-handle': ({ dataset }) => postMenu.copyHandle(dataset.handle),

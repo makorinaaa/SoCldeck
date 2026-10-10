@@ -3,6 +3,8 @@
   const RECOVERY_KEY = 'socialdeck_backup_recovery_v1';
   const STATE_KEY = 'socialdeck_v4';
   const LAYOUT_KEY = 'socialdeck_cols';
+  // column-filters.mjs と同じキー（このファイルは ES モジュールを読み込めない）
+  const COLUMN_FILTERS_KEY = 'socialdeck_column_filters';
   function fail() { throw new Error('バックアップの形式または値が不正です'); }
   // x-accounts.mjs と同じ規則（このファイルは ES モジュールを読み込めない）
   function xPartitionOf(account, index) {
@@ -68,6 +70,13 @@
         if (!Number.isInteger(column.fontSize) || column.fontSize < 8 || column.fontSize > 32) fail();
         result.fontSize = column.fontSize;
       }
+      if (column.filter !== undefined) {
+        const filter = column.filter;
+        if (!filter || typeof filter !== 'object' || typeof filter.mediaOnly !== 'boolean'
+          || typeof filter.hideReposts !== 'boolean' || !Array.isArray(filter.keywords) || filter.keywords.length > 20) fail();
+        result.filter = { mediaOnly: filter.mediaOnly, hideReposts: filter.hideReposts,
+          keywords: filter.keywords.map(keyword => string(keyword, 100)) };
+      }
       return result;
     });
     let notifications;
@@ -107,6 +116,8 @@
     function capture() {
       const state = getState();
       const layout = JSON.parse(storage.getItem(LAYOUT_KEY) || '[]');
+      let filters = {};
+      try { filters = JSON.parse(storage.getItem(COLUMN_FILTERS_KEY) || '{}') || {}; } catch { /* 壊れていればフィルターなしで書き出す */ }
       return normalize({
         format: 'socialdeck-workspace', version: 1, createdAt: new Date().toISOString(),
         appearance: { density: 'standard', ...state.appearance },
@@ -123,7 +134,8 @@
             ? state.xs.find((item, index) => xPartitionOf(item, index) === column.partition)?.username
             : network === 'b' ? state.b?.did : undefined;
           return { ...column, network, definitionId: definition.id, account,
-            ...(font !== null ? { fontSize: Number(font) } : {}) };
+            ...(font !== null ? { fontSize: Number(font) } : {}),
+            ...(filters[column.id] ? { filter: filters[column.id] } : {}) };
         }),
       });
     }
@@ -148,6 +160,7 @@
         }
         delete restored.account;
         delete restored.fontSize;
+        delete restored.filter;
         return restored;
       });
       return { backup, columns };
@@ -175,6 +188,9 @@
       if (backup.notifications) writes.set('socialdeck_desktop_notification_rules', JSON.stringify({ rules: backup.notifications }));
       if (backup.memoryInterval !== undefined) writes.set('socialdeck_mem_interval', String(backup.memoryInterval));
       backup.columns.forEach(column => writes.set(`col_fs_${column.id}`, column.fontSize === undefined ? null : String(column.fontSize)));
+      // 復元後のカラムだけのフィルターに置き換える
+      const filters = Object.fromEntries(backup.columns.filter(column => column.filter).map(column => [column.id, column.filter]));
+      writes.set(COLUMN_FILTERS_KEY, Object.keys(filters).length ? JSON.stringify(filters) : null);
       const previous = new Map([...writes.keys(), `${STATE_KEY}.last-good`, `${LAYOUT_KEY}.last-good`]
         .map(key => [key, storage.getItem(key)]));
       try {

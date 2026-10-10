@@ -165,3 +165,30 @@ test('a native X Column accepts only an X list URL', () => {
   }
   assert.deepEqual([...values], original);
 });
+
+test('column filters are exported, validated and restored with their columns', () => {
+  const { backup, values } = harness();
+  values.set('socialdeck_column_filters', JSON.stringify({
+    'x-home': { mediaOnly: true, hideReposts: false, keywords: ['猫'] },
+    'removed-column': { mediaOnly: true, hideReposts: false, keywords: [] },
+  }));
+  const data = JSON.parse(backup.exportText());
+  assert.deepEqual(data.columns[0].filter, { mediaOnly: true, hideReposts: false, keywords: ['猫'] });
+
+  const invalid = [
+    { ...data.columns[0], filter: { mediaOnly: 'yes', hideReposts: false, keywords: [] } },
+    { ...data.columns[0], filter: { mediaOnly: true, hideReposts: false, keywords: [1] } },
+    { ...data.columns[0], filter: { mediaOnly: true, hideReposts: false, keywords: Array(21).fill('a') } },
+  ];
+  for (const column of invalid) assert.throws(() => backup.restore(JSON.stringify({ ...data, columns: [column] })));
+
+  values.set('socialdeck_column_filters', JSON.stringify({ 'old-column': { mediaOnly: true, hideReposts: false, keywords: [] } }));
+  backup.restore(JSON.stringify(data));
+  assert.deepEqual(JSON.parse(values.get('socialdeck_column_filters')), {
+    'x-home': { mediaOnly: true, hideReposts: false, keywords: ['猫'] },
+  });
+  assert.equal('filter' in JSON.parse(values.get('socialdeck_cols'))[0], false);
+
+  backup.restore(JSON.stringify({ ...data, columns: [{ ...data.columns[0], filter: undefined }] }));
+  assert.equal(values.has('socialdeck_column_filters'), false);
+});

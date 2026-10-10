@@ -28,6 +28,8 @@
   function createBlueskyColumnsRuntime({
     adapter,
     muteRules,
+    // カラムごとのフィルター（column-filters.mjs）。true なら表示する
+    columnFilter = () => true,
     ui,
     icons = {},
     onOutcome = () => {},
@@ -189,7 +191,7 @@
         }
         const posts = (data.posts || [])
           .map(post => ({ post }))
-          .filter(item => !muteRules?.blocksPost?.(item))
+          .filter(item => !muteRules?.blocksPost?.(item) && columnFilter(columnId, item))
           .map(postView.renderPost)
           .join('');
         column.host.innerHTML = posts
@@ -517,7 +519,7 @@
       }
       items = items.filter(item => column.type === 'notif'
         ? !muteRules?.blocksNotification?.(item)
-        : !muteRules?.blocksPost?.(item));
+        : !muteRules?.blocksPost?.(item) && columnFilter(id, item));
       const renderedItems = items.map(item => column.type === 'notif'
         ? postView.renderNotification(item)
         : postView.renderPost(item)).join('');
@@ -634,7 +636,7 @@
       return removed;
     }
 
-    return { dispose, getMemoryStats, mount, openPost, refresh, trimAll };
+    return { dispose, getMemoryStats, mount, openPost, refresh, search, trimAll };
   }
 
   global.SocialDeckBlueskyColumnsRuntime = { createBlueskyColumnsRuntime };

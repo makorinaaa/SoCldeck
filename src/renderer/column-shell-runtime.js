@@ -55,6 +55,8 @@
     onCollapseChange = () => {},
     onWidthChange = () => {},
     onIntent = () => {},
+    // カラム別フィルターの条件の説明。空ならフィルターなし
+    describeFilter = () => '',
   } = {}) {
     if (!documentRef?.createElement || !container?.insertBefore) {
       throw new Error('Column Shell Runtime requires a document and container');
@@ -126,6 +128,12 @@
     documentRef.addEventListener?.('click', dismissMenus);
     documentRef.addEventListener?.('keydown', dismissMenus);
 
+    // フィルター中のカラムは見出しに小さく示す（条件はツールチップ）。投稿が少ない理由が分かるように
+    function applyFilterLabel(label, description) {
+      label.hidden = !description;
+      label.title = description ? `フィルター: ${description}` : '';
+    }
+
     function mount(config) {
       if (!config?.id) throw new Error('Column shell id is required');
       if (columns.has(config.id)) throw new Error(`Column shell already mounted: ${config.id}`);
@@ -170,6 +178,11 @@
         id: config.subtitleId || '',
         text: config.subtitle || '',
       }));
+      const filterLabel = append(subtitle, createElement(documentRef, 'span', {
+        className: 'col-filter-label',
+        text: '絞込',
+      }));
+      applyFilterLabel(filterLabel, describeFilter(config.id));
 
       const actions = append(head, createElement(documentRef, 'div', { className: 'col-actions' }));
       let badge = null;
@@ -273,6 +286,7 @@
         subtitleText,
         badge,
         refreshState,
+        filterLabel,
         info,
         actionButtons,
         menu,
@@ -301,6 +315,7 @@
       if (!record) return false;
       if (changes.title !== undefined) record.title.textContent = changes.title;
       if (changes.subtitle !== undefined) record.subtitleText.textContent = changes.subtitle;
+      if (changes.filterLabel !== undefined) applyFilterLabel(record.filterLabel, changes.filterLabel);
       if (changes.badge !== undefined && record.badge) {
         record.badge.textContent = changes.badge.text || '';
         record.badge.style.display = changes.badge.visible ? '' : 'none';
