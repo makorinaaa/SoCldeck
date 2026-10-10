@@ -32,7 +32,25 @@ function needsXAutomationDecision(decision, xAccounts) {
   return decision === 'unset' && Array.isArray(xAccounts) && xAccounts.length > 0;
 }
 
-function createXAutomationConsent({ documentRef, getDecision }) {
+function escapeHtml(value) {
+  return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+// listPaused: X が制限・本人確認を求めたため止めているアカウント（x-account-pause.mjs）
+function createXAutomationConsent({ documentRef, getDecision, listPaused = () => [] }) {
+  function pausedSection() {
+    const paused = listPaused();
+    if (!paused.length) return '';
+    return `<div class="x-automation-paused">
+        <p><strong>止めているアカウント</strong>（X で状況を確認してから再開してください）</p>
+        ${paused.map(entry => `<div class="ng-row">
+          <span>${escapeHtml(entry.label)}: ${escapeHtml(entry.description)}</span>
+          <button class="ng-del" data-action="resume-x-account" data-partition="${escapeHtml(entry.partition)}">再開</button>
+        </div>`).join('')}
+      </div>`;
+  }
+
   function close() {
     documentRef.getElementById(OVERLAY_ID)?.remove();
   }
@@ -57,6 +75,7 @@ function createXAutomationConsent({ documentRef, getDecision }) {
         <p>詳しくは X の<a href="${X_AUTOMATION_RULES_URL}" target="_blank" rel="noopener noreferrer">自動化ルール</a>と<a href="${X_TERMS_URL}" target="_blank" rel="noopener noreferrer">利用規約</a>を確認してください。</p>
         <p>使わない場合も、X カラムで X のページを見ることはできます（自動更新はしません）。選択は後から「設定 → X の自動化機能」で変えられます。変えるとアプリを読み込み直します。</p>
         <p class="x-automation-current">現在: ${current}</p>
+        ${pausedSection()}
         <div class="x-automation-actions">
           <button class="btn-cancel" data-action="decide-x-automation" data-decision="disabled">使わない</button>
           <button class="send-btn" data-action="decide-x-automation" data-decision="enabled">リスクを理解して使う</button>

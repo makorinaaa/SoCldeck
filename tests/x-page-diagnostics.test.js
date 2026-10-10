@@ -75,3 +75,19 @@ test('saves asynchronously while running and synchronously on quit', async () =>
   diagnostics.flush();
   assert.deepEqual(calls, ['async', 'sync']);
 });
+
+test('passes every X GraphQL response status to an observer', () => {
+  const hooks = {};
+  const view = new EventEmitter();
+  view.id = 42;
+  view.getURL = () => 'https://x.com/home';
+  view.session = { webRequest: Object.fromEntries(['onSendHeaders', 'onCompleted', 'onErrorOccurred'].map(key => [key, (filter, callback) => { hooks[key] = callback; }])) };
+  const observed = [];
+  const diagnostics = createXPageDiagnostics({ save() {}, setTimer: () => 1, clearTimer() {}, observeResponse: details => observed.push(details.statusCode) });
+  diagnostics.attachContents(view);
+
+  hooks.onCompleted({ id: 1, webContentsId: 42, url: 'https://x.com/i/api/graphql/a/HomeTimeline', statusCode: 429 });
+  hooks.onCompleted({ id: 2, webContentsId: 42, url: 'https://x.com/i/api/graphql/a/TweetDetail', statusCode: 200 });
+
+  assert.deepEqual(observed, [429, 200]);
+});

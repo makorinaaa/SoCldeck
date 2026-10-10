@@ -25,7 +25,9 @@ const GRAPHQL_URLS = [
 
 // Store timing and outcomes only: never URLs, request bodies, cookies, or headers.
 // save runs while the app is in use and may be asynchronous; saveSync runs on quit.
-function createXPageDiagnostics({ save, saveSync = save, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+// observeResponse は、X の GraphQL の応答すべて（状態コード付き）を受け取る。
+// onCompleted はセッションに1つしか登録できないので、制限の検知（x-restriction-monitor.js）もここから受け取る。
+function createXPageDiagnostics({ save, saveSync = save, now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout, observeResponse = () => {} } = {}) {
   const events = [];
   const pending = new Map();
   const sessions = new WeakSet();
@@ -59,7 +61,10 @@ function createXPageDiagnostics({ save, saveSync = save, now = Date.now, setTime
         status: details.statusCode || 0, elapsedMs: start === undefined ? null : now() - start,
         ...(error ? { error: /^net::ERR_[A-Z0-9_]+$/.test(error) ? error : 'network-error' } : {}) });
     }
-    session.webRequest.onCompleted(filter, details => complete(details));
+    session.webRequest.onCompleted(filter, details => {
+      try { observeResponse(details); } catch {}
+      complete(details);
+    });
     session.webRequest.onErrorOccurred(filter, details => complete(details, details.error || 'network-error'));
   }
   function attachContents(contents) {
