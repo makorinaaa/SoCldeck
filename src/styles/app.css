@@ -443,6 +443,24 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .ptb:disabled{opacity:.35;cursor:not-allowed}
 .compose-preview-toggle{width:100%;padding:7px 9px;margin:0 0 8px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text2);font:11px inherit;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between}
 .compose-preview-toggle:hover{background:var(--bg3);color:var(--text1)}
+/* 投稿画面: 狭い画面では1列（order で返信元→アカウント→同時投稿→本文→添付→プレビューの順）。
+   幅 1000px 以上で返信元かプレビューがあるときは、本文・添付を左、返信元・同時投稿・プレビューを右に置く */
+.compose-layout{display:flex;flex-direction:column}
+.compose-side,.compose-main{display:contents}
+.compose-layout .bsky-reply-preview{order:1}
+#x-acc-select{order:2}
+#x-cross-post-controls,#cross-post-controls{order:3}
+.compose-layout .comp-wrap{order:4}
+#x-img-area,#b-img-area{order:5}
+.compose-preview-toggle{order:6}
+.compose-layout .compose-preview{order:7}
+.compose-layout .compose-status{order:8}
+@media (min-width:1000px){
+  .compose-has-side .cmodal{width:880px}
+  .compose-has-side .compose-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;column-gap:18px;align-items:start}
+  .compose-has-side .compose-main{display:flex;flex-direction:column;grid-column:1;grid-row:1;min-width:0}
+  .compose-has-side .compose-side{display:flex;flex-direction:column;grid-column:2;grid-row:1;min-width:0;position:sticky;top:0}
+}
 .compose-preview{display:none;margin:0 0 10px;padding:11px;border:1px solid var(--border2);border-radius:7px;background:var(--bg1)}
 .compose-preview.on{display:block}
 .compose-preview-head{display:flex;align-items:center;gap:7px;margin-bottom:8px}

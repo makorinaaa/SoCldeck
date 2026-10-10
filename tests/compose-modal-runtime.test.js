@@ -1382,3 +1382,17 @@ test('falls back to the handle for replies saved before the card existed', () =>
   assert.equal(elements['b-reply-preview'].style.display, 'none');
   assert.equal(elements['b-reply-preview'].innerHTML, '');
 });
+
+test('lays the Compose modal out in two columns only when there is a reply or an open preview', () => {
+  const { elements, view, snapshot } = createReplyViewHarness();
+  const wide = () => elements.compMod.classList.contains('compose-has-side');
+
+  view.render(snapshot(null));
+  assert.equal(wide(), false);
+  view.render(snapshot({ uri: 'at://post/1', cid: 'cid-1', handle: 'alice.test' }));
+  assert.equal(wide(), true);
+  view.render({ ...snapshot(null), previewOpen: true });
+  assert.equal(wide(), true);
+  view.render(snapshot(null));
+  assert.equal(wide(), false);
+});
