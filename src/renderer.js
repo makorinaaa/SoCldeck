@@ -10,6 +10,11 @@ import { createXNotificationLoader } from './renderer/x-notification-loader.mjs'
 import { createColumnMounts } from './renderer/column-mounts.mjs';
 import { readReplyPreview } from './renderer/reply-preview.mjs';
 import {
+  createXAutomationConsent,
+  createXAutomationSetting,
+  needsXAutomationDecision,
+} from './renderer/x-automation-consent.mjs';
+import {
   blueskyPostFacts,
   createColumnFilterStore,
   describeColumnFilter,
@@ -108,6 +113,20 @@ const xComposePreparation = SocialDeckXComposePreparation;
 const xPostConfirmation = SocialDeckXPostConfirmation;
 const notificationCenter = SocialDeckNotificationCenter;
 const E2E_FIXTURES = window.electronAPI?.e2eFixtures || null;
+// X の自動化機能（画面外の X ページのデータの読み取りと、スクリプトでのボタン操作）は、
+// 利用者が同意したときだけ作る。同意を変えたらアプリを読み込み直して反映する
+const xAutomationSetting = createXAutomationSetting({ storage: localStorage, fallback: E2E_FIXTURES?.xAutomation ?? null });
+const X_AUTOMATION_ENABLED = xAutomationSetting.isEnabled();
+const xAutomationConsent = createXAutomationConsent({
+  documentRef: document,
+  getDecision: () => xAutomationSetting.get(),
+});
+const X_AUTOMATION_OFF_HTML = `<div class="feed-empty">X の自動化機能を使わない設定のため、ネイティブ版カラムは表示しません。<br>
+  <button type="button" class="chip-btn" data-action="open-x-automation-consent">X の自動化機能について</button></div>`;
+
+function isXColumn(id) {
+  return columnShellRuntime.getRoot(id)?.dataset.network === 'x';
+}
 let xWebViewRuntime;
 let bskyColumnsRuntime;
 let notificationCenterRuntime;
@@ -227,10 +246,15 @@ const columnShellRuntime = SocialDeckColumnShellRuntime.createColumnShellRuntime
 const columnLifecycle = SocialDeckColumnLifecycle.createColumnLifecycle({
   createPlan: request => networkAdapters.createColumnPlan(request),
   insertPlan: plan => columnMounts.insertPlan(plan),
-  scheduleRefresh: (id, interval, callback) => refreshScheduler.set(id, interval, callback),
+  // 同意していなければ X カラムは自動更新しない（手動の更新はページの再読み込みだけ）
+  scheduleRefresh: (id, interval, callback) => (X_AUTOMATION_ENABLED || !isXColumn(id)
+    ? refreshScheduler.set(id, interval, callback)
+    : refreshScheduler.remove(id)),
   clearRefreshSchedule: id => refreshScheduler.remove(id),
   executeRefresh: (id, plan, context) => networkAdapters.executeColumnRefresh(id, plan, {
-    refreshXNavigation: (id, destination) => xWebViewRuntime.refreshNavigation(id, destination),
+    refreshXNavigation: (id, destination) => (X_AUTOMATION_ENABLED
+      ? xWebViewRuntime.refreshNavigation(id, destination)
+      : 'automation-disabled'),
     reloadWebView: id => xWebViewRuntime.reload(id, { silent: true }),
     loadWebViewUrl: (id, url) => xWebViewRuntime.navigateToStart(id, url),
     refreshBlueskyFeed: silentRefreshBsky,
@@ -579,7 +603,8 @@ const composeModalView = SocialDeckComposeModalView.createComposeModalDomView({
 composeModalRuntime = SocialDeckComposeModalRuntime.createComposeModalRuntime({
   storage: localStorage,
   measurePost,
-  getAccounts: () => ({ x: state.xs || [], b: state.b }),
+  // Bluesky → X の同時投稿も X の投稿欄をスクリプトで操作するので、同意していなければ出さない
+  getAccounts: () => ({ x: X_AUTOMATION_ENABLED ? state.xs || [] : [], b: state.b }),
   getPreferences: () => state.composePreferences || {},
   mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
   coordinator: composeCoordinator,
@@ -728,7 +753,7 @@ async function initWvPreloadPath() {
 }
 const refreshScheduler = SocialDeckRefreshScheduler.createRefreshScheduler();
 const DEFAULT_INTERVAL_MS = refreshScheduler.DEFAULT_INTERVAL_MS;
-const xTimelineTap = IS_ELECTRON && window.electronAPI?.attachXTimelineTap
+const xTimelineTap = X_AUTOMATION_ENABLED && IS_ELECTRON && window.electronAPI?.attachXTimelineTap
   ? {
       attach: id => window.electronAPI.attachXTimelineTap(id),
       detach: id => window.electronAPI.detachXTimelineTap(id),
@@ -779,7 +804,9 @@ xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
   getRefreshInterval: id => columnLifecycle.getRefreshInterval(id),
   setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
   defaultRefreshInterval: DEFAULT_INTERVAL_MS,
-  createRefreshScript: destination => SocialDeckXTimelineRefresh.createRefreshScript(destination),
+  createRefreshScript: X_AUTOMATION_ENABLED
+    ? destination => SocialDeckXTimelineRefresh.createRefreshScript(destination)
+    : null,
   getCanonicalUrl: getXNotificationColumnUrl,
   getPreloadPath: () => wvPreloadPath,
   allowDevTools: window.electronAPI?.devToolsEnabled === true,
@@ -861,6 +888,7 @@ const columnMounts = createColumnMounts({
   bluesky: bskyColumnsRuntime,
   animeSchedule: animeScheduleRuntime,
   xNative: xNativeTimelineRuntime,
+  ...(IS_ELECTRON && !X_AUTOMATION_ENABLED ? { xNativeUnavailableHtml: X_AUTOMATION_OFF_HTML } : {}),
   setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
   getFontSize: id => columnRuntime.getFontSize(id),
   getPreloadPath: () => wvPreloadPath,
@@ -915,6 +943,9 @@ notificationCenterRuntime = SocialDeckNotificationCenterRuntime.createNotificati
     },
     listX: async (account, accountIndex) => {
       if (!IS_ELECTRON) return [];
+      if (!X_AUTOMATION_ENABLED) {
+        throw new Error('X の自動化機能を使わない設定のため、X の通知は表示しません（設定 → X の自動化機能）');
+      }
       if (E2E_FIXTURES && E2E_FIXTURES.useNotificationReaders !== true) {
         return (E2E_FIXTURES.xNotifications || []).filter(item =>
           (Number(item.accountIndex) || 0) === accountIndex
@@ -1058,6 +1089,9 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
       desktopNotificationRuntime.rebaseline().catch(() => {});
       if (network === 'all') composeModalRuntime.forgetAllDrafts();
       else if (network === 'x' && kind === 'logout') composeModalRuntime.forgetXAccount(account);
+      if (network === 'x' && kind === 'login' && needsXAutomationDecision(xAutomationSetting.get(), state.xs)) {
+        xAutomationConsent.open();
+      }
       if (network === 'all') {
         accountSessionRuntime.openSettings();
         toast('すべてのアカウントからログアウトしました');
@@ -1323,6 +1357,11 @@ function openComp() {
 }
 
 function openXPost() {
+  // SocialDeck からの X への投稿は、X の投稿欄をスクリプトで操作する
+  if (!X_AUTOMATION_ENABLED) {
+    xAutomationConsent.open();
+    return;
+  }
   composeModalRuntime.open('x');
   setTimeout(() => document.getElementById('x-cta')?.focus(), 50);
 }
@@ -1639,6 +1678,13 @@ function createUiActionHandlers() {
     'update-status': ({ status }) => appInfo.renderUpdateStatus(status),
     'scroll-start': () => scrollToStart(),
     'open-x-post': () => openXPost(),
+    'open-x-automation-consent': () => xAutomationConsent.open(),
+    'decide-x-automation': ({ dataset }) => {
+      xAutomationSetting.set(dataset.decision);
+      xAutomationConsent.close();
+      // 動いている機能と選択が食い違うときだけ読み込み直す
+      if (xAutomationSetting.isEnabled() !== X_AUTOMATION_ENABLED) location.reload();
+    },
     'open-b-post': () => openComp(),
     'open-compose': ({ network }) => {
       if (network === 'x' || (!network && !state.b && state.xs?.length)) openXPost();
@@ -1768,6 +1814,9 @@ const xLoginStatesReady = accountSessionReady
 xLoginStatesReady.then(() => desktopNotificationRuntime.start()).catch(() => {});
 fileDragShield.attach();
 columnReorderRuntime.attach();
+
+// X アカウントがあって、自動化機能を使うかまだ決めていなければ、起動時に1回確認する
+if (needsXAutomationDecision(xAutomationSetting.get(), state.xs)) xAutomationConsent.open();
 
 const hasStoredAccounts = (state.xs && state.xs.length > 0) || state.b;
 if (hasStoredAccounts) {
