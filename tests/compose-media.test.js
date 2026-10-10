@@ -186,3 +186,16 @@ test('validates cross-post video rules behind the Media Draft boundary', () => {
     requirePath: true,
   })), { valid: true });
 });
+
+test('moves an image together with its ALT text', () => {
+  const draft = loadComposeMedia().createMediaDraft();
+  draft.addFiles([file('a.png', 'image/png'), file('b.png', 'image/png'), file('c.png', 'image/png')]);
+  draft.updateAlt(0, 'first');
+
+  assert.equal(draft.moveImage(0, 2), true);
+  assert.deepEqual(plain(draft.getSnapshot().images.map(image => [image.file.name, image.altText])), [
+    ['b.png', ''], ['c.png', ''], ['a.png', 'first'],
+  ]);
+  assert.equal(draft.moveImage(2, 3), false);
+  assert.equal(draft.moveImage(1, 1), false);
+});

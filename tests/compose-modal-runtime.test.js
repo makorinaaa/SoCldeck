@@ -1242,3 +1242,91 @@ test('attaches pasted images such as screenshots but keeps pasted text as text',
 
   assert.deepEqual(added, [['b', ['image.png']]]);
 });
+
+function loadMediaModule() {
+  const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'compose-media.js'), 'utf8'), context);
+  return context.window.SocialDeckComposeMedia;
+}
+
+test('reorders attached images, but not while a post is locked for retry', () => {
+  let handlers;
+  const draft = loadMediaModule().createMediaDraft();
+  const runtime = loadRuntime().createComposeModalRuntime({
+    getAccounts: () => ({ x: [], b: { did: 'did:plc:me' } }),
+    mediaDrafts: { b: draft },
+    coordinator: { resetCrossPost() {}, getStatus: () => ({ isSending: false }) },
+    view: { connect: value => { handlers = value; } },
+  });
+  runtime.open('b');
+  handlers.filesAdded('b', [{ name: 'a.png', type: 'image/png' }, { name: 'b.png', type: 'image/png' }]);
+
+  handlers.moveImage('b', 1, 0);
+  assert.deepEqual(plain(runtime.getSnapshot('b').media.images.map(image => image.file.name)), ['b.png', 'a.png']);
+
+  runtime.setBusy('b', false, '再試行', { locked: true });
+  handlers.moveImage('b', 1, 0);
+  assert.deepEqual(plain(runtime.getSnapshot('b').media.images.map(image => image.file.name)), ['b.png', 'a.png']);
+});
+
+function createImageViewHarness() {
+  const ids = ['xPostMod', 'compMod', 'x-img-preview', 'x-img-drop', 'x-video-wrap', 'x-video-preview', 'x-compose-preview', 'x-cta', 'x-cct', 'x-sndb'];
+  const elements = Object.fromEntries(ids.map(id => [id, createElement()]));
+  const opened = [];
+  const view = loadView().createComposeModalDomView({
+    documentRef: { getElementById: id => elements[id] || null },
+    urlApi: { createObjectURL: file => `blob:${file.name}`, revokeObjectURL() {} },
+    ui: { openImages: (urls, startIndex) => opened.push([urls, startIndex]) },
+  });
+  const moves = [];
+  view.connect({ moveImage: (networkId, from, to) => moves.push([networkId, from, to]) });
+  const files = ['a.png', 'b.png', 'c.png'].map(name => ({ name }));
+  view.render({
+    networkId: 'x', open: true, xAccounts: [], blueskyAccount: null,
+    selectedXAccountIndex: 0, selectedAccount: null, text: '', crossPost: false,
+    crossPostAvailable: false, media: { images: files.map(file => ({ file, altText: '' })), video: null },
+    reply: null, busy: false, locked: false, actionLabel: 'Post',
+    characterCount: 0, characterLimit: 280, canSubmit: true, previewOpen: false, targets: ['X'],
+  });
+  const target = dataset => {
+    const element = createElement();
+    element.dataset = dataset;
+    element.closest = selector => (selector === '[data-compose-action]' && dataset.composeAction)
+      || (selector === '[data-compose-image-row]' && dataset.composeImageRow) ? element : null;
+    return element;
+  };
+  return { elements, opened, moves, target };
+}
+
+test('renders each attached image as draggable with move buttons and opens it enlarged on click', () => {
+  const { elements, opened, moves, target } = createImageViewHarness();
+  const html = elements['x-img-preview'].innerHTML;
+
+  assert.equal((html.match(/draggable="true"/g) || []).length, 3);
+  assert.match(html, /data-compose-action="move-image"[^>]*data-compose-image-index="0"[^>]*data-compose-move="1"/);
+  assert.match(html, /aria-label="1枚目を後ろへ"/);
+
+  elements.xPostMod.dispatch('click', { target: target({ composeAction: 'move-image', composeNetwork: 'x', composeImageIndex: '1', composeMove: '-1' }) });
+  elements.xPostMod.dispatch('click', { target: target({ composeAction: 'move-image', composeNetwork: 'x', composeImageIndex: '2', composeMove: '1' }) });
+  elements.xPostMod.dispatch('click', { target: target({ composeAction: 'open-image', composeNetwork: 'x', composeImageIndex: '2' }) });
+
+  assert.deepEqual(moves, [['x', 1, 0]]);
+  assert.deepEqual(opened, [[['blob:a.png', 'blob:b.png', 'blob:c.png'], 2]]);
+});
+
+test('moves an image dragged onto another image, without treating it as a file drop', () => {
+  const { elements, moves, target } = createImageViewHarness();
+  const types = [];
+  const dataTransfer = { types, setData: type => types.push(type), effectAllowed: '', dropEffect: '' };
+  const event = (row, extra = {}) => ({ target: row, dataTransfer, prevented: false, preventDefault() { this.prevented = true; }, ...extra });
+
+  elements.xPostMod.dispatch('dragstart', event(target({ composeImageRow: 'x', composeImageIndex: '0' })));
+  const over = event(target({ composeImageRow: 'x', composeImageIndex: '2' }));
+  elements.xPostMod.dispatch('dragover', over);
+  elements.xPostMod.dispatch('drop', event(target({ composeImageRow: 'x', composeImageIndex: '2' })));
+  elements.xPostMod.dispatch('dragend', event(target({})));
+
+  assert.equal(over.prevented, true);
+  assert.equal(types.includes('Files'), false);
+  assert.deepEqual(moves, [['x', 0, 2]]);
+});

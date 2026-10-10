@@ -433,6 +433,13 @@
       return publish(networkId);
     }
 
+    // ロック中（結果不明・一部失敗の再試行待ち）は、送る内容を変えないよう並べ替えさせない
+    function moveImage(networkId, from, to) {
+      if (busy[networkId] || (locked[networkId] && !reattachMedia[networkId])) return getSnapshot(networkId);
+      mediaDrafts[networkId]?.moveImage?.(Number(from), Number(to));
+      return publish(networkId);
+    }
+
     function videoMetadataLoaded(networkId, durationSeconds) {
       mediaDrafts[networkId]?.setVideoDuration?.(durationSeconds);
       return publish(networkId);
@@ -486,6 +493,7 @@
       close,
       crossPostChanged,
       filesAdded,
+      moveImage,
       removeImage,
       removeVideo,
       selectCrossPostXAccount,

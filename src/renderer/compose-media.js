@@ -119,6 +119,15 @@
       return true;
     }
 
+    // 画像は ALT と一緒に動く
+    function moveImage(from, to) {
+      const valid = index => Number.isInteger(index) && index >= 0 && index < images.length;
+      if (!valid(from) || !valid(to) || from === to) return false;
+      const [image] = images.splice(from, 1);
+      images.splice(to, 0, image);
+      return true;
+    }
+
     function removeVideo() {
       if (!video) return false;
       video = null;
@@ -197,6 +206,7 @@
       addFiles,
       clear,
       getSnapshot,
+      moveImage,
       removeImage,
       removeVideo,
       setTrimPercent,

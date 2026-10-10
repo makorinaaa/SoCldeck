@@ -534,7 +534,7 @@ const notificationRuntime = SocialDeckNotificationRuntime.createNotificationRunt
 const xLoginGate = SocialDeckXLoginGate.createXLoginGate();
 const composeModalView = SocialDeckComposeModalView.createComposeModalDomView({
   documentRef: document,
-  ui: { escape: esc, formatSeconds: fmtSec },
+  ui: { escape: esc, formatSeconds: fmtSec, openImages: (urls, startIndex) => openImg(urls, startIndex) },
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
 });
 composeModalRuntime = SocialDeckComposeModalRuntime.createComposeModalRuntime({
