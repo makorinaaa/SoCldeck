@@ -287,7 +287,7 @@
         } else if (action === 'like') {
           reactions.toggle('like', post, partition);
         } else if (action === 'repost') {
-          reactions.openRepostMenu(actionButton, post, partition);
+          reactions.openRepostMenu(actionButton, post, partition, { own: postOptions(post, partition).own });
         } else if (action === 'more') {
           reactions.openMoreMenu(actionButton, post, partition);
         }

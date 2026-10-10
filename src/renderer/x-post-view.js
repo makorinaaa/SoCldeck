@@ -92,9 +92,9 @@
       const url = safeHttpsUrl(post.url);
       const like = reactionState(post, 'like', partition);
       const repost = reactionState(post, 'repost', partition);
-      // X does not let anyone repost or quote a protected account's post; an existing
-      // repost can still be undone.
-      const repostBlocked = Boolean(author.protected) && !repost.active;
+      // X does not let others repost or quote a protected account's post (its owner can);
+      // an existing repost can still be undone.
+      const repostBlocked = Boolean(author.protected) && !own && !repost.active;
       const repostLabel = post.repostedBy
         ? `<div class="repost-label">${icons.repost || ''} ${escapeHtml(post.repostedBy.name || post.repostedBy.handle || '')} がリポスト</div>`
         : '';
