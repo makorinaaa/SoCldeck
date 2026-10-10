@@ -46,7 +46,9 @@
         ? `<div class="repost-label">${icons.repost || ''} ${escapeHtml(reposter.displayName || reposter.handle || '')} reposted</div>`
         : '';
 
-      return `<div class="post" role="link" tabindex="0" data-uri="${escapeHtml(uri)}" data-cid="${escapeHtml(cid)}" data-likeuri="${escapeHtml(post.viewer?.like || '')}" data-reposturi="${escapeHtml(post.viewer?.repost || '')}" data-author-did="${escapeHtml(author.did || '')}" data-author-handle="${escapeHtml(author.handle || '')}">
+      // 返信はスレッドの起点（root）も指定する。この投稿自体が返信でなければ、この投稿が起点
+      const root = record.reply?.root?.uri ? record.reply.root : { uri, cid };
+      return `<div class="post" role="link" tabindex="0" data-uri="${escapeHtml(uri)}" data-cid="${escapeHtml(cid)}" data-root-uri="${escapeHtml(root.uri || '')}" data-root-cid="${escapeHtml(root.cid || '')}" data-likeuri="${escapeHtml(post.viewer?.like || '')}" data-reposturi="${escapeHtml(post.viewer?.repost || '')}" data-author-did="${escapeHtml(author.did || '')}" data-author-handle="${escapeHtml(author.handle || '')}">
         ${repostLabel}
         <div class="post-top">${avatar}<div class="post-meta"><div class="meta-row"><span class="p-name" title="${escapeHtml(author.displayName || author.handle || '')}">${escapeHtml(author.displayName || author.handle || '')}</span><span class="p-handle">@${escapeHtml(author.handle || '')}</span><span class="p-time" data-created-at="${escapeHtml(record.createdAt || '')}">${escapeHtml(time)}</span></div></div></div>
         <div class="p-body">${body}</div>${imageHtml}${videoHtml}

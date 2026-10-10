@@ -99,6 +99,7 @@
     const renderedSignatures = { xAccountSelect: null, crossPostAccounts: null };
     const trimPreviewActive = { x: false, b: false };
     let pendingMoveFocus = null;
+    const renderedReply = { x: null, b: null };
     let draggingImage = null;
     const thumbnailGeneration = { x: 0, b: 0 };
 
@@ -177,6 +178,33 @@
       const selector = `[data-compose-action="move-image"][data-compose-image-index="${index}"]`;
       const button = preview?.querySelector?.(`${selector}[data-compose-move="${move}"]`);
       (button && !button.disabled ? button : preview?.querySelector?.(`${selector}:not([disabled])`))?.focus?.();
+    }
+
+    // 返信先の本文と画像をカードで見せる。カード導入前の下書きはハンドルだけを出す
+    function replyCardHtml(reply) {
+      const preview = reply.preview;
+      if (!preview) return `<span style="color:var(--text2)">@${escape(reply.handle || '')}</span> への返信`;
+      const handle = preview.handle || reply.handle || '';
+      const images = (preview.images || [])
+        .map(url => `<img src="${escape(url)}" alt="" loading="lazy">`).join('');
+      const media = images || preview.hasVideo
+        ? `<div class="compose-reply-media">${images}${preview.hasVideo ? '<span class="compose-reply-video">動画</span>' : ''}</div>`
+        : '';
+      return `<div class="compose-reply-card">
+          <div class="compose-reply-head"><span class="compose-reply-label">返信先</span><span class="compose-reply-name">${escape(preview.name || handle)}</span><span class="compose-reply-handle">@${escape(handle)}</span></div>
+          ${preview.text ? `<div class="compose-reply-text">${escape(preview.text)}</div>` : ''}${media}
+        </div>`;
+    }
+
+    // 入力のたびに描き直すと画像を読み直すので、内容が変わったときだけ書き換える
+    function renderReplyPreview(networkId, reply) {
+      const element = elements[`${networkId}-reply-preview`];
+      if (!element) return;
+      const html = reply ? replyCardHtml(reply) : '';
+      element.style.display = reply ? 'block' : 'none';
+      if (renderedReply[networkId] === html) return;
+      element.innerHTML = html;
+      renderedReply[networkId] = html;
     }
 
     function releaseUnusedUrls() {
@@ -402,12 +430,7 @@
         elements['x-sndb'].disabled = !snapshot.canSubmit;
         elements['x-sndb'].textContent = snapshot.actionLabel;
       }
-      if (elements['x-reply-preview']) {
-        elements['x-reply-preview'].style.display = snapshot.reply ? 'flex' : 'none';
-        elements['x-reply-preview'].innerHTML = snapshot.reply
-          ? `<span style="color:var(--text2)">@${escape(snapshot.reply.handle || '')}</span> への返信`
-          : '';
-      }
+      renderReplyPreview('x', snapshot.reply);
       renderXMedia(snapshot);
       renderPreview(snapshot);
     }
@@ -479,12 +502,7 @@
         elements.sndb.disabled = !snapshot.canSubmit;
         elements.sndb.textContent = snapshot.actionLabel;
       }
-      if (elements['b-reply-preview']) {
-        elements['b-reply-preview'].style.display = snapshot.reply ? 'flex' : 'none';
-        elements['b-reply-preview'].innerHTML = snapshot.reply
-          ? `<span style="color:var(--text2)">@${escape(snapshot.reply.handle || '')}</span> への返信`
-          : '';
-      }
+      renderReplyPreview('b', snapshot.reply);
       renderBlueskyMedia(snapshot);
       renderPreview(snapshot);
     }

@@ -8,6 +8,7 @@ import { createSubmissionScript } from './renderer/x-composer-submit.mjs';
 import { createXAccounts, isSameXAccount, xPartitionOf } from './renderer/x-accounts.mjs';
 import { createXNotificationLoader } from './renderer/x-notification-loader.mjs';
 import { createColumnMounts } from './renderer/column-mounts.mjs';
+import { readReplyPreview } from './renderer/reply-preview.mjs';
 import { measurePost } from './renderer/post-length.mjs';
 import {
   SocialDeckAccountSessionRuntime,
@@ -579,7 +580,7 @@ bskyColumnsRuntime = SocialDeckBlueskyColumnsRuntime.createBlueskyColumnsRuntime
   icons: { reply: SVG.reply, repost: SVG.rt, heart: SVG.heart, bell: SVG.bell, follow: SVG.follow },
   documentRef: document,
   intents: {
-    reply: ({ uri, cid, handle }) => openReply(uri, cid, handle),
+    reply: ({ uri, cid, handle, rootUri, rootCid }) => openReply(uri, cid, handle, { rootUri, rootCid }),
     quote: ({ uri, cid, handle }) => composeQuote.open(uri, cid, handle),
     openImages: ({ urls, startIndex }) => openImg(urls, startIndex),
     openProfile: ({ did, handle }) => showProfile(did || handle),
@@ -1173,12 +1174,17 @@ async function refreshColumn(id, button) {
 
 let replyTarget = null; // { uri, cid, rootUri, rootCid }
 
-async function openReply(uri, cid, handle) {
-  replyTarget = { uri, cid, rootUri: uri, rootCid: cid, handle };
+// 返信先の投稿が分かっていればスレッドの起点（root）もそこから決まる。分からないときだけスレッドを取得する
+async function openReply(uri, cid, handle, { rootUri = null, rootCid = null } = {}) {
+  const preview = readReplyPreview(document.querySelector(`.post[data-uri="${CSS.escape(uri)}"]`));
+  replyTarget = {
+    uri, cid, rootUri: rootUri || uri, rootCid: rootCid || cid, handle,
+    ...(preview && { preview }),
+  };
 
   openComp();
 
-  if (state.b) {
+  if (!rootUri && state.b) {
     try {
       const thread = await authenticatedBskyAdapter.getThread({ uri, depth: 40 });
       let node = thread?.thread;
@@ -1273,8 +1279,9 @@ function openXPost() {
 // ネイティブXカラムからの返信・引用は、そのカラムのアカウントで投稿する
 function openXReply({ id, url, handle, partition }) {
   xNativeTimelineRuntime?.closeDetail();
+  const preview = readReplyPreview(document.querySelector(`.x-native-post[data-x-id="${CSS.escape(id)}"]`));
   const result = composeModalRuntime.open('x', {
-    reply: { id, url, handle },
+    reply: { id, url, handle, ...(preview && { preview }) },
     accountIndex: xAccounts.indexOfPartition(partition),
   });
   if (result?.status !== 'blocked' && result?.status !== 'cancelled') {
