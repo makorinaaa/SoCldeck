@@ -1311,6 +1311,24 @@ test('deleted column undo restores position width collapse interval and font aft
   assert.equal(await page.locator('#col-b-home').evaluate(element => element.style.width), '410px');
 });
 
+test('deleted column notice closes by itself after 10 seconds unless the pointer is on it', async t => {
+  const { page } = await launchApp(t, BLUESKY_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.clock.install();
+  const notice = page.locator('#column-undo');
+  await page.evaluate(async () => (await import('./renderer.js')).removeCol('b-home'));
+  await page.clock.runFor(9_000);
+  assert.equal(await notice.isVisible(), true);
+  await notice.hover();
+  await page.clock.runFor(30_000);
+  assert.equal(await notice.isVisible(), true);
+  await page.mouse.move(600, 20);
+  await page.clock.runFor(9_000);
+  assert.equal(await notice.isVisible(), true);
+  await page.clock.runFor(1_000);
+  assert.equal(await notice.isVisible(), false);
+});
+
 test('workspace backup file export import preview recovery and invalid file preserve accounts', async t => {
   const { electronApp, page } = await launchApp(t, BLUESKY_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });

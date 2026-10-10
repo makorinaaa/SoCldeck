@@ -74,5 +74,6 @@
   global.SocialDeckBskyComposeDelivery = {
     createBlueskyComposeDelivery,
     createPostKey,
+    isUnknownPostOutcome: isUnknownOutcome,
   };
 })(window);
