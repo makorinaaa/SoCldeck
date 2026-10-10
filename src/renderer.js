@@ -479,7 +479,9 @@ const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   getAccount: () => state.b,
   buildFacets: text => buildFacets(text),
   resolveMentionDids: facets => resolveMentionDids(facets),
-  createPostRecord: record => authenticatedBskyAdapter.createPostRecord({ record }),
+  createPostRecord: (record, { rkey } = {}) => authenticatedBskyAdapter.createPostRecord({ record, rkey }),
+  createPostKey: () => SocialDeckBskyComposeDelivery.createPostKey(),
+  isUnknownOutcome: error => SocialDeckBskyComposeDelivery.isUnknownPostOutcome(error),
   avatarFallbackBackground: AVBG[0],
   ui: { escape: esc },
   intents: {
@@ -558,6 +560,15 @@ const columnUndo = SocialDeckColumnUndo.createColumnUndo({
   },
   changed: pending => { document.getElementById('column-undo').hidden = !pending; },
 });
+{
+  // カラム削除の案内は、ポインターかフォーカスが乗っている間は自動で閉じない
+  const notice = document.getElementById('column-undo');
+  const update = engaged => (engaged ? columnUndo.pauseDismiss() : columnUndo.resumeDismiss());
+  notice.addEventListener('mouseenter', () => update(true));
+  notice.addEventListener('mouseleave', () => update(notice.contains(document.activeElement)));
+  notice.addEventListener('focusin', () => update(true));
+  notice.addEventListener('focusout', event => update(notice.contains(event.relatedTarget) || notice.matches(':hover')));
+}
 const notificationRuntime = SocialDeckNotificationRuntime.createNotificationRuntime();
 const xLoginGate = SocialDeckXLoginGate.createXLoginGate();
 const composeModalView = SocialDeckComposeModalView.createComposeModalDomView({
