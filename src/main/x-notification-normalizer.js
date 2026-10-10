@@ -34,9 +34,23 @@ function reasonFromIcon(icon = '', text = '') {
   return null;
 }
 
-function toIso(milliseconds) {
-  const value = Number(milliseconds);
-  return Number.isFinite(value) && value > 0 ? new Date(value).toISOString() : '';
+const EARLIEST_TIME = Date.UTC(2006, 0, 1);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// X has sent notification times as milliseconds (a number or a string of digits) and as
+// date strings; times outside X's lifetime are not times.
+function toIso(value, now = Date.now()) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const time = /^\d+$/.test(text) ? Number(text) : Date.parse(text);
+  return Number.isFinite(time) && time >= EARLIEST_TIME && time <= now + DAY_MS
+    ? new Date(time).toISOString() : '';
+}
+
+// An entry's sort index is its time when it holds milliseconds.
+function sortIndexTime(sortIndex, now = Date.now()) {
+  const text = String(sortIndex ?? '');
+  return /^\d{13}$/.test(text) ? toIso(text, now) : '';
 }
 
 function statusUrl(handle, id) {
@@ -116,7 +130,7 @@ function createGraphqlReader({ normalizeTweet, normalizeUser, unwrapTweet }) {
       actorName: actor?.name || actor?.handle || '',
       actorHandle: actor?.handle || '',
       avatar: actor?.avatar || '',
-      indexedAt: toIso(item.timestamp_ms),
+      indexedAt: toIso(item.timestamp_ms ?? item.timestampMs ?? item.timestamp) || sortIndexTime(sortIndex),
       sortIndex: String(sortIndex || ''),
       target: target || null,
     };
@@ -189,7 +203,7 @@ function readAdaptive(json) {
         actorName: actor?.name || '',
         actorHandle: actor?.handle || '',
         avatar: actor?.avatar || '',
-        indexedAt: toIso(value.timestampMs),
+        indexedAt: toIso(value.timestampMs) || sortIndexTime(entry.sortIndex),
         sortIndex: String(entry.sortIndex || ''),
       });
     } else if (content.tweet?.id) {
@@ -218,18 +232,27 @@ function readAdaptive(json) {
   return notifications;
 }
 
-function createNotificationNormalizer(helpers) {
+// X sends the newest notification first. One without a readable time keeps its place
+// instead of sinking below every dated one: it sorts with the time of the newer
+// notification before it, or the time it was read when it comes first. Its own time
+// (indexedAt) stays empty, so no made-up time is shown.
+function withSortTimes(notifications, now) {
+  let previous = new Date(now).toISOString();
+  return notifications.map(item => {
+    if (item.indexedAt) previous = item.indexedAt;
+    return { ...item, sortAt: item.indexedAt || previous };
+  });
+}
+
+function createNotificationNormalizer({ now = Date.now, ...helpers }) {
   const readGraphql = createGraphqlReader(helpers);
   return function normalizeNotificationsResponse(json) {
     const notifications = readAdaptive(json) || readGraphql(json);
     if (!notifications) return null;
     return {
       operation: 'Notifications',
-      notifications: notifications.sort((a, b) => {
-        const left = Date.parse(a.indexedAt) || 0;
-        const right = Date.parse(b.indexedAt) || 0;
-        return right - left;
-      }),
+      notifications: withSortTimes(notifications, now())
+        .sort((a, b) => (Date.parse(b.sortAt) || 0) - (Date.parse(a.sortAt) || 0)),
     };
   };
 }

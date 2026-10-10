@@ -34,6 +34,9 @@
       onSourceChange(partition);
     }
 
+    // A notification without a readable time sorts where X placed it (see the normalizer).
+    const sortTime = item => Date.parse(item?.sortAt || item?.indexedAt) || 0;
+
     // A continued page holds only newer or older notifications, not the newest list: it is
     // merged into the list a first page started (newest first, the incoming copy winning).
     function mergeItems(incoming, existing) {
@@ -46,7 +49,7 @@
           seen.add(key);
           return true;
         })
-        .sort((a, b) => (Date.parse(b.indexedAt) || 0) - (Date.parse(a.indexedAt) || 0))
+        .sort((a, b) => sortTime(b) - sortTime(a))
         .slice(0, MAX_ITEMS);
     }
 
@@ -92,6 +95,7 @@
         actorHandle: item.actorHandle || '',
         avatar: item.avatar || '',
         indexedAt: item.indexedAt || '',
+        sortAt: item.sortAt || '',
       }));
     }
 

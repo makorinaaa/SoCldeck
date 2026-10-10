@@ -60,6 +60,8 @@
       reason,
       isRead: null,
       indexedAt,
+      // Where X placed a notification whose time could not be read.
+      sortAt: String(raw?.sortAt || indexedAt),
       author: {
         handle,
         displayName: raw?.actorName || handle || 'Xユーザー',

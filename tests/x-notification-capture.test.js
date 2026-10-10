@@ -108,6 +108,21 @@ test('a continued page merges newer notifications into the newest list', async (
   assert.deepEqual(plain(capture.last('persist:x-0').map(entry => entry.indexedAt)), [newer.indexedAt, older.indexedAt]);
 });
 
+test('a merged notification without a time keeps the place X gave it', async () => {
+  const { capture, emit, tick } = setup();
+  await capture.attach(7, 'persist:x-0');
+  const older = { ...item, id: 'n1', indexedAt: '2026-10-06T10:00:00.000Z' };
+  emit({ webContentsId: 7, notifications: [older] });
+  tick(10);
+  const undated = { ...item, id: 'n2', indexedAt: '', sortAt: '2026-10-06T11:00:00.000Z' };
+  emit({ webContentsId: 7, notifications: [undated], requestCursor: 'TOP' });
+  const plain = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(capture.last('persist:x-0').map(entry => [entry.indexedAt, entry.sortAt])), [
+    ['', undated.sortAt],
+    [older.indexedAt, ''],
+  ]);
+});
+
 test('an account whose X data stops arriving reads the page after two misses', async () => {
   const storage = createStorage();
   const { capture, emit, sourceChanges } = setup({ storage });

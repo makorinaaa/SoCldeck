@@ -109,3 +109,44 @@ test('notification items name the author of their target post', () => {
   assert.equal(like.targetAuthorId, '2');
   assert.equal(like.targetAuthorHandle, 'realme');
 });
+
+function graphqlNotifications(entries) {
+  return { data: { viewer_v2: { user_results: { result: { notification_timeline: { timeline: { instructions: [{
+    type: 'TimelineAddEntries',
+    entries: entries.map(({ id, sortIndex = '', ...time }) => ({ entryId: `notification-${id}`, sortIndex, content: { itemContent: {
+      itemType: 'TimelineNotification', id, notification_icon: 'heart_icon', ...time,
+      rich_message: { text: 'Bobさんがあなたのポストをいいねしました' },
+      template: { from_users: [{ user_results: { result: { rest_id: '3', core: { name: 'Bob', screen_name: 'bob' }, legacy: {} } } }] },
+    } } })),
+  }] } } } } } } };
+}
+
+test('reads notification times sent as milliseconds, date strings or a millisecond sort index', () => {
+  const { notifications } = normalizeCapturedResponse(graphqlNotifications([
+    { id: 'number', timestamp_ms: 1790000003000 },
+    { id: 'digits', timestamp_ms: '1790000002000' },
+    { id: 'date', timestamp_ms: '2026-09-21T14:13:21.000Z' },
+    { id: 'sort', sortIndex: '1790000000000' },
+  ]), 'NotificationsTimeline');
+  assert.deepEqual(plain(notifications.map(item => [item.id, item.indexedAt])), [
+    ['number', new Date(1790000003000).toISOString()],
+    ['digits', new Date(1790000002000).toISOString()],
+    ['date', '2026-09-21T14:13:21.000Z'],
+    ['sort', new Date(1790000000000).toISOString()],
+  ]);
+});
+
+test('a notification without a readable time keeps the place X gave it', () => {
+  const { notifications } = normalizeCapturedResponse(graphqlNotifications([
+    { id: 'newest', sortIndex: '9' },
+    { id: 'reply', timestamp_ms: '1790000002000' },
+    { id: 'middle', timestamp_ms: 'soon', sortIndex: '1234567890123456789' },
+    { id: 'old', timestamp_ms: '1790000000000' },
+  ]), 'NotificationsTimeline');
+  assert.deepEqual(notifications.map(item => item.id), ['newest', 'reply', 'middle', 'old']);
+  // No time is made up for display; only the order uses the neighbouring time.
+  assert.equal(notifications[0].indexedAt, '');
+  assert.ok(Date.parse(notifications[0].sortAt) > 1790000002000);
+  assert.equal(notifications[2].indexedAt, '');
+  assert.equal(notifications[2].sortAt, new Date(1790000002000).toISOString());
+});

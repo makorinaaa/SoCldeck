@@ -3,7 +3,8 @@
     const key = 'socialdeck_x_reply_notifications_v1';
     // Bumped when notification identities change format: the next observation is taken as
     // already seen instead of announcing every notification again.
-    const IDENTITY_VERSION = 2;
+    // 3: likes read from X's data carry their time, which is part of their identity.
+    const IDENTITY_VERSION = 3;
     let accounts = {};
     try { accounts = JSON.parse(storage?.getItem(key) || '{}') || {}; } catch {}
     if (typeof accounts !== 'object' || Array.isArray(accounts)) accounts = {};

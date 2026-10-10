@@ -441,7 +441,7 @@ test('rebaselines legacy notification identities without replaying existing item
   const saved = storage.read('socialdeck_desktop_notification_rules');
   assert.deepEqual(shown, []);
   assert.equal(saved.baselined, true);
-  assert.equal(saved.knownIdsVersion, 3);
+  assert.equal(saved.knownIdsVersion, 4);
   assert.deepEqual(saved.knownIds, ['x:current-x-item']);
 });
 
