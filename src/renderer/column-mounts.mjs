@@ -18,6 +18,8 @@ function createColumnMounts({
   bluesky,
   animeSchedule,
   xNative = null,
+  // xNative が無いときにネイティブ版カラムへ出す説明（X の自動化に同意していないときなど）
+  xNativeUnavailableHtml = UNAVAILABLE_HTML,
   setRefreshInterval,
   getFontSize = () => null,
   getPreloadPath = () => '',
@@ -155,7 +157,7 @@ function createColumnMounts({
         : feedHost(id, 'feed x-native-feed', 'X のタイムラインを読み込み中…')],
     });
     if (!xNative) {
-      hosts.content.innerHTML = UNAVAILABLE_HTML;
+      hosts.content.innerHTML = xNativeUnavailableHtml;
     } else if (notifications) {
       xNative.mountNotifications({ id, partition, host: hosts.content, badge });
     } else {

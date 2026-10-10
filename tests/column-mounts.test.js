@@ -6,7 +6,7 @@ function element(tagName = 'div') {
     appendChild(child) { this.children.push(child); } };
 }
 
-async function harness({ xNative = true, fontSizes = {} } = {}) {
+async function harness({ xNative = true, fontSizes = {}, xNativeUnavailableHtml } = {}) {
   const { createColumnMounts } = await import('../src/renderer/column-mounts.mjs');
   const calls = { shells: [], intervals: [], xWebView: [], bluesky: [], refreshes: [], anime: [], xNative: [], fontSizes: [] };
   const elements = new Map();
@@ -42,6 +42,7 @@ async function harness({ xNative = true, fontSizes = {} } = {}) {
       mount: request => calls.xNative.push(['home', request]),
       mountNotifications: request => calls.xNative.push(['notifications', request]),
     } : null,
+    ...(xNativeUnavailableHtml ? { xNativeUnavailableHtml } : {}),
     setRefreshInterval: (id, interval) => calls.intervals.push([id, interval]),
     getFontSize: id => fontSizes[id] ?? null,
     getPreloadPath: () => 'file:///webview-preload.js',
@@ -130,6 +131,18 @@ test('native X Columns explain that they need the desktop app', async () => {
   mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-0',
     config: { ...common, id: 'xn', network: 'x', definitionId: 'x-home-native' } });
   assert.match(elements.get('feed-xn').innerHTML, /デスクトップ版でのみ/);
+});
+
+test('native X Columns show why they are off when X automation is not agreed to', async () => {
+  const { mounts, elements, calls } = await harness({
+    xNative: false,
+    xNativeUnavailableHtml: '<div class="feed-empty">同意が必要です</div>',
+  });
+  mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-0',
+    config: { ...common, id: 'xn', network: 'x', definitionId: 'x-home-native' } });
+
+  assert.match(elements.get('feed-xn').innerHTML, /同意が必要です/);
+  assert.deepEqual(calls.xNative, []);
 });
 
 test('rejects unknown plans and keeps a Column that cannot be restored', async () => {

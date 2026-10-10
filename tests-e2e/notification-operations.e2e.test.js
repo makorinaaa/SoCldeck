@@ -263,7 +263,8 @@ async function launchApp(t, fixtures) {
     env: {
       ...process.env,
       SOCIALDECK_E2E: '1',
-      SOCIALDECK_E2E_FIXTURES: JSON.stringify(fixtures),
+      // 既存のテストは X の自動化機能を使う前提。未選択の状態は xAutomation: null で試す
+      SOCIALDECK_E2E_FIXTURES: JSON.stringify({ xAutomation: 'enabled', ...fixtures }),
     },
   });
   t.after(async () => {
@@ -992,6 +993,52 @@ test('wide Compose puts the reply, cross-post and preview beside the text, and s
   assert.ok((await box('#b-compose-preview')).y > narrowText.y);
   assert.ok((await box('#compMod .cmodal')).width <= 520);
   if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'compose-narrow.png') });
+});
+
+test('X automation stays off until the user agrees, and turns on after agreeing', { timeout: 40000 }, async t => {
+  const { page } = await launchApp(t, { ...COMPOSE_FIXTURES, xAutomation: null });
+  const consent = page.locator('#x-automation-ov');
+  await consent.waitFor({ state: 'visible' });
+  assert.match(await consent.textContent(), /永久凍結/);
+  if (process.env.SOCIALDECK_POLISH_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.SOCIALDECK_POLISH_SCREENSHOTS, 'x-automation-consent.png') });
+
+  await consent.locator('[data-decision="disabled"]').click();
+  await consent.waitFor({ state: 'detached' });
+  await page.locator('#app').waitFor({ state: 'visible' });
+
+  // Posting to X from SocialDeck asks again instead of opening the X composer
+  await page.locator('#sb-post-x').click();
+  await consent.waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#xPostMod').evaluate(element => element.classList.contains('on')), false);
+  await consent.locator('[data-decision="disabled"]').click();
+
+  // Bluesky compose offers no cross-post to X
+  await openCompose(page, 'b');
+  assert.equal(await page.locator('#cross-post-controls').isVisible(), false);
+  await page.locator('#compMod [data-compose-action="close"]').click();
+
+  // A native column explains why it is empty
+  await page.evaluate(async () => {
+    const { columnLifecycle, state } = await import('./renderer.js');
+    columnLifecycle.create({
+      networkId: 'x', definitionId: 'x-home-native', id: 'xn-consent',
+      account: { ...state.xs[0], index: 0, partition: 'persist:x-0' },
+    });
+  });
+  assert.match(await page.locator('#feed-xn-consent').textContent(), /X の自動化機能を使わない設定/);
+
+  // Agreeing from the settings reloads the app with the features on
+  await page.locator('#feed-xn-consent [data-action="open-x-automation-consent"]').click();
+  await Promise.all([
+    page.waitForEvent('load'),
+    consent.locator('[data-decision="enabled"]').click(),
+  ]);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  assert.equal(await consent.count(), 0);
+  await page.locator('#feed-xn-consent').waitFor();
+  assert.doesNotMatch(await page.locator('#feed-xn-consent').textContent(), /使わない設定/);
+  await openCompose(page, 'x');
+  assert.equal(await page.locator('#xPostMod').evaluate(element => element.classList.contains('on')), true);
 });
 
 test('polish journey restores drafts, previews density and opens column actions', async t => {
