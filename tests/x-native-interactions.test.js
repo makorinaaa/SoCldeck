@@ -660,4 +660,13 @@ test('likes are pressed on the hidden home page first and fall back to the statu
   await flush();
   assert.deepEqual(plain(toggles), [['like', false]], 'a post no longer on the home page uses the status page');
   assert.deepEqual(plain(outcomes.map(outcome => outcome.status)), ['succeeded', 'succeeded']);
+
+  // Once X's button may have been pressed, pressing again could send the same like twice
+  for (const result of ['unconfirmed', 'failed']) {
+    homeResult = result;
+    await like();
+    await flush();
+  }
+  assert.deepEqual(plain(toggles), [['like', false]], 'no second press after the home page may have pressed it');
+  assert.deepEqual(plain(outcomes.map(outcome => outcome.status)), ['succeeded', 'succeeded', 'failed', 'failed']);
 });
