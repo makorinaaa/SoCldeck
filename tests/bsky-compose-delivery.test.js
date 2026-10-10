@@ -144,3 +144,63 @@ test('Bluesky upload rejection does not submit an attachment-free post', async (
   await assert.rejects(delivery.execute({ text: 'hello', images: [{ file: {}, alt: '' }] }), /Upload failed/);
   assert.equal(created, 0);
 });
+
+function loadModule() {
+  const context = { window: {} };
+  const source = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'bsky-compose-delivery.js'),
+    'utf8',
+  );
+  vm.runInNewContext(source, context);
+  return context.window.SocialDeckBskyComposeDelivery;
+}
+
+test('sends the post under the record key chosen for this delivery', async () => {
+  const created = [];
+  const delivery = loadFactory()({
+    buildFacets: () => [], resolveFacets: async value => value,
+    createRecord: async payload => created.push(payload.rkey),
+  });
+
+  await delivery.execute({ text: 'hello', images: [], rkey: '3lbcdefghijk2' });
+
+  assert.deepEqual(created, ['3lbcdefghijk2']);
+});
+
+for (const [label, error] of [
+  ['a timeout', Object.assign(new Error('timed out'), { status: 0, code: 'RequestTimeout' })],
+  ['a lost connection', Object.assign(new Error('failed'), { status: 0, code: 'NetworkError' })],
+  ['a server error', Object.assign(new Error('Upstream'), { status: 502, code: '' })],
+]) {
+  test(`reports ${label} while creating the post as an unknown outcome`, async () => {
+    const delivery = loadFactory()({
+      buildFacets: () => [], resolveFacets: async value => value,
+      createRecord: async () => { throw error; },
+    });
+
+    const result = await delivery.execute({ text: 'hello', images: [] });
+
+    assert.equal(result.status, 'unknown');
+  });
+}
+
+test('keeps a rejected post as a failure', async () => {
+  const delivery = loadFactory()({
+    buildFacets: () => [], resolveFacets: async value => value,
+    createRecord: async () => {
+      throw Object.assign(new Error('Record/text must not be longer than 300 graphemes'), { status: 400 });
+    },
+  });
+
+  await assert.rejects(delivery.execute({ text: 'hello', images: [] }), /300 graphemes/);
+});
+
+test('creates time-ordered post record keys in the TID format', () => {
+  const { createPostKey } = loadModule();
+  const first = createPostKey({ nowMs: 1_700_000_000_000, clockId: 0 });
+  const later = createPostKey({ nowMs: 1_700_000_000_001, clockId: 0 });
+
+  assert.match(first, /^[2-7a-j][2-7a-z]{12}$/);
+  assert.match(createPostKey(), /^[2-7a-j][2-7a-z]{12}$/);
+  assert.ok(first < later);
+});

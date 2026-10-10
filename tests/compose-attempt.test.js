@@ -137,3 +137,12 @@ test('retains the Compose Request when delivery cannot be confirmed', async () =
   assert.strictEqual(result.retainedRequest, request);
   assert.equal(result.value.reason, 'confirmation-timeout');
 });
+
+test('restores an unknown outcome so a retry still asks for confirmation', () => {
+  const attempt = loadComposeAttempt().createComposeAttemptRuntime();
+
+  attempt.restore('unknown');
+
+  assert.equal(attempt.getSnapshot().status, 'unknown');
+  assert.equal(attempt.reset().status, 'idle');
+});

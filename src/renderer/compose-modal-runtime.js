@@ -28,6 +28,8 @@
     const loadedKeys = { x: null, b: null };
     const sessionDrafts = new Map();
     const deliveryAccounts = { x: null, b: null };
+    // 再送でも同じ投稿を指すための鍵（Bluesky の rkey）。ロック中は最初の送信のものを使い続ける
+    const deliveryKeys = { x: null, b: null };
 
     function targetAccounts(networkId) {
       const current = accounts();
@@ -48,11 +50,18 @@
       if (!key) return;
       try {
         const media = mediaDrafts[networkId]?.getSnapshot?.();
-        let results = locked[networkId] || busy[networkId] ? coordinator.getStatus?.(networkId)?.crossPost?.targets || [] : [];
-        if (busy[networkId] && crossPost[networkId] && !results.length) results = ['x', 'b'].map(id => ({ id, status: 'unknown' }));
+        const status = coordinator.getStatus?.(networkId);
+        const crossPosting = isCrossPosting(networkId);
+        let results = locked[networkId] || busy[networkId] ? status?.crossPost?.targets || [] : [];
+        if (busy[networkId] && crossPosting && !results.length) results = ['x', 'b'].map(id => ({ id, status: 'unknown' }));
+        // 送信中に終了した単独投稿も、結果不明として残す
+        const unknownSingle = !crossPosting && !results.length
+          && (busy[networkId] || (locked[networkId] && status?.single?.status === 'unknown'));
         const draft = { text: text[networkId], reply: networkId === 'b' ? reply : xReply,
           crossPost: crossPost[networkId], crossPostXAccountIndex,
           deliveryAccounts: deliveryAccounts[networkId],
+          deliveryKey: deliveryKeys[networkId],
+          unknownSingle,
           results: results.map(target => ({ id: target.id, status: busy[networkId] && target.status !== 'succeeded' ? 'unknown' : target.status, error: target.error ? { message: target.error.message } : null })),
           hasMedia: Boolean(media?.images?.length || media?.video || reattachMedia[networkId]) };
         sessionDrafts.set(key, { ...draft, media });
@@ -89,17 +98,21 @@
             media?.setTrimSeconds?.('end', video.trim?.endSeconds || video.durationSeconds);
           }
         }
-        if (Array.isArray(draft.results) && draft.results.length) {
-          coordinator.restoreCrossPost?.(draft.results);
-          crossPost[networkId] = Boolean(draft.crossPost);
+        const unknownSingle = draft.unknownSingle === true;
+        if ((Array.isArray(draft.results) && draft.results.length) || unknownSingle) {
+          if (unknownSingle) coordinator.restoreSingle?.(networkId);
+          else coordinator.restoreCrossPost?.(draft.results);
+          crossPost[networkId] = !unknownSingle && Boolean(draft.crossPost);
           crossPostXAccountIndex = Number.isInteger(draft.crossPostXAccountIndex) ? draft.crossPostXAccountIndex : 0;
           locked[networkId] = true;
           deliveryAccounts[networkId] = draft.deliveryAccounts || null;
+          deliveryKeys[networkId] = typeof draft.deliveryKey === 'string' ? draft.deliveryKey : null;
           if (networkId === 'b' && deliveryAccounts[networkId]?.x) {
             const index = accounts().x.findIndex(account => (account.partition || account.username) === deliveryAccounts[networkId].x);
             if (index >= 0) crossPostXAccountIndex = index;
           }
-          actionLabels[networkId] = '未完了の投稿先を再試行';
+          actionLabels[networkId] = !unknownSingle ? '未完了の投稿先を再試行'
+            : networkId === 'x' ? '確認後に再試行' : '再試行';
         }
       } catch { /* Invalid or unavailable storage must not prevent composing. */ }
     }
@@ -113,6 +126,7 @@
       locked[networkId] = false;
       reattachMedia[networkId] = false;
       deliveryAccounts[networkId] = null;
+      deliveryKeys[networkId] = null;
       actionLabels[networkId] = networkId === 'x' ? 'ポスト' : '投稿';
       initialized[networkId] = false;
       loadedKeys[networkId] = null;
@@ -158,18 +172,27 @@
       };
     }
 
+    function isCrossPostAvailable(networkId) {
+      const currentAccounts = accounts();
+      const crossPostVideoCompatible = mediaDrafts[networkId]?.validateVideo?.({
+        allowedMimeTypes: ['video/mp4'],
+      })?.valid !== false;
+      return networkId === 'x'
+        ? Boolean(currentAccounts.b && crossPostVideoCompatible && !xReply)
+        : Boolean(currentAccounts.x.length > 0 && !reply);
+    }
+
+    function isCrossPosting(networkId) {
+      return isCrossPostAvailable(networkId) && Boolean(crossPost[networkId]);
+    }
+
     function getSnapshot(networkId = openNetworkId) {
       const currentAccounts = accounts();
       const accountMismatch = locked[networkId] && deliveryAccounts[networkId]
         && JSON.stringify(deliveryAccounts[networkId]) !== JSON.stringify(targetAccounts(networkId));
       const media = mediaDrafts[networkId]?.getSnapshot?.() || { images: [], video: null };
-      const crossPostVideoCompatible = mediaDrafts[networkId]?.validateVideo?.({
-        allowedMimeTypes: ['video/mp4'],
-      })?.valid !== false;
-      const crossPostAvailable = networkId === 'x'
-        ? Boolean(currentAccounts.b && crossPostVideoCompatible && !xReply)
-        : Boolean(currentAccounts.x.length > 0 && !reply);
-      const crossPosting = crossPostAvailable && Boolean(crossPost[networkId]);
+      const crossPostAvailable = isCrossPostAvailable(networkId);
+      const crossPosting = isCrossPosting(networkId);
       const characterLimit = networkId === 'b' && !crossPosting ? 300 : 280;
       const characterCount = (text[networkId] || '').length;
       const hasAttachment = media.images.length > 0 || Boolean(media.video);
@@ -194,6 +217,7 @@
         draftError: draftError[networkId],
         reattachMedia: reattachMedia[networkId],
         accountMismatch,
+        deliveryKey: deliveryKeys[networkId],
         deliveryResults: coordinator.getStatus?.(networkId)?.crossPost?.targets || [],
         actionLabel: actionLabels[networkId],
         characterCount,
@@ -287,6 +311,7 @@
       busy[networkId] = false;
       locked[networkId] = false;
       deliveryAccounts[networkId] = null;
+      deliveryKeys[networkId] = null;
       actionLabels[networkId] = networkId === 'x' ? 'ポスト' : '投稿';
       text[networkId] = '';
       reattachMedia[networkId] = false;
@@ -304,7 +329,10 @@
     }
 
     function setBusy(networkId, isBusy, label = null, options = {}) {
-      if (isBusy && !busy[networkId] && !locked[networkId]) deliveryAccounts[networkId] = targetAccounts(networkId);
+      if (isBusy && !busy[networkId] && !locked[networkId]) {
+        deliveryAccounts[networkId] = targetAccounts(networkId);
+        deliveryKeys[networkId] = options.deliveryKey || null;
+      }
       busy[networkId] = Boolean(isBusy);
       if (typeof options.locked === 'boolean') locked[networkId] = options.locked;
       actionLabels[networkId] = label || (networkId === 'x' ? 'ポスト' : '投稿');

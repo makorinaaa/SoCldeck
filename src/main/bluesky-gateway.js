@@ -71,6 +71,15 @@ function readRecord(value) {
   return record;
 }
 
+// 投稿の rkey は TID（13文字、先頭は 2-7 か a-j）
+function readOptionalPostKey(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value !== 'string' || !/^[2-7a-j][2-7a-z]{12}$/.test(value)) {
+    throw new Error('Invalid Bluesky post record key');
+  }
+  return value;
+}
+
 function readBlob(value) {
   const payload = readObject(value);
   if (!IMAGE_MIME_TYPES.has(payload.mimeType)) {
@@ -280,11 +289,25 @@ function createBlueskyGateway({ vault, client, prepareVideo } = {}) {
         ));
       case 'createPostRecord': {
         const record = readRecord(payload.record);
-        return authenticated(account => client.createRecord(
-          account.accessJwt,
-          account.did,
-          record,
-        ));
+        const rkey = readOptionalPostKey(payload.rkey);
+        if (!rkey) {
+          return authenticated(account => client.createRecord(
+            account.accessJwt,
+            account.did,
+            record,
+          ));
+        }
+        // 前回の送信が応答だけ失って作成済みのことがある。同じ rkey の投稿があれば、それを結果にする
+        return authenticated(async account => {
+          try {
+            return await client.createRecord(account.accessJwt, account.did, record, rkey);
+          } catch (error) {
+            const existing = await client.getPostRecord(account.accessJwt, account.did, rkey)
+              .catch(() => null);
+            if (existing?.uri) return { uri: existing.uri, cid: existing.cid };
+            throw error;
+          }
+        });
       }
       case 'uploadBlob': {
         const blob = readBlob(payload);

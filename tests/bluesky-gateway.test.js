@@ -320,3 +320,50 @@ test('successful account switch invalidates refresh started while login was pend
   await rejected;
   assert.equal(vault.getSession().did, 'did:plc:bob');
 });
+
+test('treats a retried post as created when its record key already exists', async () => {
+  const calls = [];
+  const gateway = createBlueskyGateway({
+    vault: createVault(SESSION),
+    client: {
+      async createRecord(jwt, did, record, rkey) {
+        calls.push(['create', rkey]);
+        throw new AtprotoError('Record already exists', { status: 400, code: 'InvalidRequest' });
+      },
+      async getPostRecord(jwt, did, rkey) {
+        calls.push(['get', did, rkey]);
+        return { uri: `at://${did}/app.bsky.feed.post/${rkey}`, cid: 'existing-cid', value: {} };
+      },
+    },
+  });
+  const record = { $type: 'app.bsky.feed.post', text: 'hello', createdAt: '2026-07-17T00:00:00.000Z' };
+
+  const result = await gateway.execute('createPostRecord', { record, rkey: '3lbcdefghijk2' });
+
+  assert.deepEqual(result, { uri: 'at://did:plc:alice/app.bsky.feed.post/3lbcdefghijk2', cid: 'existing-cid' });
+  assert.deepEqual(calls, [['create', '3lbcdefghijk2'], ['get', 'did:plc:alice', '3lbcdefghijk2']]);
+});
+
+test('keeps the original post error when the record key was never created', async () => {
+  const gateway = createBlueskyGateway({
+    vault: createVault(SESSION),
+    client: {
+      async createRecord() {
+        throw new AtprotoError('createRecord request timed out', { status: 0, code: 'RequestTimeout' });
+      },
+      async getPostRecord() {
+        throw new AtprotoError('Could not locate record', { status: 400, code: 'RecordNotFound' });
+      },
+    },
+  });
+  const record = { $type: 'app.bsky.feed.post', text: 'hello', createdAt: '2026-07-17T00:00:00.000Z' };
+
+  await assert.rejects(
+    gateway.execute('createPostRecord', { record, rkey: '3lbcdefghijk2' }),
+    error => error.code === 'RequestTimeout',
+  );
+  await assert.rejects(
+    gateway.execute('createPostRecord', { record, rkey: '../escape' }),
+    /record key/,
+  );
+});

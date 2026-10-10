@@ -121,3 +121,12 @@ test('exposes unknown and sending state without leaking child runtimes', async (
   coordinator.reset('x');
   assert.equal(coordinator.getStatus('x').single.status, 'idle');
 });
+
+test('restores an unknown single-network outcome after restart', () => {
+  const { coordinator } = createCoordinator();
+
+  coordinator.restoreSingle('x');
+
+  assert.equal(coordinator.getStatus('x').hasUnknownSingle, true);
+  assert.equal(coordinator.getStatus('b').hasUnknownSingle, false);
+});
