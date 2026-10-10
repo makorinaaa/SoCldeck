@@ -129,6 +129,21 @@ test('opens by loading both networks and exposes a sorted display snapshot', asy
   assert.equal(renders.at(-1).items.length, 2);
 });
 
+test('an X notification without a time is listed where X placed it, not last', async () => {
+  const runtime = loadRuntime().createNotificationCenterRuntime({
+    model: createModel(),
+    getSession: () => ({ bluesky: true, xAccounts: [{ username: '@first' }] }),
+    sources: {
+      listBluesky: async () => [{ id: 'reply', reason: 'reply', indexedAt: '2026-07-16T01:00:00Z', isRead: false }],
+      listX: async () => [{ id: 'like', reason: 'like', indexedAt: '', sortAt: '2026-07-16T02:00:00Z', isRead: null }],
+    },
+  });
+
+  const outcome = await runtime.open();
+
+  assert.deepEqual(plain(outcome.snapshot.items.map(item => item.id)), ['x:0:like', 'b:reply']);
+});
+
 test('filters the loaded notifications without reloading their sources', async () => {
   let reads = 0;
   const runtime = loadRuntime().createNotificationCenterRuntime({

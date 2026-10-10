@@ -1,7 +1,8 @@
 (function (global) {
   const STORAGE_KEY = 'socialdeck_desktop_notification_rules';
   // 3: X notifications are read from X's data, which changes their identities.
-  const KNOWN_IDS_VERSION = 3;
+  // 4: notifications read from X's data carry their time, which is part of their identity.
+  const KNOWN_IDS_VERSION = 4;
   const MAX_KNOWN_IDS = 1_000;
   const REASONS = ['reply', 'mention', 'quote', 'follow', 'like', 'repost', 'other'];
   const DEFAULT_RULES = Object.freeze({

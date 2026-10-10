@@ -323,8 +323,8 @@
 
     function getAllItems() {
       return [...xItems, ...blueskyItems].sort((left, right) => {
-        const leftTime = Date.parse(left.indexedAt) || 0;
-        const rightTime = Date.parse(right.indexedAt) || 0;
+        const leftTime = Date.parse(left.sortAt || left.indexedAt) || 0;
+        const rightTime = Date.parse(right.sortAt || right.indexedAt) || 0;
         return rightTime - leftTime;
       });
     }
