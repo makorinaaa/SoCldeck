@@ -1,4 +1,6 @@
 (function (global) {
+  const DRAFT_KEY_PREFIX = 'socialdeck_draft_v1_';
+
   function createComposeModalRuntime({
     getAccounts = () => ({ x: [], b: null }),
     getPreferences = () => ({}),
@@ -38,7 +40,7 @@
       const owner = networkId === 'x'
         ? account.x[selectedXAccountIndex]?.partition || account.x[selectedXAccountIndex]?.username
         : account.b?.did;
-      return owner ? `socialdeck_draft_v1_${networkId}_${owner}` : null;
+      return owner ? `${DRAFT_KEY_PREFIX}${networkId}_${owner}` : null;
     }
 
     function saveDraft(networkId) {
@@ -100,6 +102,52 @@
           actionLabels[networkId] = '未完了の投稿先を再試行';
         }
       } catch { /* Invalid or unavailable storage must not prevent composing. */ }
+    }
+
+    function resetDraft(networkId) {
+      if (!busy[networkId]) coordinator.reset?.(networkId);
+      mediaDrafts[networkId]?.clear?.();
+      text[networkId] = '';
+      if (networkId === 'b') reply = null;
+      else xReply = null;
+      locked[networkId] = false;
+      reattachMedia[networkId] = false;
+      deliveryAccounts[networkId] = null;
+      actionLabels[networkId] = networkId === 'x' ? 'ポスト' : '投稿';
+      initialized[networkId] = false;
+      loadedKeys[networkId] = null;
+      if (openNetworkId === networkId) {
+        openNetworkId = null;
+        view.setOpen?.(networkId, false);
+        intents.closed?.(networkId);
+      }
+    }
+
+    function removeStoredDraft(key) {
+      sessionDrafts.delete(key);
+      try { storage?.removeItem?.(key); } catch { /* Unavailable storage has nothing left to leak. */ }
+    }
+
+    // 削除したアカウントの partition は次に追加するアカウントへ再利用されるため、下書きを残さない
+    function forgetXAccount(account) {
+      const keys = [account?.partition, account?.username].filter(Boolean)
+        .map(owner => `${DRAFT_KEY_PREFIX}x_${owner}`);
+      keys.forEach(removeStoredDraft);
+      if (keys.includes(loadedKeys.x)) resetDraft('x');
+    }
+
+    function forgetAllDrafts() {
+      sessionDrafts.clear();
+      try {
+        const keys = [];
+        for (let index = 0; index < (storage?.length || 0); index++) {
+          const key = storage.key(index);
+          if (key?.startsWith(DRAFT_KEY_PREFIX)) keys.push(key);
+        }
+        keys.forEach(key => storage.removeItem(key));
+      } catch { /* Unavailable storage has nothing left to leak. */ }
+      resetDraft('x');
+      resetDraft('b');
     }
 
     function accounts() {
@@ -386,6 +434,8 @@
     const runtime = {
       close,
       dispose,
+      forgetAllDrafts,
+      forgetXAccount,
       getSnapshot,
       open,
       setBusy,

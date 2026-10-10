@@ -1000,6 +1000,8 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     },
     accountsChanged: ({ network, kind, account }) => {
       desktopNotificationRuntime.rebaseline().catch(() => {});
+      if (network === 'all') composeModalRuntime.forgetAllDrafts();
+      else if (network === 'x' && kind === 'logout') composeModalRuntime.forgetXAccount(account);
       if (network === 'all') {
         accountSessionRuntime.openSettings();
         toast('すべてのアカウントからログアウトしました');

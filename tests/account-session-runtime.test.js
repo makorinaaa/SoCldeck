@@ -540,3 +540,21 @@ test('owns settings visibility and disposes its View connection', async () => {
     ['connect', false],
   ]);
 });
+
+test('does not hand an existing session to a new X account when the saved account has no partition', async () => {
+  const stateAdapter = createStateAdapter({
+    xs: [{ username: '@legacy' }],
+    activeX: 0,
+    b: null,
+  });
+  const runtime = loadModule().createAccountSessionRuntime({
+    state: stateAdapter,
+    xSession: {},
+    getAvatarBackground: () => 'background',
+    view: { render() {} },
+  });
+
+  const outcome = await runtime.login('x', { displayName: 'second' });
+
+  assert.equal(outcome.account.partition, 'persist:x-1');
+});

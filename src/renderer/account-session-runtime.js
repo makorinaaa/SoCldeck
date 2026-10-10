@@ -198,7 +198,8 @@
     }
 
     function nextXPartition(accounts) {
-      const used = new Set(accounts.map(account => account.partition).filter(Boolean));
+      // partition の無い古いアカウントは並び順の partition を使っている（x-accounts.mjs と同じ規則）
+      const used = new Set(accounts.map((account, index) => account.partition || `persist:x-${index}`));
       for (let index = 0; index < 100; index++) {
         const partition = `persist:x-${index}`;
         if (!used.has(partition)) return partition;
