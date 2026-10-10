@@ -28,9 +28,10 @@
       const id = string(column.id, 100);
       if (!/^[\w-]+$/.test(id) || ids.has(id)) fail();
       ids.add(id);
-      if (!['wv', 'bsky', 'schedule'].includes(column.kind)) fail();
+      if (!['wv', 'bsky', 'schedule', 'x-native'].includes(column.kind)) fail();
       if (!['x', 'b', 'anime'].includes(column.network)) fail();
-      if ((column.network === 'x' && column.kind !== 'wv')
+      if ((column.network === 'x' && !['wv', 'x-native'].includes(column.kind))
+        || (column.kind === 'x-native' && column.network !== 'x')
         || (column.network === 'anime' && column.kind !== 'schedule')
         || (column.network === 'b' && column.kind === 'schedule')) fail();
       if (!Number.isInteger(column.interval) || column.interval < 0 || column.interval > 86400000) fail();
@@ -48,6 +49,15 @@
         if (url.protocol !== 'https:' || !hosts.includes(url.hostname) || url.username || url.password) fail();
         result.url = url.href;
         result.account = string(column.account, 512);
+      }
+      // SocialDeck's own view of an account's X: Home and notifications, or a list by its URL.
+      if (column.kind === 'x-native') {
+        result.account = string(column.account, 512);
+        if (column.url !== undefined) {
+          const url = string(column.url, 200);
+          if (!/^https:\/\/x\.com\/i\/lists\/\d+$/.test(url)) fail();
+          result.url = url;
+        }
       }
       if (column.network === 'b') result.account = string(column.account, 512);
       if (column.kind === 'bsky') {

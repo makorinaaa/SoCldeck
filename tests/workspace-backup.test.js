@@ -101,3 +101,67 @@ test('an account saved without a partition uses the one for its position', () =>
   backup.restore(JSON.stringify(data));
   assert.equal(JSON.parse(values.get('socialdeck_cols'))[0].partition, 'persist:x-1');
 });
+
+function nativeHarness() {
+  const setup = harness();
+  const columns = [
+    { id: 'x0-home-native', network: 'x', kind: 'x-native', definitionId: 'x-home-native',
+      title: 'Home（ネイティブ）', sub: 'X · @alice', icCls: 'ic-x', partition: 'persist:x-0', interval: 60000, collapsed: false, width: '' },
+    { id: 'x0-list-native-123', network: 'x', kind: 'x-native', definitionId: 'x-list-native',
+      title: 'Friends', sub: 'X - @alice', icCls: 'ic-x', partition: 'persist:x-0', url: 'https://x.com/i/lists/123',
+      interval: 60000, collapsed: false, width: '' },
+    { id: 'x0-notif-native', network: 'x', kind: 'x-native', definitionId: 'x-notif-native',
+      title: '通知', sub: 'X · @alice', icCls: 'ic-n', partition: 'persist:x-0', interval: 60000, collapsed: false, width: '' },
+  ];
+  setup.values.set('socialdeck_cols', JSON.stringify(columns));
+  const context = { window: {}, URL };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/renderer/workspace-backup.js'), 'utf8'), context);
+  const definitions = ['x-home-native', 'x-list-native', 'x-notif-native'];
+  setup.backup = context.window.SocialDeckWorkspaceBackup.createWorkspaceBackup({
+    storage: setup.storage, getState: () => setup.state,
+    resolveDefinition: item => (definitions.includes(item.definitionId) ? { id: item.definitionId, network: 'x' } : null),
+  });
+  return setup;
+}
+
+test('native X Columns (Home, list and notifications) are exported and restored with their account and list', () => {
+  const { backup, values, state } = nativeHarness();
+  const data = JSON.parse(backup.exportText());
+  assert.deepEqual(data.columns.map(column => [column.kind, column.definitionId, column.account]), [
+    ['x-native', 'x-home-native', '@alice'],
+    ['x-native', 'x-list-native', '@alice'],
+    ['x-native', 'x-notif-native', '@alice'],
+  ]);
+  assert.equal(data.columns[1].url, 'https://x.com/i/lists/123');
+  assert.equal('url' in data.columns[0], false);
+  assert.doesNotMatch(JSON.stringify(data), /partition/);
+
+  // Restored on a machine where the account sits in another slot.
+  state.xs[0].partition = 'persist:x-4';
+  values.set('socialdeck_cols', JSON.stringify(JSON.parse(values.get('socialdeck_cols'))
+    .map(column => ({ ...column, partition: 'persist:x-4' }))));
+  backup.restore(JSON.stringify(data));
+  const restored = JSON.parse(values.get('socialdeck_cols'));
+  assert.deepEqual(restored.map(column => [column.kind, column.partition]), [
+    ['x-native', 'persist:x-4'], ['x-native', 'persist:x-4'], ['x-native', 'persist:x-4'],
+  ]);
+  assert.equal(restored[1].url, 'https://x.com/i/lists/123');
+});
+
+test('a native X Column accepts only an X list URL', () => {
+  const { backup, values } = nativeHarness();
+  const original = [...values];
+  const data = JSON.parse(backup.exportText());
+  const list = data.columns[1];
+  const variants = [
+    { ...list, url: 'https://x.com/home' },
+    { ...list, url: 'https://evil.test/i/lists/123' },
+    { ...list, url: 'https://x.com/i/lists/123/members' },
+    { ...list, url: 'https://x.com/i/lists/abc' },
+    { ...list, network: 'b' },
+  ];
+  for (const invalid of variants) {
+    assert.throws(() => backup.restore(JSON.stringify({ ...data, columns: [invalid] })), JSON.stringify(invalid));
+  }
+  assert.deepEqual([...values], original);
+});
