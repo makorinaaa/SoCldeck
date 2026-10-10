@@ -96,7 +96,7 @@ function findByClass(element, className) {
   return descendants(element).find(child => child.classList.contains(className));
 }
 
-function createHarness() {
+function createHarness({ describeFilter } = {}) {
   const documentListeners = new Map();
   const documentRef = {
     createElement: tagName => new FakeElement(tagName),
@@ -125,6 +125,7 @@ function createHarness() {
     onCollapseChange: (id, value) => collapsed.push([id, value]),
     onWidthChange: (id, width) => resized.push([id, width]),
     onIntent: intent => intents.push(intent),
+    ...(describeFilter ? { describeFilter } : {}),
   });
   return { runtime, container, addButton, collapsed, resized, intents, documentListeners };
 }
@@ -255,4 +256,20 @@ test('translates shell events into one semantic intent', () => {
   );
   assert.deepEqual(collapsed, [['anime-1', true], ['anime-1', false]]);
   assert.equal(runtime.isCollapsed('anime-1'), false);
+});
+
+test('shows a filter chip with the conditions when the Column has a filter', () => {
+  const { runtime } = createHarness({ describeFilter: id => (id === 'anime-1' ? '画像・動画のみ · 「猫」' : '') });
+  const { root } = mountFixture(runtime);
+  const chip = findByClass(root, 'col-filter-label');
+
+  assert.equal(chip.hidden, false);
+  assert.equal(chip.textContent, '絞込');
+  assert.equal(chip.title, 'フィルター: 画像・動画のみ · 「猫」');
+
+  runtime.update('anime-1', { filterLabel: '' });
+  assert.equal(chip.hidden, true);
+  runtime.update('anime-1', { filterLabel: 'リポスト非表示' });
+  assert.equal(chip.hidden, false);
+  assert.equal(chip.title, 'フィルター: リポスト非表示');
 });

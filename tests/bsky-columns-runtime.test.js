@@ -1551,3 +1551,45 @@ test('passes the thread root of the post being replied to', async () => {
     uri: 'at://post/2', cid: 'cid-2', handle: 'alice.test', rootUri: 'at://post/root', rootCid: 'root-cid',
   }]);
 });
+
+test('applies each column filter to its own timeline and search results', async () => {
+  const item = (n, extra = {}) => ({ post: {
+    uri: `at://post/${n}`, cid: `cid${n}`, author: { handle: 'alice.test' }, record: { text: `post ${n}` }, viewer: {},
+  }, ...extra });
+  const filters = [];
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: {
+      getTimeline: async () => ({ feed: [item(1), item(2, { reason: { by: { handle: 'bob.test' } } })] }),
+      searchPosts: async () => ({ posts: [item(3).post, item(4).post] }),
+    },
+    muteRules: { blocksPost: () => false },
+    columnFilter: (columnId, entry) => {
+      filters.push(columnId);
+      if (columnId === 'b-home') return !entry.reason;
+      if (columnId === 'b-search') return entry.post.uri !== 'at://post/3';
+      return true;
+    },
+    ui: {},
+  });
+  const home = createFeedHost();
+  const other = createFeedHost();
+  const search = createFeedHost();
+  runtime.mount({ id: 'b-home', type: 'timeline', host: home });
+  runtime.mount({ id: 'b-other', type: 'timeline', host: other });
+  let searchKey = null;
+  runtime.mount({ id: 'b-search', type: 'search', host: search, searchInput: {
+    value: 'post',
+    addEventListener: (type, listener) => { if (type === 'keydown') searchKey = listener; },
+  } });
+
+  await runtime.refresh('b-home', { mode: 'replace' });
+  await runtime.refresh('b-other', { mode: 'replace' });
+  await searchKey({ key: 'Enter' });
+
+  assert.match(home.innerHTML, /post 1/);
+  assert.doesNotMatch(home.innerHTML, /post 2/);
+  assert.match(other.innerHTML, /post 2/);
+  assert.doesNotMatch(search.innerHTML, /post 3/);
+  assert.match(search.innerHTML, /post 4/);
+  assert.ok(filters.includes('b-search'));
+});
