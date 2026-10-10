@@ -46,12 +46,17 @@
       try {
         let result = await toggleInReader(partition, post, kind, active);
         log('reaction (home)', kind, post.id, result);
-        if (result !== 'done' && result !== 'already') {
+        // 投稿ページで押し直すのは、ホームで X のボタンを押していないと分かるときだけ。
+        // 押した後に確認できなかった（unconfirmed）・途中で失敗した（failed）ときに押し直すと、
+        // 同じいいね・リポストが2回送られることがある
+        if (result === 'skipped' || result === 'missing') {
           result = await statusRuntime.toggle(partition, post, kind, active);
           log('reaction (status page)', kind, post.id, result);
         }
         if (result !== 'done' && result !== 'already') {
-          throw new Error(result === 'unconfirmed' ? 'X で反映を確認できませんでした' : 'X で操作できませんでした');
+          throw new Error(['unconfirmed', 'failed'].includes(result)
+            ? 'X で反映を確認できませんでした。X で状態を確かめてから操作してください'
+            : 'X で操作できませんでした');
         }
         updatePost(post.id, current => ({
           viewer: { ...current.viewer, [field]: active },
