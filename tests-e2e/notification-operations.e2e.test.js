@@ -284,6 +284,13 @@ async function launchApp(t, fixtures) {
           callback({ mimeType: 'image/png', data: Buffer.from(fixture.avatarPng, 'base64') });
           return;
         }
+        // Responses for named GraphQL operations, like X's list timeline.
+        const operationJson = network === 'x' && url.pathname.includes('/graphql/')
+          ? fixture.graphql?.[url.pathname.split('/').pop()] : null;
+        if (operationJson) {
+          callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(JSON.stringify(operationJson)) });
+          return;
+        }
         if (network === 'x' && url.pathname.includes('/graphql/') && (global.__e2eNotificationsGraphql || fixture.notificationsGraphql)) {
           const json = global.__e2eNotificationsGraphql || fixture.notificationsGraphql;
           callback({ mimeType: 'application/json', charset: 'utf-8', data: Buffer.from(JSON.stringify(json)) });
@@ -348,6 +355,7 @@ async function launchApp(t, fixtures) {
       </script>
     </body></html>` : xFixture(NOTIFICATIONS_URL),
     notificationsGraphql: fixtures.notificationsGraphql || null,
+    graphql: fixtures.graphql || null,
     pageHtml: fixtures.pageHtml || `<!doctype html><html><body data-e2e-path="__PATH__">
       <nav>
         <a data-testid="AppTabBar_Home_Link" href="https://x.com/home">Home</a>
@@ -1428,4 +1436,47 @@ test('an X account whose data stops arriving reports it, then reads its notifica
   const recovered = await reload();
   assert.deepEqual(recovered.phases, ['succeeded', 'succeeded']);
   assert.ok(recovered.texts.some(text => /Carol liked your post/.test(text)), JSON.stringify(recovered.texts));
+});
+
+test('a native X list Column is added from its URL, draws the list X fetched and is restored', { timeout: 60000 }, async t => {
+  const timeline = require('../tests/fixtures/x-home-timeline.json');
+  const listJson = { data: { list: { tweets_timeline: { timeline: { instructions: timeline.data.home.home_timeline_urt.instructions } } } } };
+  // Like X's client, a list page fetches its timeline when it loads.
+  const pageHtml = `<!doctype html><html><body data-e2e-path="__PATH__">
+    <nav>
+      <a data-testid="AppTabBar_Home_Link" href="https://x.com/home">Home</a>
+      <a data-testid="AppTabBar_Notifications_Link" href="https://x.com/notifications">Notifications</a>
+    </nav>
+    <script>
+      if (location.pathname === '/i/lists/123') {
+        fetch('/i/api/graphql/q/ListLatestTweetsTimeline?variables=' + encodeURIComponent('{"listId":"123","count":20}'));
+      }
+    </script>
+  </body></html>`;
+  const { page } = await launchApp(t, { ...X_FIXTURES, pageHtml, graphql: { ListLatestTweetsTimeline: listJson } });
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod [data-action="add-column"][data-definition-id="x-list-native"][data-account-index="0"]').click();
+  await page.locator('#x-list-input').fill('https://x.com/i/lists/123');
+  await page.locator('#x-list-name').fill('Friends');
+  await page.locator('#x-list-dialog-ov [data-action="confirm-x-list"]').click();
+
+  const column = page.locator('.col[data-definition-id="x-list-native"]');
+  await column.locator('[data-x-id="1800000000000000003"]').waitFor({ state: 'attached', timeout: 15000 });
+  assert.equal(await column.locator('.col-title').textContent(), 'Friends');
+  assert.equal(await column.locator('[data-x-native-tabs]').count(), 0, 'a list has no Home tabs');
+  assert.equal(await column.locator('webview').count(), 0, 'no X page runs inside the Column');
+  const reader = page.locator('#x-home-readers webview[partition="persist:x-0"]');
+  assert.equal(await reader.count(), 1);
+  assert.match(await reader.first().evaluate(webview => webview.getURL()), /\/i\/lists\/123$/);
+
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('socialdeck_cols') || '[]'));
+  const stored = saved.find(item => item.definitionId === 'x-list-native');
+  assert.equal(stored.kind, 'x-native');
+  assert.equal(stored.partition, 'persist:x-0');
+  assert.equal(stored.url, 'https://x.com/i/lists/123');
+
+  await page.reload();
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('.col[data-definition-id="x-list-native"] [data-x-id="1800000000000000003"]')
+    .waitFor({ state: 'attached', timeout: 15000 });
 });

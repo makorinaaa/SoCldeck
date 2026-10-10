@@ -4,9 +4,10 @@
 // CreateTweet is read so the account's own new post appears at once: X's client marks it
 // as seen and leaves it out of later timeline responses.
 // TweetDetail is fetched when a status page opens; it feeds the post detail view.
+// ListLatestTweetsTimeline is a list page's timeline; native list Columns read it.
 const { createNotificationNormalizer, isNotificationOperation, notificationOperation } = require('./x-notification-normalizer');
 
-const TIMELINE_OPERATIONS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'CreateTweet', 'TweetDetail']);
+const TIMELINE_OPERATIONS = new Set(['HomeTimeline', 'HomeLatestTimeline', 'ListLatestTweetsTimeline', 'CreateTweet', 'TweetDetail']);
 const MAX_SEGMENTS = 400;
 
 function timelineOperation(url) {
@@ -228,7 +229,8 @@ function collectItemContents(entry) {
 }
 
 function normalizeTimelineResponse(json, operation = 'HomeTimeline') {
-  const instructions = json?.data?.home?.home_timeline_urt?.instructions;
+  const instructions = json?.data?.home?.home_timeline_urt?.instructions
+    || json?.data?.list?.tweets_timeline?.timeline?.instructions;
   if (!Array.isArray(instructions)) return null;
   const posts = [];
   const cursors = {};
@@ -255,7 +257,7 @@ function normalizeTimelineResponse(json, operation = 'HomeTimeline') {
   }
   return {
     operation,
-    timeline: { HomeLatestTimeline: 'following', HomeTimeline: 'for-you' }[operation] || null,
+    timeline: { HomeLatestTimeline: 'following', HomeTimeline: 'for-you', ListLatestTweetsTimeline: 'list' }[operation] || null,
     posts,
     cursors,
   };

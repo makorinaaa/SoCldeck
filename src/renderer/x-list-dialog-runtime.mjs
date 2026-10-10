@@ -1,7 +1,8 @@
 import { xPartitionOf } from './x-accounts.mjs';
 
 function createXListDialogRuntime({ documentRef, getAccounts, esc, icon, toast, nextColumnId, createColumn }) {
-  function openXListDialog(accountIdx) {
+  // definitionId: 'x-list-native' shows the list with SocialDeck's own view; otherwise X's page.
+  function openXListDialog(accountIdx, definitionId = 'x-list-new') {
     documentRef.getElementById('x-list-dialog-ov')?.remove();
     const ov = documentRef.createElement('div');
     ov.className = 'ov on'; ov.id = 'x-list-dialog-ov';
@@ -21,24 +22,24 @@ function createXListDialogRuntime({ documentRef, getAccounts, esc, icon, toast, 
           <label>リストの URL / ID</label>
           <input type="text" id="x-list-input" placeholder="https://x.com/i/lists/123456789 または 123456789"
             style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text1);font-family:inherit;outline:none"
-            data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}">
+            data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}" data-definition-id="${esc(definitionId)}">
         </div>
         <div class="lf" style="margin-bottom:16px">
           <label>カラム名（任意）</label>
           <input type="text" id="x-list-name" placeholder="マイリスト"
             style="width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:8px 10px;font-size:13px;color:var(--text1);font-family:inherit;outline:none"
-            data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}">
+            data-keydown-action="confirm-x-list" data-action-key="Enter" data-account-index="${accountIdx}" data-definition-id="${esc(definitionId)}">
         </div>
         <div style="display:flex;gap:8px">
           <button data-action="remove-element" data-target-id="x-list-dialog-ov" class="btn-cancel" style="flex:1">キャンセル</button>
-          <button data-action="confirm-x-list" data-account-index="${accountIdx}" style="flex:1;padding:9px;border-radius:7px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">追加</button>
+          <button data-action="confirm-x-list" data-account-index="${accountIdx}" data-definition-id="${esc(definitionId)}" style="flex:1;padding:9px;border-radius:7px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">追加</button>
         </div>
       </div>`;
     documentRef.body.appendChild(ov);
     documentRef.getElementById('x-list-input')?.focus();
   }
 
-  function confirmXList(accountIdx) {
+  function confirmXList(accountIdx, definitionId = 'x-list-new') {
     const raw = documentRef.getElementById('x-list-input')?.value?.trim();
     const nameInput = documentRef.getElementById('x-list-name')?.value?.trim();
     if (!raw) { toast('リストの URL か ID を入力してください'); return; }
@@ -55,10 +56,11 @@ function createXListDialogRuntime({ documentRef, getAccounts, esc, icon, toast, 
     const xPart = xPartitionOf(acc, accountIdx ?? 0);
     const accLabel = acc ? ` - ${acc.username}` : '';
 
-    const id = nextColumnId(`x${accountIdx}-list-${listId}`);
+    const native = definitionId === 'x-list-native';
+    const id = nextColumnId(`x${accountIdx}-list-${native ? 'native-' : ''}${listId}`);
     const result = createColumn({
       networkId: 'x',
-      definitionId: 'x-list-new',
+      definitionId: native ? 'x-list-native' : 'x-list-new',
       id,
       account: acc ? { ...acc, index: accountIdx ?? 0, partition: xPart } : null,
       params: { url, title, sub: `X${accLabel}` },

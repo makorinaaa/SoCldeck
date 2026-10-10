@@ -10,6 +10,7 @@ const {
 test('recognizes only the captured GraphQL operations on X hosts', () => {
   assert.equal(timelineOperation('https://x.com/i/api/graphql/abc123/HomeTimeline?variables=%7B%7D'), 'HomeTimeline');
   assert.equal(timelineOperation('https://x.com/i/api/graphql/abc123/HomeLatestTimeline'), 'HomeLatestTimeline');
+  assert.equal(timelineOperation('https://x.com/i/api/graphql/abc123/ListLatestTweetsTimeline'), 'ListLatestTweetsTimeline');
   assert.equal(timelineOperation('https://x.com/i/api/graphql/abc123/UserTweets'), null);
   assert.equal(timelineOperation('https://evil.example/i/api/graphql/abc123/HomeTimeline'), null);
   assert.equal(timelineOperation('not a url'), null);
@@ -148,4 +149,13 @@ test('accepts any home timeline operation and labels only the known ones', () =>
   assert.equal(timelineOperation('https://x.com/i/api/graphql/q/UserTweets'), null);
   assert.equal(normalizeTimelineResponse(fixture, 'HomeFollowingTimeline').timeline, null);
   assert.equal(normalizeTimelineResponse(fixture, 'HomeLatestTimeline').timeline, 'following');
+});
+
+test('normalizes a list timeline like the Home timeline', () => {
+  const json = { data: { list: { tweets_timeline: { timeline: { instructions: fixture.data.home.home_timeline_urt.instructions } } } } };
+  const list = normalizeTimelineResponse(json, 'ListLatestTweetsTimeline');
+  const home = normalizeTimelineResponse(fixture, 'HomeLatestTimeline');
+  assert.equal(list.timeline, 'list');
+  assert.deepEqual(list.posts.map(post => post.id), home.posts.map(post => post.id));
+  assert.deepEqual(list.cursors, home.cursors);
 });

@@ -212,6 +212,27 @@ test('captures a native X Home Column with its account partition', () => {
   }]);
 });
 
+test('captures the list URL of a native X list Column', () => {
+  const runtime = createRuntime();
+  const column = createColumnElement({
+    id: 'col-x0-list-native-123',
+    dataset: { kind: 'x-native', network: 'x', definitionId: 'x-list-native', partition: 'persist:x-0', url: 'https://x.com/i/lists/123' },
+    title: 'Friends',
+    sub: 'X - alice',
+    iconClass: 'col-ic ic-x',
+  });
+
+  const [captured] = runtime.captureLayout([column], {
+    resolveDefinition: () => ({ network: 'x', id: 'x-list-native' }),
+    getInterval: () => 60000,
+    isCollapsed: () => false,
+  });
+
+  assert.equal(captured.definitionId, 'x-list-native');
+  assert.equal(captured.partition, 'persist:x-0');
+  assert.equal(captured.url, 'https://x.com/i/lists/123');
+});
+
 test('restores every widget tab Column and drops tabs whose Column was removed', () => {
   const layout = [
     { id: 'b-home', title: 'Following', width: '400px', collapsed: true },

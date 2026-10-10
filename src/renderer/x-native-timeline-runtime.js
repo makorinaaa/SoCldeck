@@ -1,6 +1,6 @@
 (function (global) {
-  // Native X Home Columns: mounting Columns on an account's hidden home page (a reader),
-  // their header badge, login view, clicks, and the posts they show. The reader itself, post
+  // Native X Home and list Columns: mounting Columns on an account's hidden home or list page
+  // (a reader), their header badge, login view, clicks, and the posts they show. The reader itself, post
   // lists, page scripts, drawing, the detail view and reactions live in x-native-* modules.
 
   // Earlier builds kept the newest posts in storage to show at startup; those are removed.
@@ -65,7 +65,7 @@
       clearTimeoutFn,
       notifyChange: reader => renderReader(reader),
       notifyNewPosts: (reader, posts) => {
-        const shown = posts.filter(post => showsInTimeline(post, reader.partition));
+        const shown = posts.filter(post => showsInTimeline(post, reader));
         if (shown.length) announceNewPosts(reader, shown.length);
       },
     });
@@ -78,6 +78,7 @@
       confirmAction,
       isBusy,
       createToggleScript,
+      // Reactions use the account's home page (a list page is not kept at hand for them).
       getReader: partition => readers.get(partition),
       updatePost,
       removePost,
@@ -143,8 +144,10 @@
       return String(post.replyTo).toLowerCase() !== String(post.author?.handle || '').toLowerCase();
     }
 
-    function showsInTimeline(post, partition) {
-      return !isReplyToOthers(post, partition) && !blocksPost(toMuteShape(post));
+    // A list shows what X's list shows, replies included; mute rules apply everywhere.
+    function showsInTimeline(post, reader) {
+      if (!reader.listId && isReplyToOthers(post, reader.partition)) return false;
+      return !blocksPost(toMuteShape(post));
     }
 
     // The account's own posts (and only those) can be deleted from SocialDeck.
@@ -189,7 +192,7 @@
     }
 
     function columnsFor(reader) {
-      return [...columns.values()].filter(column => column.partition === reader.partition);
+      return [...columns.values()].filter(column => column.readerKey === reader.key);
     }
 
     // Removes posts saved by earlier builds for the startup preview.
@@ -207,7 +210,7 @@
     function renderColumn(column, reader) {
       view.render(column, {
         reader,
-        visible: reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, column.partition)),
+        visible: reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, reader)),
         optionsFor: post => postOptions(post, column.partition),
       });
     }
@@ -220,7 +223,7 @@
     function findPost(id, partition) {
       if (!id) return null;
       const candidates = [
-        ...(readers.get(partition)?.posts || []),
+        ...readers.forPartition(partition).flatMap(reader => reader.posts),
         ...detail.postsOf(partition),
         ...notifications.postsOf(partition),
       ];
@@ -237,8 +240,7 @@
         const next = post.id === id ? { ...post, ...update(post) } : post;
         return next.quoted?.id === id ? { ...next, quoted: { ...next.quoted, ...update(next.quoted) } } : next;
       };
-      const reader = readers.get(partition);
-      if (reader) reader.posts = reader.posts.map(apply);
+      readers.forPartition(partition).forEach(reader => { reader.posts = reader.posts.map(apply); });
       detail.applyUpdate(apply, partition);
       notifications.applyUpdate(apply, partition);
     }
@@ -259,8 +261,7 @@
 
     // Reactions, deletions and status pages only touch one account's posts.
     function renderPartition(partition) {
-      const reader = readers.get(partition);
-      if (reader) renderReader(reader);
+      readers.forPartition(partition).forEach(renderReader);
       notifications.renderPartition(partition);
       if (detail.isOpenFor(partition)) detail.render();
     }
@@ -319,7 +320,7 @@
       const tab = target?.closest?.('[data-x-timeline]');
       if (tab) {
         event.preventDefault();
-        readers.switchTimeline(column.partition, tab.dataset.xTimeline);
+        readers.switchTimeline(column.readerKey, tab.dataset.xTimeline);
         return;
       }
       if (target?.closest?.('[data-x-native-open-login]')) {
@@ -335,10 +336,12 @@
       handleInteractive(event, column.partition);
     }
 
-    function mount({ id, partition, host, subtitle = null, badge = null }) {
+    // `listId` mounts a list Column; without it, the account's Home.
+    function mount({ id, partition, listId = null, host, subtitle = null, badge = null }) {
       const column = {
         id,
         partition,
+        readerKey: global.SocialDeckXNativeReaders.readerKey(partition, listId),
         host,
         subtitle,
         baseSubtitle: baseSubtitleOf(subtitle?.textContent),
@@ -365,7 +368,7 @@
         requestFrame(() => {
           column.scrollQueued = false;
           if ((host.scrollTop || 0) < AT_TOP_PX && column.unseen) clearBadge(column);
-          const current = readers.get(partition);
+          const current = readers.get(column.readerKey);
           if (!current || current.status !== 'ready' || current.loadingMore || !current.posts.length) return;
           if (host.scrollHeight - host.scrollTop - host.clientHeight < AUTO_LOAD_MORE_PX) loadMore(id);
         });
@@ -380,7 +383,7 @@
       host.addEventListener('pointerdown', column.handlePointerDown);
       columns.set(id, column);
       loadAccountId(partition);
-      const reader = readers.ensure(partition);
+      const reader = readers.ensure(partition, { listId });
       if (!reader) {
         host.innerHTML = '<div class="feed-empty">X のタイムラインを開始できませんでした</div>';
         return false;
@@ -392,7 +395,7 @@
     function refresh(id, options = {}) {
       const column = columns.get(id);
       if (!column) return Promise.resolve({ status: 'deferred', detail: 'unavailable' });
-      return readers.refresh(column.partition, { ...options, label: id });
+      return readers.refresh(column.readerKey, { ...options, label: id });
     }
 
     // Shows X's own login page inside the Column. Once X lands on home, the hidden reader
@@ -427,17 +430,19 @@
       column.login = null;
       column.host.classList?.remove('x-native-login-host');
       column.signature = null;
-      const reader = readers.get(column.partition);
+      const reader = readers.get(column.readerKey);
       if (reader) renderColumn(column, reader);
     }
 
     function loadMore(id) {
       const column = columns.get(id);
-      return column ? readers.loadMore(column.partition) : Promise.resolve(false);
+      return column ? readers.loadMore(column.readerKey) : Promise.resolve(false);
     }
 
+    // After posting: the account's Home shows the new post; a list only if it has no Home.
     async function refreshPartition(partition, options = {}) {
-      const column = [...columns.values()].find(item => item.partition === partition);
+      const column = [...columns.values()].find(item => item.readerKey === partition)
+        || [...columns.values()].find(item => item.partition === partition);
       return column ? refresh(column.id, options) : { status: 'deferred', detail: 'unavailable' };
     }
 
@@ -479,13 +484,13 @@
       column.badge?.removeEventListener?.('click', column.handleBadgeClick);
       clearTimeoutFn(column.badgeTimer);
       column.host.removeEventListener('pointerdown', column.handlePointerDown);
-      const reader = readers.get(column.partition);
-      if (reader && columnsFor(reader).length === 0) {
-        readers.dispose(column.partition);
-        if (!notifications.hasPartition(column.partition)) statusRuntime?.dispose(column.partition);
-        accountIds.delete(column.partition);
-        detail.forget(column.partition, { closeOpen: true });
-      }
+      const reader = readers.get(column.readerKey);
+      if (reader && columnsFor(reader).length === 0) readers.dispose(column.readerKey);
+      // The account's status pages and detail view go with its last Home or list Column.
+      if ([...columns.values()].some(item => item.partition === column.partition)) return;
+      if (!notifications.hasPartition(column.partition)) statusRuntime?.dispose(column.partition);
+      accountIds.delete(column.partition);
+      detail.forget(column.partition, { closeOpen: true });
     }
 
     // A removed account's posts and caches must never show up for whoever uses the slot next.

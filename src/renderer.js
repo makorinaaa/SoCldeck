@@ -408,7 +408,7 @@ const columnPicker = SocialDeckColumnPicker.createColumnPicker({
   intents: {
     toast,
     close: modalId => closeOv(modalId),
-    requestXListInput: accountIndex => xListDialog.openXListDialog(accountIndex),
+    requestXListInput: (accountIndex, definitionId) => xListDialog.openXListDialog(accountIndex, definitionId),
   },
 });
 const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
@@ -1640,7 +1640,7 @@ function createUiActionHandlers() {
       settingsModals.clearMemoryNow(true);
     },
     'refresh-memory-metrics': () => settingsModals.refreshMemoryMetrics(),
-    'confirm-x-list': ({ dataset }) => xListDialog.confirmXList(integer(dataset.accountIndex)),
+    'confirm-x-list': ({ dataset }) => xListDialog.confirmXList(integer(dataset.accountIndex), dataset.definitionId),
     'insert-mention': ({ dataset }) => mentionSuggest.insert(dataset.handle),
     'widget-select-column': ({ value }) => widgetMode.selectColumn(value),
     'widget-set-opacity': ({ value }) => widgetMode.setOpacity(value),

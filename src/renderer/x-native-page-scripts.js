@@ -1,5 +1,5 @@
 (function (global) {
-  // Scripts that run inside X's hidden home page. Each function is serialized into the page,
+  // Scripts that run inside X's hidden home and list pages. Each function is serialized into the page,
   // so it must stay self-contained (no references to outer variables).
 
   // Selects the For you / Following tab. X's narrow layout hides its header while scrolled,
@@ -92,6 +92,27 @@
     return `(${readSelectedTab.toString()})(document)`;
   }
 
+  // A list page has no navigation tab that fetches it again. When X's own polling found new
+  // posts it shows a "show new posts" button: pressing it shows what X already fetched, with
+  // no request of SocialDeck's own. Returns 'deferred' when scrolled down, 'no-banner' otherwise.
+  async function showNewListPosts(documentLike, schedule) {
+    const scroller = documentLike.scrollingElement || documentLike.documentElement;
+    if ((scroller?.scrollTop || 0) >= 60) return 'deferred';
+    const banner = documentLike.querySelector('[data-testid$="-newTweetsButton"]')
+      || Array.from(documentLike.querySelectorAll('[role="button"]')).find(button => (
+        /新しいポスト|新しいツイート|Show .* posts?/i.test(String(button.textContent || '').replace(/\s+/g, ' ').trim())
+      ));
+    if (!banner) return 'no-banner';
+    banner.click();
+    await new Promise(resolve => schedule(resolve, 150));
+    if (scroller) scroller.scrollTop = 0;
+    return 'banner-clicked';
+  }
+
+  function createShowNewListPostsScript() {
+    return `(${showNewListPosts.toString()})(document, setTimeout)`;
+  }
+
   // Runs in SocialDeck, not in X: whether a hidden page was sent to X's sign-in.
   function isLoginUrl(value) {
     if (/\/i\/flow\/(?:login|signup)|\/login(?:[/?#]|$)|\/logout(?:[/?#]|$)/.test(value || '')) return true;
@@ -104,10 +125,12 @@
     createNotificationBadgeScript,
     createReadTabScript,
     createSelectTabScript,
+    createShowNewListPostsScript,
     isLoginUrl,
     readNotificationBadge,
     readSelectedTab,
     selectFollowingRecent,
     selectHomeTab,
+    showNewListPosts,
   };
 })(window);

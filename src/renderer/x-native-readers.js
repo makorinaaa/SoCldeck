@@ -1,9 +1,16 @@
 (function (global) {
   const HOME_URL = 'https://x.com/home';
+  const listUrl = listId => `https://x.com/i/lists/${listId}`;
   const CAPTURE_TIMEOUT_MS = 20000;
   // Automatic reloads never run more often than this, whatever the column interval says.
   const MIN_AUTO_REFRESH_MS = 3 * 60 * 1000;
   const SOFT_REFRESH_RESULTS = new Set(['home-clicked', 'banner-clicked']);
+  const LIST_ID = /^\d+$/;
+
+  // An account's home reader is named by its partition; a list reader also by the list.
+  function readerKey(partition, listId = null) {
+    return listId ? `${partition}#list:${listId}` : partition;
+  }
   const LOAD_TIMEOUT_MS = 30000;
   // A long-lived x.com page slowly grows; memory cleanup reloads readers older than this.
   const READER_REFRESH_AGE_MS = 30 * 60 * 1000;
@@ -12,9 +19,10 @@
   const DRIVEN_RESPONSE_MS = 8000;
   const X_POLLING_WINDOW_MS = 150 * 1000;
 
-  // One hidden x.com/home page per account (a "reader") and the timeline it captures: loading,
-  // refreshing, switching tabs, loading more and the Following sort. It knows nothing about
-  // Columns; it reports changes through notifyChange and newly arrived posts through notifyNewPosts.
+  // One hidden x.com/home page per account, and one x.com/i/lists/<id> page per account and
+  // list (each a "reader"), and the timeline it captures: loading, refreshing, switching home
+  // tabs, loading more and the Following sort. It knows nothing about Columns; it reports
+  // changes through notifyChange and newly arrived posts through notifyNewPosts.
   function createXNativeReaders({
     documentRef = global.document,
     getReaderHost = () => documentRef.getElementById('x-home-readers'),
@@ -44,6 +52,11 @@
     function handleCapture(payload) {
       const reader = findByWebContentsId(payload?.webContentsId);
       if (!reader || !Array.isArray(payload.posts)) return false;
+      // A list page shows one timeline: the list. It never posts, so CreateTweet is not its own.
+      if (reader.listId) {
+        if (payload.operation !== 'CreateTweet') processCapture(reader, { ...payload, timeline: 'list' });
+        return true;
+      }
       if (reader.switching) {
         if (payload.operation !== 'CreateTweet' && payload.firstPage) verifySwitchCapture(reader, payload);
         return true;
@@ -147,17 +160,23 @@
       notifyChange(reader);
     }
 
-    function create(partition) {
+    function create(partition, listId) {
       const host = getReaderHost();
       if (!host) return null;
+      const key = readerKey(partition, listId);
       const webview = documentRef.createElement('webview');
-      webview.id = `x-home-reader-${partition.replace(/[^a-z0-9-]/gi, '_')}`;
+      webview.id = listId
+        ? `x-list-reader-${partition.replace(/[^a-z0-9-]/gi, '_')}-${listId}`
+        : `x-home-reader-${partition.replace(/[^a-z0-9-]/gi, '_')}`;
       webview.setAttribute('partition', partition);
       webview.setAttribute('webpreferences', 'backgroundThrottling=false');
       const preloadPath = getPreloadPath();
       if (preloadPath) webview.setAttribute('preload', preloadPath);
       const reader = {
+        key,
         partition,
+        listId: listId || null,
+        url: listId ? listUrl(listId) : HOME_URL,
         webview,
         webContentsId: null,
         posts: [],
@@ -192,50 +211,56 @@
           setStatus(reader, 'login', 'このアカウントで X にログインしてください');
           return;
         }
-        loadHome(reader);
+        loadPage(reader);
       });
       webview.src = 'about:blank';
       host.appendChild(webview);
-      readers.set(partition, reader);
+      readers.set(key, reader);
       return reader;
     }
 
-    function ensure(partition) {
-      return readers.get(partition) || create(partition);
+    // { listId } names a list's reader; without it, the account's home reader.
+    function ensure(partition, { listId = null } = {}) {
+      if (listId && !LIST_ID.test(String(listId))) return null;
+      return readers.get(readerKey(partition, listId)) || create(partition, listId ? String(listId) : null);
+    }
+
+    function forPartition(partition) {
+      return [...readers.values()].filter(reader => reader.partition === partition);
     }
 
     function markDriven(reader) {
       reader.lastDrivenAt = now();
     }
 
-    // Loads X's home in the reader; if no timeline arrives the Column stops spinning and
-    // offers the refresh button instead of waiting forever.
-    function loadHome(reader) {
+    // Loads X's home (or the list) in the reader; if no timeline arrives the Column stops
+    // spinning and offers the refresh button instead of waiting forever.
+    function loadPage(reader) {
       reader.lastLoadAt = now();
       markDriven(reader);
-      reader.webview.loadURL(HOME_URL).catch(() => {});
+      reader.webview.loadURL(reader.url).catch(() => {});
       clearTimeoutFn(reader.loadWatchdog);
       reader.loadWatchdog = setTimeoutFn(() => {
-        if (readers.get(reader.partition) === reader && reader.status === 'loading') {
+        if (readers.get(reader.key) === reader && reader.status === 'loading') {
           setStatus(reader, 'error', 'タイムラインを読み込めませんでした。更新ボタンで再試行してください');
         }
       }, LOAD_TIMEOUT_MS);
     }
 
-    // After signing in on X: the reader starts over with the new session.
+    // After signing in on X: the account's readers start over with the new session.
     function restart(partition) {
-      const reader = readers.get(partition);
-      if (!reader) return;
-      setStatus(reader, 'loading');
-      loadHome(reader);
+      forPartition(partition).forEach(reader => {
+        setStatus(reader, 'loading');
+        loadPage(reader);
+      });
     }
 
-    function dispose(partition) {
-      const reader = readers.get(partition);
+    function dispose(key) {
+      const reader = readers.get(key);
       if (!reader) return;
       clearTimeoutFn(reader.loadWatchdog);
       clearTimeoutFn(reader.sortingTimer);
-      readers.delete(partition);
+      readers.delete(key);
       reader.waiters.splice(0).forEach(resolve => resolve({ status: 'deferred', detail: 'disposed' }));
       if (reader.webContentsId !== null) tap.detach?.(reader.webContentsId)?.catch?.(() => {});
       reader.webview.remove();
@@ -267,8 +292,8 @@
       return promise;
     }
 
-    async function refresh(partition, { force = false, reload = false, label = partition } = {}) {
-      const reader = readers.get(partition);
+    async function refresh(key, { force = false, reload = false, label = key } = {}) {
+      const reader = readers.get(key);
       if (!reader) return { status: 'deferred', detail: 'unavailable' };
       if (reader.webContentsId === null) return { status: 'deferred', detail: 'starting' };
       // Several columns may share one reader: join an in-flight reload instead of reloading again.
@@ -281,13 +306,16 @@
       if (!force && reader.lastPolledAt && now() - reader.lastPolledAt < X_POLLING_WINDOW_MS) {
         return { status: 'succeeded', detail: 'x-polling' };
       }
-      if (!reload && reader.status === 'ready' && createRefreshScript) {
+      // A list page has no such button: it shows the new posts X's own polling found, if any.
+      if (!reload && reader.status === 'ready' && (createRefreshScript || reader.listId)) {
         markDriven(reader);
         const captured = waitForCapture(reader);
         let result = 'failed';
         try {
           // X skips the refresh unless the page is at the top: scroll and refresh in one call.
-          result = await reader.webview.executeJavaScript(`(window.scrollTo(0, 0), ${createRefreshScript('home', { allowForYou: true })})`);
+          result = await reader.webview.executeJavaScript(reader.listId
+            ? `(window.scrollTo(0, 0), ${scripts.createShowNewListPostsScript()})`
+            : `(window.scrollTo(0, 0), ${createRefreshScript('home', { allowForYou: true })})`);
         } catch {}
         log('soft refresh', label, result);
         if (SOFT_REFRESH_RESULTS.has(result)) return captured;
@@ -301,15 +329,15 @@
       reader.lastLoadAt = now();
       const captured = waitForCapture(reader);
       if (reader.status !== 'ready') setStatus(reader, 'loading');
-      loadHome(reader);
+      loadPage(reader);
       return captured;
     }
 
     // Switches the account's home between For you and Following by clicking X's own tab.
     // X remembers the tab, so the choice survives restarts.
-    async function switchTimeline(partition, timeline) {
-      const reader = readers.get(partition);
-      if (!reader || reader.webContentsId === null || reader.switching || isBusy()) return false;
+    async function switchTimeline(key, timeline) {
+      const reader = readers.get(key);
+      if (!reader || reader.listId || reader.webContentsId === null || reader.switching || isBusy()) return false;
       if (!['for-you', 'following'].includes(timeline) || reader.timeline === timeline) return false;
       reader.switching = timeline;
       reader.reselected = false;
@@ -323,7 +351,7 @@
       if (result === 'clicked' || result === 'already') {
         reader.pageTab = null;
         const captured = waitForCapture(reader);
-        loadHome(reader);
+        loadPage(reader);
         succeeded = (await captured).status === 'succeeded' && reader.timeline === timeline;
       }
       reader.switching = null;
@@ -337,8 +365,8 @@
       return succeeded;
     }
 
-    async function loadMore(partition) {
-      const reader = readers.get(partition);
+    async function loadMore(key) {
+      const reader = readers.get(key);
       if (!reader || reader.loadingMore || reader.webContentsId === null || isBusy()) return false;
       reader.loadingMore = true;
       notifyChange(reader);
@@ -356,10 +384,12 @@
     }
 
     // The hidden home page's notification badge tells whether X has new notifications, so
-    // the notification page only needs loading when the count changes.
+    // the notification page only needs loading when the count changes. A list page shows the
+    // same badge, for an account with only list Columns.
     async function readNotificationBadge(partition) {
-      const reader = readers.get(partition);
-      if (!reader || reader.status !== 'ready' || reader.webContentsId === null) return null;
+      const ready = candidate => candidate?.status === 'ready' && candidate.webContentsId !== null;
+      const reader = [readers.get(partition), ...forPartition(partition)].find(ready);
+      if (!reader) return null;
       const count = await reader.webview.executeJavaScript(scripts.createNotificationBadgeScript()).catch(() => null);
       return Number.isInteger(count) && count >= 0 ? count : null;
     }
@@ -372,7 +402,7 @@
         const idle = !reader.switching && !reader.loadingMore && !reader.waiters.length && !isBusy();
         if (idle && reader.status === 'ready' && reader.webContentsId !== null
           && now() - reader.lastLoadAt >= READER_REFRESH_AGE_MS && !documentRef.hidden) {
-          loadHome(reader);
+          loadPage(reader);
           reloaded += 1;
         }
       });
@@ -384,7 +414,8 @@
       count: () => readers.size,
       dispose,
       ensure,
-      get: partition => readers.get(partition),
+      forPartition,
+      get: key => readers.get(key),
       handleCapture,
       loadMore,
       readNotificationBadge,
@@ -395,5 +426,5 @@
     };
   }
 
-  global.SocialDeckXNativeReaders = { createXNativeReaders };
+  global.SocialDeckXNativeReaders = { createXNativeReaders, readerKey };
 })(window);

@@ -103,7 +103,7 @@
       });
 
       if (result.status === 'input-required' && result.plan.input === 'x-list') {
-        intents.requestXListInput?.(accountIndex);
+        intents.requestXListInput?.(accountIndex, definitionId);
         return;
       }
       if (result.status !== 'created') {

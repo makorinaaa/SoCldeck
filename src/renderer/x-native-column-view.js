@@ -86,7 +86,9 @@
       patchKeyedChildren({ host: column.host, entries, rendered: column.rendered, keyOf, createElementFromHtml });
     }
 
+    // Only Home has tabs; a list Column has none.
     function tabsHtml(reader) {
+      if (reader.listId) return '';
       const current = reader.switching || reader.timeline;
       const button = (timeline, label) => `<button type="button" data-x-timeline="${timeline}" class="${current === timeline ? 'on' : ''}"${reader.switching ? ' disabled' : ''} aria-pressed="${current === timeline}">${label}</button>`;
       return `<div class="x-native-tabs" data-x-native-tabs role="group" aria-label="タイムライン">${button('for-you', 'おすすめ')}${button('following', 'フォロー中')}</div>`;
@@ -132,7 +134,8 @@
         column.signature = html;
         return;
       }
-      const entries = [{ key: 'tabs', html: tabsHtml(reader) }];
+      const tabs = tabsHtml(reader);
+      const entries = tabs ? [{ key: 'tabs', html: tabs }] : [];
       if (reader.status === 'login') entries.push({ key: 'login', html: loginHtml(reader) });
       else if (reader.status === 'error') {
         entries.push({ key: 'notice', html: `<div class="x-native-notice">${escapeHtml(reader.message)}</div>` });

@@ -96,7 +96,10 @@
               type: column.dataset.type,
               feedUri: column.dataset.feeduri || '',
             }),
-            ...(columnKind === 'x-native' && { partition: column.dataset.partition }),
+            ...(columnKind === 'x-native' && {
+              partition: column.dataset.partition,
+              ...(column.dataset.url && { url: column.dataset.url }),
+            }),
             ...captureCommonState(column, id, {
               schedule: 'ic-anime',
               'x-native': 'ic-x',
