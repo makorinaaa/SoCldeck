@@ -59,11 +59,15 @@
   }
 
   function createXPostView({ icons = {}, relTime = () => '', getPendingReaction = () => null } = {}) {
+    function renderLock(author) {
+      return author.protected ? `<span class="x-lock" title="非公開アカウント" aria-label="非公開アカウント">${icons.lock || '🔒'}</span>` : '';
+    }
+
     function renderQuote(quoted) {
       if (!quoted) return '';
       const author = quoted.author || {};
       return `<div class="p-quote" data-x-url="${escapeHtml(safeHttpsUrl(quoted.url))}">
-        <div class="p-quote-author">${escapeHtml(author.name || author.handle || '')} <span class="p-handle">@${escapeHtml(author.handle || '')}</span></div>
+        <div class="p-quote-author">${escapeHtml(author.name || author.handle || '')}${renderLock(author)} <span class="p-handle">@${escapeHtml(author.handle || '')}</span></div>
         <div class="p-quote-text">${renderSegments(quoted.segments)}</div>${renderMedia(quoted.media)}
       </div>`;
     }
@@ -88,6 +92,9 @@
       const url = safeHttpsUrl(post.url);
       const like = reactionState(post, 'like', partition);
       const repost = reactionState(post, 'repost', partition);
+      // X does not let anyone repost or quote a protected account's post; an existing
+      // repost can still be undone.
+      const repostBlocked = Boolean(author.protected) && !repost.active;
       const repostLabel = post.repostedBy
         ? `<div class="repost-label">${icons.repost || ''} ${escapeHtml(post.repostedBy.name || post.repostedBy.handle || '')} がリポスト</div>`
         : '';
@@ -96,11 +103,11 @@
         : '';
       return `<div class="post x-native-post${focal ? ' x-focal' : ''}${deleting ? ' x-deleting' : ''}" role="link" tabindex="0" data-x-id="${escapeHtml(post.id || '')}" data-x-url="${escapeHtml(url)}" data-author-handle="${escapeHtml(author.handle || '')}">
         ${repostLabel}
-        <div class="post-top">${renderAvatar(author)}<div class="post-meta"><div class="meta-row"><span class="p-name" title="${escapeHtml(author.name || author.handle || '')}">${escapeHtml(author.name || author.handle || '')}</span><span class="p-handle">@${escapeHtml(author.handle || '')}</span><span class="p-time" data-created-at="${escapeHtml(post.createdAt || '')}">${escapeHtml(relTime(post.createdAt))}</span></div></div></div>
+        <div class="post-top">${renderAvatar(author)}<div class="post-meta"><div class="meta-row"><span class="p-name" title="${escapeHtml(author.name || author.handle || '')}">${escapeHtml(author.name || author.handle || '')}</span>${renderLock(author)}<span class="p-handle">@${escapeHtml(author.handle || '')}</span><span class="p-time" data-created-at="${escapeHtml(post.createdAt || '')}">${escapeHtml(relTime(post.createdAt))}</span></div></div></div>
         ${replyLabel}<div class="p-body">${renderSegments(post.segments)}</div>${renderMedia(post.media)}${renderQuote(post.quoted)}
         <div class="p-acts x-native-acts">
           <button type="button" class="pa rep" data-x-action="reply" title="返信">${icons.reply || ''} <span>${formatCount(counts.reply)}</span></button>
-          <button type="button" class="pa rt ${repost.active ? 'rted' : ''}" data-x-action="repost" title="リポスト"${repost.pending ? ' disabled' : ''}>${icons.repost || ''} <span>${formatCount(repost.count)}</span></button>
+          <button type="button" class="pa rt ${repost.active ? 'rted' : ''}${repostBlocked ? ' x-blocked' : ''}" data-x-action="repost" title="${repostBlocked ? '非公開アカウントのポストはリポストできません' : 'リポスト'}"${repost.pending || repostBlocked ? ' disabled' : ''}>${icons.repost || ''} <span>${formatCount(repost.count)}</span></button>
           <button type="button" class="pa lk ${like.active ? 'liked' : ''}" data-x-action="like" title="いいね"${like.pending ? ' disabled' : ''}>${icons.heart || ''} <span>${formatCount(like.count)}</span></button>
           ${own ? `<button type="button" class="pa x-more" data-x-action="more" title="その他"${deleting ? ' disabled' : ''}>${icons.more || '…'}</button>` : ''}
         </div>

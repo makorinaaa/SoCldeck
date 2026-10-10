@@ -63,6 +63,8 @@ function normalizeUser(userResult) {
     name: core.name || legacy.name || handle,
     avatar,
     verified: Boolean(user.is_blue_verified || legacy.verified),
+    // Newer responses carry this under privacy; older ones under legacy.
+    protected: Boolean(user.privacy?.protected ?? legacy.protected),
   };
 }
 

@@ -479,6 +479,31 @@ test('a post deleted from one account disappears from every account Column', asy
   assert.doesNotMatch(sub.innerHTML, new RegExp(`data-x-id="${target}"`), 'the other account no longer shows it');
 });
 
+test('a protected account post shows a lock and cannot be reposted or quoted', async () => {
+  const view = load().SocialDeckXPostView.createXPostView({ icons: { lock: '<svg class="lock"></svg>' } });
+  const locked = { id: '6', url: 'https://x.com/locked/status/6', author: { handle: 'locked', protected: true }, segments: [], media: [], viewer: {} };
+  const html = view.renderPost(locked);
+  assert.match(html, /class="x-lock"[^>]*><svg class="lock">/);
+  assert.match(html, /data-x-action="repost" title="非公開アカウントのポストはリポストできません" disabled/);
+  assert.doesNotMatch(view.renderPost({ ...locked, author: { handle: 'open' } }), /x-lock|x-blocked/);
+  assert.match(view.renderPost({ id: '7', author: { handle: 'a' }, segments: [], media: [], quoted: locked }), /class="x-lock"/);
+  // A repost made before the account went protected can still be undone.
+  assert.doesNotMatch(view.renderPost({ ...locked, viewer: { reposted: true } }), /x-blocked/);
+
+  const harness = createHarness();
+  const detail = harness.runtime.openPost(locked, 'persist:x-2');
+  const before = harness.appended.length;
+  await detail.overlay.dispatch('click', event(postElement('6', [{ matches: ['[data-x-action]'], dataset: { xAction: 'repost' } }])));
+  assert.equal(harness.appended.length, before, 'no repost menu opens');
+
+  const reposted = { ...locked, id: '8', url: 'https://x.com/locked/status/8', viewer: { reposted: true } };
+  const undo = harness.runtime.openPost(reposted, 'persist:x-2');
+  await undo.overlay.dispatch('click', event(postElement('8', [{ matches: ['[data-x-action]'], dataset: { xAction: 'repost' } }])));
+  const menu = harness.appended.at(-1);
+  assert.match(menu.innerHTML, /リポストを取り消す/);
+  assert.doesNotMatch(menu.innerHTML, /引用/);
+});
+
 test('posts show no view count and the own-post menu sits at the end of the actions', () => {
   const view = load().SocialDeckXPostView.createXPostView({});
   const html = view.renderPost({ id: '1', url: 'https://x.com/a/status/1', author: { handle: 'a' }, segments: [], media: [], counts: { view: 12345 } }, { own: true });
