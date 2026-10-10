@@ -27,7 +27,7 @@ function createListenerTarget(extra = {}) {
   };
 }
 
-function createHarness({ attachResult = true, now = () => 1_000_000, refreshResult = null, setTimeoutFn = () => 0, isAuthenticated = async () => true } = {}) {
+function createHarness({ attachResult = true, now = () => 1_000_000, refreshResult = null, setTimeoutFn = () => 0, isAuthenticated = async () => true, columnFilter = null } = {}) {
   const window = load();
   const webviews = [];
   const readerHost = { children: [], appendChild(child) { this.children.push(child); } };
@@ -75,6 +75,7 @@ function createHarness({ attachResult = true, now = () => 1_000_000, refreshResu
     clearTimeoutFn: () => {},
     isAuthenticated,
     now,
+    ...(columnFilter ? { columnFilter } : {}),
     ...(refreshResult ? { createRefreshScript: destination => `REFRESH:${destination}` } : {}),
   });
   const createHost = () => createListenerTarget({ innerHTML: '', scrollTop: 0, querySelectorAll: () => [] });
@@ -605,4 +606,25 @@ test('showNewListPosts presses X\'s new posts button only at the top of the list
   assert.deepEqual(clicks, ['banner']);
   const empty = { scrollingElement: { scrollTop: 0 }, querySelector: () => null, querySelectorAll: () => [] };
   assert.equal(await scripts.showNewListPosts(empty, schedule), 'no-banner');
+});
+
+test('each native Column applies its own filter to the shared reader', async () => {
+  let mediaOnly = 'b';
+  const harness = createHarness({ columnFilter: (columnId, post) => columnId !== mediaOnly || post.media.length > 0 });
+  const all = harness.createHost();
+  const media = harness.createHost();
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-0', host: all });
+  harness.runtime.mount({ id: 'b', partition: 'persist:x-0', host: media });
+  await harness.webviews[0].dispatch('dom-ready');
+  harness.emit({ webContentsId: 41, ...normalizeTimelineResponse(fixture) });
+
+  assert.match(all.innerHTML, /data-x-id="1800000000000000003"/);
+  assert.match(all.innerHTML, /data-x-id="1800000000000000001"/);
+  assert.match(media.innerHTML, /data-x-id="1800000000000000003"/);
+  assert.doesNotMatch(media.innerHTML, /data-x-id="1800000000000000001"/);
+
+  mediaOnly = 'a';
+  harness.runtime.rerenderAll();
+  assert.doesNotMatch(all.innerHTML, /data-x-id="1800000000000000001"/);
+  assert.match(media.innerHTML, /data-x-id="1800000000000000001"/);
 });

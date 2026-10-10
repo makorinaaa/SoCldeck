@@ -66,6 +66,7 @@ function createHarness({
   measure = async () => ({ host: null }),
   clear = async () => ({ after: { host: null }, runtimeCleanup: {} }),
   appearanceState = { theme: 'dark', accent: '#4e9af0' },
+  filters = new Map(),
 } = {}) {
   const calls = {
     added: [],
@@ -77,6 +78,7 @@ function createHarness({
     persisted: 0,
     memoryIntervals: [],
     appearance: [],
+    filters: [],
   };
   const runtime = loadRuntime().createSettingsModalsRuntime({
     documentRef,
@@ -107,6 +109,9 @@ function createHarness({
       persistLayout: () => { calls.persisted += 1; },
       getFontSize: id => (id === 'bsky-large' ? 15 : null),
       setFontSize: (id, colType, fontSize) => calls.fontSizes.push([id, colType, fontSize]),
+      // 通知カラムなど、フィルターを使えないカラムは undefined
+      getFilter: id => (id.startsWith('filterable') ? filters.get(id) || null : undefined),
+      setFilter: (id, filter) => { calls.filters.push([id, filter]); filters.set(id, filter); },
     },
     intents: {
       toast: message => calls.toasts.push(message),
@@ -249,4 +254,43 @@ test('synchronizes appearance controls through the Appearance Runtime', () => {
   runtime.cancelAppearance();
   assert.equal(calls.appearance.at(-1), 'cancel');
   assert.equal(modal.classList.contains('on'), false);
+});
+
+test('column settings toggle media-only and repost filters and edit the words', () => {
+  const documentRef = createDocument();
+  const { runtime, calls } = createHarness({ documentRef });
+
+  runtime.openColumnSettings('filterable-1', 'bsky');
+  let html = documentRef.appended.at(-1).innerHTML;
+  assert.match(html, /data-action="toggle-column-filter" data-column-id="filterable-1" data-filter-key="mediaOnly"/);
+  assert.match(html, /aria-pressed="false"/);
+
+  runtime.toggleColumnFilter('filterable-1', 'mediaOnly');
+  runtime.toggleColumnFilter('filterable-1', 'hideReposts');
+  const input = createElement('col-filter-word-input');
+  input.value = '  アニメ ';
+  documentRef.register(input);
+  runtime.addColumnFilterWord('filterable-1');
+  runtime.addColumnFilterWord('filterable-1');
+  html = documentRef.appended.at(-1).innerHTML;
+  assert.match(html, /class="chip-btn on"[^>]*data-filter-key="mediaOnly"/);
+  assert.match(html, /アニメ/);
+  assert.match(html, /data-action="remove-column-filter-word" data-column-id="filterable-1" data-word-index="0"/);
+
+  runtime.removeColumnFilterWord('filterable-1', 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filters.map(([, filter]) => filter))), [
+    { mediaOnly: true, hideReposts: false, keywords: [] },
+    { mediaOnly: true, hideReposts: true, keywords: [] },
+    { mediaOnly: true, hideReposts: true, keywords: ['アニメ'] },
+    { mediaOnly: true, hideReposts: true, keywords: [] },
+  ]);
+});
+
+test('column settings leave out the filter for columns that cannot use it', () => {
+  const documentRef = createDocument();
+  const { runtime } = createHarness({ documentRef });
+
+  runtime.openColumnSettings('notif-1', 'bsky');
+
+  assert.doesNotMatch(documentRef.appended[0].innerHTML, /toggle-column-filter/);
 });

@@ -22,6 +22,8 @@
     icons = {},
     relTime = () => '',
     blocksPost = () => false,
+    // カラムごとのフィルター（column-filters.mjs）。true なら表示する
+    columnFilter = () => true,
     intents = {},
     setTimeoutFn = global.setTimeout,
     clearTimeoutFn = global.clearTimeout,
@@ -66,7 +68,7 @@
       notifyChange: reader => renderReader(reader),
       notifyNewPosts: (reader, posts) => {
         const shown = posts.filter(post => showsInTimeline(post, reader));
-        if (shown.length) announceNewPosts(reader, shown.length);
+        if (shown.length) announceNewPosts(reader, shown);
       },
     });
     const reactions = global.SocialDeckXNativeReactions.createXNativeReactions({
@@ -172,9 +174,12 @@
 
     // Shows "+N" on the Column header. While the reader is scrolled down the count adds up
     // and stays until they return to the top; at the top it fades like Bluesky's.
-    function announceNewPosts(reader, count) {
+    function announceNewPosts(reader, posts) {
       columnsFor(reader).forEach(column => {
         if (!column.badge) return;
+        // 同じアカウントのカラムでも、フィルターで見える新着の数は違う
+        const count = posts.filter(post => columnFilter(column.id, post)).length;
+        if (!count) return;
         const atTop = (column.host.scrollTop || 0) < AT_TOP_PX;
         column.unseen = (atTop ? 0 : column.unseen || 0) + count;
         column.badge.textContent = `+${column.unseen}`;
@@ -210,7 +215,8 @@
     function renderColumn(column, reader) {
       view.render(column, {
         reader,
-        visible: reader.switching ? [] : reader.posts.filter(post => showsInTimeline(post, reader)),
+        visible: reader.switching ? [] : reader.posts
+          .filter(post => showsInTimeline(post, reader) && columnFilter(column.id, post)),
         optionsFor: post => postOptions(post, column.partition),
       });
     }

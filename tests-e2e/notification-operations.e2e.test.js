@@ -475,6 +475,46 @@ test('Bluesky reply shows the original post as a card and joins its thread root'
   });
 });
 
+test('a column filter hides reposts and keeps posts with a word, and survives reload', { timeout: 30000 }, async t => {
+  const post = (n, text, extra = {}) => ({ post: {
+    uri: `at://did:plc:alice/app.bsky.feed.post/${n}`, cid: `cid${n}`,
+    author: { did: 'did:plc:alice', handle: 'alice.test', displayName: 'Alice' },
+    record: { text, createdAt: '2026-07-15T00:00:00Z' },
+  }, ...extra });
+  const feed = [
+    post(1, '猫の写真'),
+    post(2, '犬の散歩', { reason: { $type: 'app.bsky.feed.defs#reasonRepost', by: { did: 'did:plc:bob', handle: 'bob.test' } } }),
+    post(3, 'ただの日記'),
+  ];
+  const { page } = await launchApp(t, { ...BLUESKY_FIXTURES, blueskyFeed: feed });
+  await page.locator('#app').waitFor({ state: 'visible' });
+  const column = page.locator('#col-b-home');
+  const texts = () => column.locator('.post .p-body').allTextContents();
+  await column.locator('.post').nth(2).waitFor();
+  assert.deepEqual(await texts(), ['猫の写真', '犬の散歩', 'ただの日記']);
+
+  const openSettings = async () => {
+    await column.locator('[data-shell-action="more"]').click();
+    await column.locator('[data-shell-action="settings"]').click();
+  };
+  await openSettings();
+  await page.locator('#col-settings-ov [data-filter-key="hideReposts"]').click();
+  await page.locator('#col-filter-word-input').fill('猫');
+  await page.locator('#col-filter-word-input').press('Enter');
+  await page.locator('#col-settings-ov [data-action="remove-element"]').click();
+
+  await column.locator('.post', { hasText: '犬の散歩' }).waitFor({ state: 'detached' });
+  await column.locator('.post', { hasText: 'ただの日記' }).waitFor({ state: 'detached' });
+  assert.deepEqual(await texts(), ['猫の写真']);
+  assert.equal(await column.locator('.col-filter-label').isVisible(), true);
+  assert.match(await column.locator('.col-filter-label').getAttribute('title'), /リポスト非表示 · 「猫」/);
+
+  await page.reload();
+  await column.locator('.post').first().waitFor();
+  assert.deepEqual(await texts(), ['猫の写真']);
+  assert.equal(await column.locator('.col-filter-label').isVisible(), true);
+});
+
 test('single-key shortcuts move through Bluesky posts, act on them, and open help', { timeout: 20000 }, async t => {
   const post = n => ({ post: {
     uri: `at://did:plc:alice/app.bsky.feed.post/${n}`, cid: `cid${n}`,

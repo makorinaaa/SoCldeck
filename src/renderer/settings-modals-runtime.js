@@ -97,7 +97,75 @@
         ${label}</button>`;
     }
 
+    // ── カラム別フィルター ──
+    // columns.getFilter が undefined を返すカラム（通知など）には出さない
+    const MAX_FILTER_WORDS = 20;
+    const openedColumnTypes = new Map();
+
+    function currentFilter(id) {
+      const filter = columns.getFilter?.(id);
+      return {
+        mediaOnly: Boolean(filter?.mediaOnly),
+        hideReposts: Boolean(filter?.hideReposts),
+        keywords: [...(filter?.keywords || [])],
+      };
+    }
+
+    function filterToggle(id, key, active, label) {
+      return `<button class="chip-btn${active ? ' on' : ''}" data-action="toggle-column-filter" data-column-id="${escape(id)}" data-filter-key="${key}" aria-pressed="${active}">${label}</button>`;
+    }
+
+    function columnFilterSection(id) {
+      if (columns.getFilter?.(id) === undefined) return '';
+      const filter = currentFilter(id);
+      const words = filter.keywords.map((word, index) => `<div class="ng-row">
+          <span>${escape(word)}</span>
+          <button class="ng-del" data-action="remove-column-filter-word" data-column-id="${escape(id)}" data-word-index="${index}">削除</button>
+        </div>`).join('') || '<div class="ng-empty">指定なし（すべて表示）</div>';
+      return `<div class="modal-label">表示する投稿</div>
+        <div class="chip-row">
+          ${filterToggle(id, 'mediaOnly', filter.mediaOnly, '画像・動画だけ')}
+          ${filterToggle(id, 'hideReposts', filter.hideReposts, 'リポストを非表示')}
+        </div>
+        <div class="modal-label">語句を含む投稿だけ（いずれかを含むもの）</div>
+        ${words}
+        <div class="ng-add-row">
+          <input id="col-filter-word-input" class="ng-input" type="text" maxlength="100" placeholder="語句を追加…">
+          <button class="ng-add" data-action="add-column-filter-word" data-column-id="${escape(id)}">追加</button>
+        </div>`;
+    }
+
+    function updateColumnFilter(id, change, { focusWordInput = false } = {}) {
+      columns.setFilter?.(id, change(currentFilter(id)));
+      openColumnSettings(id, openedColumnTypes.get(id));
+      if (focusWordInput) global.setTimeout(() => documentRef.getElementById('col-filter-word-input')?.focus(), 50);
+    }
+
+    function toggleColumnFilter(id, key) {
+      if (!['mediaOnly', 'hideReposts'].includes(key)) return;
+      updateColumnFilter(id, filter => ({ ...filter, [key]: !filter[key] }));
+    }
+
+    function addColumnFilterWord(id) {
+      const word = String(documentRef.getElementById('col-filter-word-input')?.value || '').trim();
+      const filter = currentFilter(id);
+      if (!word || filter.keywords.includes(word)) return;
+      if (filter.keywords.length >= MAX_FILTER_WORDS) {
+        toast(`語句は${MAX_FILTER_WORDS}個まで追加できます`);
+        return;
+      }
+      updateColumnFilter(id, current => ({ ...current, keywords: [...current.keywords, word] }), { focusWordInput: true });
+    }
+
+    function removeColumnFilterWord(id, index) {
+      updateColumnFilter(id, filter => ({
+        ...filter,
+        keywords: filter.keywords.filter((_, wordIndex) => wordIndex !== Number(index)),
+      }));
+    }
+
     function openColumnSettings(id, colType) {
+      openedColumnTypes.set(id, colType);
       const currentSeconds = Math.round((columns.getRefreshInterval?.(id) || 0) / 1000);
       const currentFontSize = columns.getFontSize?.(id) || 13;
       openOverlay('col-settings-ov', `<div class="modal" style="width:300px">
@@ -120,8 +188,14 @@
             fontSize + 'px',
           )).join('')}
         </div>
+        ${columnFilterSection(id)}
         <button data-action="remove-element" data-target-id="col-settings-ov" class="btn-cancel">閉じる</button>
       </div>`);
+      documentRef.getElementById('col-filter-word-input')?.addEventListener?.('keydown', event => {
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        addColumnFilterWord(id);
+      });
     }
 
     function applyColumnInterval(id, ms) {
@@ -272,6 +346,7 @@
     }
 
     return {
+      addColumnFilterWord,
       addNgRule,
       applyColumnFontSize,
       applyColumnInterval,
@@ -284,8 +359,10 @@
       openNgSettings,
       previewAppearance,
       refreshMemoryMetrics,
+      removeColumnFilterWord,
       removeNgRule,
       saveAppearance,
+      toggleColumnFilter,
     };
   }
 
