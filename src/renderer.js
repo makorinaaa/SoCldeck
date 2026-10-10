@@ -8,6 +8,7 @@ import { createSubmissionScript } from './renderer/x-composer-submit.mjs';
 import { createXAccounts, isSameXAccount, xPartitionOf } from './renderer/x-accounts.mjs';
 import { createXNotificationLoader } from './renderer/x-notification-loader.mjs';
 import { createColumnMounts } from './renderer/column-mounts.mjs';
+import { measurePost } from './renderer/post-length.mjs';
 import {
   SocialDeckAccountSessionRuntime,
   SocialDeckAnimeScheduleRuntime,
@@ -437,6 +438,7 @@ const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
 });
 const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   documentRef: document,
+  measurePost,
   getAccount: () => state.b,
   buildFacets: text => buildFacets(text),
   resolveMentionDids: facets => resolveMentionDids(facets),
@@ -526,6 +528,7 @@ const composeModalView = SocialDeckComposeModalView.createComposeModalDomView({
 });
 composeModalRuntime = SocialDeckComposeModalRuntime.createComposeModalRuntime({
   storage: localStorage,
+  measurePost,
   getAccounts: () => ({ x: state.xs || [], b: state.b }),
   getPreferences: () => state.composePreferences || {},
   mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },

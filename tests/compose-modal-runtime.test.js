@@ -1134,3 +1134,31 @@ test('reuses the delivery key while a post is locked for retry, also after resta
   second.setBusy('b', true, '送信中…', { deliveryKey: 'third-key' });
   assert.equal(second.getSnapshot('b').deliveryKey, 'third-key');
 });
+
+test('judges post length with each network rule, and both rules when cross-posting', async () => {
+  const { measurePost } = await import('../src/renderer/post-length.mjs');
+  let handlers;
+  let preferences = {};
+  const runtime = loadRuntime().createComposeModalRuntime({
+    measurePost,
+    getAccounts: () => ({ x: [{ partition: 'persist:x-0' }], b: { did: 'did:plc:me' } }),
+    getPreferences: () => preferences,
+    coordinator: { resetCrossPost() {}, getStatus: () => ({ isSending: false }) },
+    view: { connect: value => { handlers = value; } },
+  });
+
+  runtime.open('x');
+  handlers.textChanged('x', 'あ'.repeat(141));
+  assert.equal(runtime.getSnapshot('x').characterCount, 282);
+  assert.equal(runtime.getSnapshot('x').canSubmit, false);
+  runtime.close('x');
+
+  runtime.open('b');
+  handlers.textChanged('b', '😀'.repeat(151));
+  assert.equal(runtime.getSnapshot('b').characterCount, 151);
+  assert.equal(runtime.getSnapshot('b').canSubmit, true);
+  handlers.crossPostChanged('b', true);
+  assert.equal(runtime.getSnapshot('b').characterCount, 302);
+  assert.equal(runtime.getSnapshot('b').characterLimit, 280);
+  assert.equal(runtime.getSnapshot('b').canSubmit, false);
+});

@@ -9,6 +9,12 @@
     view = {},
     intents = {},
     storage = null,
+    // post-length.mjs の measurePost（このファイルは ES モジュールを読み込めないので渡してもらう）
+    measurePost = (value, networkIds) => {
+      const count = String(value || '').trim().length;
+      const limit = networkIds.includes('x') ? 280 : 300;
+      return { count, limit, valid: count <= limit };
+    },
   } = {}) {
     let disposed = false;
     let selectedXAccountIndex = 0;
@@ -193,8 +199,10 @@
       const media = mediaDrafts[networkId]?.getSnapshot?.() || { images: [], video: null };
       const crossPostAvailable = isCrossPostAvailable(networkId);
       const crossPosting = isCrossPosting(networkId);
-      const characterLimit = networkId === 'b' && !crossPosting ? 300 : 280;
-      const characterCount = (text[networkId] || '').length;
+      const otherNetworkId = networkId === 'x' ? 'b' : 'x';
+      const length = measurePost(text[networkId] || '', [networkId, ...(crossPosting ? [otherNetworkId] : [])]);
+      const characterLimit = length.limit;
+      const characterCount = length.count;
       const hasAttachment = media.images.length > 0 || Boolean(media.video);
       return {
         networkId,
@@ -223,7 +231,7 @@
         characterCount,
         characterLimit,
         canSubmit: !busy[networkId] && !reattachMedia[networkId] && !accountMismatch
-          && characterCount <= characterLimit
+          && length.valid
           && (characterCount > 0 || hasAttachment),
         previewOpen: previewOpen[networkId],
         targets: networkId === 'x'
