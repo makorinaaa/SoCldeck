@@ -356,6 +356,14 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg0);color:var(--tex
 .modal{background:var(--bg2);border:1px solid var(--border2);border-radius:14px;padding:24px;width:420px;max-width:calc(100vw - 32px);box-shadow:var(--surface-shadow)}
 .modal h2{font-size:17px;font-weight:700;margin-bottom:6px}
 .modal p{font-size:12px;color:var(--text2);margin-bottom:16px}
+.x-automation-modal{width:480px;max-height:calc(100vh - 48px);overflow-y:auto}
+.x-automation-modal ul{margin:0 0 14px 18px;font-size:12px;color:var(--text2);line-height:1.7}
+.x-automation-modal p{margin-bottom:12px}
+.x-automation-modal a{color:var(--accent)}
+.x-automation-warning{padding:10px 12px;border:1px solid var(--yellow);border-radius:8px;color:var(--text)!important}
+.x-automation-current{color:var(--text3)!important}
+.x-automation-actions{display:flex;gap:8px}
+.x-automation-actions>button{flex:1}
 .opt-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:14px}
 .opt{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 11px;cursor:pointer;color:var(--text1);font-family:inherit;text-align:left;transition:all .12s}
 .opt:hover{border-color:var(--accent);background:var(--accent-dim)}

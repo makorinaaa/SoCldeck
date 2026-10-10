@@ -6,7 +6,7 @@ function element(tagName = 'div') {
     appendChild(child) { this.children.push(child); } };
 }
 
-async function harness({ xNative = true, fontSizes = {} } = {}) {
+async function harness({ xNative = true, fontSizes = {}, xNativeUnavailableHtml, xNativeBlockedHtml } = {}) {
   const { createColumnMounts } = await import('../src/renderer/column-mounts.mjs');
   const calls = { shells: [], intervals: [], xWebView: [], bluesky: [], refreshes: [], anime: [], xNative: [], fontSizes: [] };
   const elements = new Map();
@@ -42,6 +42,8 @@ async function harness({ xNative = true, fontSizes = {} } = {}) {
       mount: request => calls.xNative.push(['home', request]),
       mountNotifications: request => calls.xNative.push(['notifications', request]),
     } : null,
+    ...(xNativeUnavailableHtml ? { xNativeUnavailableHtml } : {}),
+    ...(xNativeBlockedHtml ? { xNativeBlockedHtml } : {}),
     setRefreshInterval: (id, interval) => calls.intervals.push([id, interval]),
     getFontSize: id => fontSizes[id] ?? null,
     getPreloadPath: () => 'file:///webview-preload.js',
@@ -132,6 +134,18 @@ test('native X Columns explain that they need the desktop app', async () => {
   assert.match(elements.get('feed-xn').innerHTML, /デスクトップ版でのみ/);
 });
 
+test('native X Columns show why they are off when X automation is not agreed to', async () => {
+  const { mounts, elements, calls } = await harness({
+    xNative: false,
+    xNativeUnavailableHtml: '<div class="feed-empty">同意が必要です</div>',
+  });
+  mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-0',
+    config: { ...common, id: 'xn', network: 'x', definitionId: 'x-home-native' } });
+
+  assert.match(elements.get('feed-xn').innerHTML, /同意が必要です/);
+  assert.deepEqual(calls.xNative, []);
+});
+
 test('rejects unknown plans and keeps a Column that cannot be restored', async () => {
   const { mounts, calls } = await harness();
   assert.equal(mounts.insertPlan({ kind: 'unknown', config: {} }), false);
@@ -152,4 +166,17 @@ test('applies a new font size to the Column it belongs to', async () => {
 
   assert.equal(elements.get('feed-b-home').style.fontSize, '14px');
   assert.deepEqual(calls.fontSizes, [['wv', 'x-home', 16]]);
+});
+
+test('native X Columns of a paused account show why and start no reader', async () => {
+  const { mounts, elements, calls } = await harness({
+    xNativeBlockedHtml: partition => (partition === 'persist:x-1' ? '<div>止めています</div>' : null),
+  });
+  mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-1',
+    config: { ...common, id: 'paused', network: 'x', definitionId: 'x-home-native' } });
+  mounts.insertPlan({ kind: 'x-native', partition: 'persist:x-0',
+    config: { ...common, id: 'running', network: 'x', definitionId: 'x-home-native' } });
+
+  assert.match(elements.get('feed-paused').innerHTML, /止めています/);
+  assert.deepEqual(calls.xNative.map(([, request]) => request.id), ['running']);
 });

@@ -180,3 +180,28 @@ test('waits for the composer of a page that is still loading and fails clearly w
     webview: { executeJavaScript: async script => (script.includes('check < 40') ? false : { status: 'ready' }) },
   }), /投稿欄が表示されませんでした/);
 });
+
+test('marks a post that X refused with a limit notice', async () => {
+  const createDelivery = loadFactory();
+  let calls = 0;
+  const webview = {
+    async executeJavaScript(script) {
+      if (String(script).includes('check < 40')) return true;
+      calls += 1;
+      if (calls === 1) return { status: 'ready' };
+      if (calls === 3) return { status: 'failed', limited: true, message: 'You are over the daily limit for sending posts.' };
+      return 'ok';
+    },
+  };
+  const delivery = createDelivery({
+    createSubmissionScript: () => 'submit',
+    createPreparationScript: () => 'prepare-script',
+    createConfirmationScript: () => 'confirm',
+    readFileAsDataUrl: async () => '',
+  });
+
+  await assert.rejects(
+    delivery.execute({ text: 'hello', imageFiles: [], video: null }, { webview }),
+    error => error.code === 'X_LIMITED' && /daily limit/.test(error.message),
+  );
+});

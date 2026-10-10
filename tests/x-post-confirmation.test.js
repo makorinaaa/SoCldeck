@@ -151,3 +151,44 @@ test('does not assume a media-only post succeeded when media was never observed'
   assert.equal(result.status, 'unknown');
   assert.equal(result.reason, 'confirmation-timeout');
 });
+
+for (const notice of [
+  'You are over the daily limit for sending posts.',
+  'This request looks like it might be automated.',
+  '1日の投稿の上限に達しました',
+  '不審なアクティビティが検出されたため、アカウントはロックされています',
+]) {
+  test(`reports an X limit notice as a limit: ${notice}`, async () => {
+    const result = await loadConfirmationRuntime().confirmXPost({
+      hadText: true,
+      hadMedia: false,
+      observe: () => ({ noticeText: notice, composerEmpty: false, mediaPresent: false }),
+      schedule: callback => callback(),
+      maxChecks: 1,
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { status: 'failed', message: notice, limited: true });
+  });
+}
+
+test('keeps ordinary failures and reply restrictions apart from account limits', async () => {
+  for (const notice of ['Something went wrong. Try reloading.', 'このポストへの返信は制限されています']) {
+    const result = await loadConfirmationRuntime().confirmXPost({
+      hadText: true,
+      hadMedia: false,
+      observe: () => ({ noticeText: notice, composerEmpty: false, mediaPresent: false }),
+      schedule: callback => callback(),
+      maxChecks: 1,
+    });
+    assert.equal(result.limited, undefined, notice);
+  }
+});
+
+test('the confirmation script carries the limit patterns into the X page', () => {
+  const context = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'x-composer-dom.js'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'x-post-confirmation.js'), 'utf8'), context);
+  const script = context.window.SocialDeckXPostConfirmation.createConfirmationScript({ hadText: true, hadMedia: false });
+
+  assert.match(script, /const LIMIT_NOTICE = /);
+});
