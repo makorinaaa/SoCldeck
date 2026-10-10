@@ -622,34 +622,50 @@
       }
     }
 
-    function onDragOver(event) {
-      const drop = event.target.closest?.('[data-compose-drop]');
-      if (!drop) return;
-      event.preventDefault();
-      if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-      drop.classList.add('drag-on');
+    // ファイルは投稿画面のどこにドロップしても添付する（狭い添付欄を狙わなくてよい）。
+    // 文字列のドラッグは入力欄の通常の動作に任せる
+    function hasFiles(event) {
+      return [...(event.dataTransfer?.types || [])].includes('Files');
     }
 
-    function onDragLeave(event) {
-      event.target.closest?.('[data-compose-drop]')?.classList.remove('drag-on');
+    function createFileHandlers(networkId, modal) {
+      const dropArea = () => elements[`${networkId}-img-drop`];
+      return {
+        dragover(event) {
+          if (!hasFiles(event)) return;
+          event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+          dropArea()?.classList.add('drag-on');
+        },
+        dragleave(event) {
+          if (event.relatedTarget && modal.contains?.(event.relatedTarget)) return;
+          dropArea()?.classList.remove('drag-on');
+        },
+        drop(event) {
+          if (!hasFiles(event)) return;
+          event.preventDefault();
+          dropArea()?.classList.remove('drag-on');
+          handlers.filesAdded?.(networkId, event.dataTransfer?.files || []);
+        },
+        // スクリーンショットなどの画像を Ctrl+V で添付する。文字も一緒にあるとき
+        // （表計算のセルなど）は文字の貼り付けとして扱う
+        paste(event) {
+          const files = [...(event.clipboardData?.files || [])];
+          if (!files.length || event.clipboardData?.getData?.('text/plain')) return;
+          event.preventDefault();
+          handlers.filesAdded?.(networkId, files);
+        },
+      };
     }
 
-    function onDrop(event) {
-      const drop = event.target.closest?.('[data-compose-drop]');
-      if (!drop) return;
-      event.preventDefault();
-      drop.classList.remove('drag-on');
-      handlers.filesAdded?.(drop.dataset.composeDrop, event.dataTransfer?.files || []);
-    }
-
-    const modals = [elements.xPostMod, elements.compMod].filter(Boolean);
-    modals.forEach(modal => {
+    const modals = [['x', elements.xPostMod], ['b', elements.compMod]]
+      .filter(([, modal]) => modal)
+      .map(([networkId, modal]) => ({ modal, fileHandlers: createFileHandlers(networkId, modal) }));
+    modals.forEach(({ modal, fileHandlers }) => {
       modal.addEventListener('click', onClick);
       modal.addEventListener('input', onInput);
       modal.addEventListener('change', onChange);
-      modal.addEventListener('dragover', onDragOver);
-      modal.addEventListener('dragleave', onDragLeave);
-      modal.addEventListener('drop', onDrop);
+      Object.entries(fileHandlers).forEach(([type, listener]) => modal.addEventListener(type, listener));
     });
     const videoEventHandlers = ['x', 'b'].map(networkId => {
       const metadataHandler = () => handlers.videoMetadataLoaded?.(
@@ -681,13 +697,11 @@
     return {
       connect(nextHandlers) { handlers = nextHandlers || {}; },
       dispose() {
-        modals.forEach(modal => {
+        modals.forEach(({ modal, fileHandlers }) => {
           modal.removeEventListener('click', onClick);
           modal.removeEventListener('input', onInput);
           modal.removeEventListener('change', onChange);
-          modal.removeEventListener('dragover', onDragOver);
-          modal.removeEventListener('dragleave', onDragLeave);
-          modal.removeEventListener('drop', onDrop);
+          Object.entries(fileHandlers).forEach(([type, listener]) => modal.removeEventListener(type, listener));
         });
         videoEventHandlers.forEach(([networkId, metadataHandler, timeUpdateHandler]) => {
           const video = elements[`${networkId}-video-preview`];

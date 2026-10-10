@@ -1162,3 +1162,83 @@ test('judges post length with each network rule, and both rules when cross-posti
   assert.equal(runtime.getSnapshot('b').characterLimit, 280);
   assert.equal(runtime.getSnapshot('b').canSubmit, false);
 });
+
+function createDropHarness() {
+  const xModal = createElement();
+  const bModal = createElement();
+  const xDrop = createElement();
+  const bDrop = createElement();
+  const textarea = createElement();
+  textarea.id = 'cta';
+  const inside = new Set([textarea, bDrop]);
+  bModal.contains = node => node === bModal || inside.has(node);
+  xModal.contains = node => node === xModal || node === xDrop;
+  const elements = { xPostMod: xModal, compMod: bModal, 'x-img-drop': xDrop, 'b-img-drop': bDrop, cta: textarea };
+  const view = loadView().createComposeModalDomView({ documentRef: { getElementById: id => elements[id] || null } });
+  const added = [];
+  view.connect({ filesAdded: (networkId, files) => added.push([networkId, [...files].map(file => file.name)]) });
+  return { xModal, bModal, xDrop, bDrop, textarea, added };
+}
+
+function fileEvent(target, { files = [], types = files.length ? ['Files'] : ['text/plain'], text = '' } = {}) {
+  const event = {
+    target,
+    prevented: false,
+    preventDefault() { this.prevented = true; },
+    dataTransfer: { types, files, dropEffect: 'none' },
+    clipboardData: { files, getData: type => (type === 'text/plain' ? text : '') },
+  };
+  return event;
+}
+
+test('accepts files dropped anywhere in the Compose modal, not only on the attachment area', () => {
+  const { bModal, xModal, textarea, bDrop, added } = createDropHarness();
+
+  const over = fileEvent(textarea, { files: [{ name: 'shot.png', type: 'image/png' }] });
+  bModal.dispatch('dragover', over);
+  assert.equal(over.prevented, true);
+  assert.equal(bDrop.classList.contains('drag-on'), true);
+
+  const drop = fileEvent(textarea, { files: [{ name: 'shot.png', type: 'image/png' }] });
+  bModal.dispatch('drop', drop);
+  xModal.dispatch('drop', fileEvent(xModal, { files: [{ name: 'x.png', type: 'image/png' }] }));
+
+  assert.equal(drop.prevented, true);
+  assert.equal(bDrop.classList.contains('drag-on'), false);
+  assert.deepEqual(added, [['b', ['shot.png']], ['x', ['x.png']]]);
+});
+
+test('leaves text drags alone and clears the highlight only when the drag leaves the modal', () => {
+  const { bModal, textarea, bDrop, added } = createDropHarness();
+
+  const textDrag = fileEvent(textarea);
+  bModal.dispatch('dragover', textDrag);
+  bModal.dispatch('drop', fileEvent(textarea));
+  assert.equal(textDrag.prevented, false);
+  assert.deepEqual(added, []);
+
+  bModal.dispatch('dragover', fileEvent(textarea, { files: [{ name: 'a.png' }] }));
+  bModal.dispatch('dragleave', { ...fileEvent(textarea, { files: [{ name: 'a.png' }] }), relatedTarget: bDrop });
+  assert.equal(bDrop.classList.contains('drag-on'), true);
+  bModal.dispatch('dragleave', { ...fileEvent(textarea, { files: [{ name: 'a.png' }] }), relatedTarget: null });
+  assert.equal(bDrop.classList.contains('drag-on'), false);
+});
+
+test('attaches pasted images such as screenshots but keeps pasted text as text', () => {
+  const { bModal, textarea, added } = createDropHarness();
+
+  const screenshot = fileEvent(textarea, { files: [{ name: 'image.png', type: 'image/png' }] });
+  bModal.dispatch('paste', screenshot);
+  assert.equal(screenshot.prevented, true);
+
+  // Spreadsheet cells come with a picture of the cells as well as their text
+  const cells = fileEvent(textarea, { files: [{ name: 'image.png', type: 'image/png' }], text: 'A1\tB1' });
+  bModal.dispatch('paste', cells);
+  assert.equal(cells.prevented, false);
+
+  const plain = fileEvent(textarea, { text: 'hello' });
+  bModal.dispatch('paste', plain);
+  assert.equal(plain.prevented, false);
+
+  assert.deepEqual(added, [['b', ['image.png']]]);
+});

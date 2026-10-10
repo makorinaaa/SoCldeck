@@ -2,7 +2,8 @@
   function createFileDragShield({
     documentRef = global.document,
     getIsColumnDragging = () => false,
-    allowedDropSelectors = ['#x-img-drop', '#b-img-drop'],
+    // 投稿画面はどこにドロップしても添付するので、モーダル全体を許可する
+    allowedDropSelectors = ['#xPostMod', '#compMod'],
   } = {}) {
     let active = false;
     let enterCount = 0;

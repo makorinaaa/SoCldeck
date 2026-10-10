@@ -816,6 +816,30 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   assert.equal(await page.locator('#b-img-preview').textContent(), '');
 });
 
+test('Compose attaches a pasted screenshot and files dropped on the text area', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#sb-post-b').click();
+  await page.locator('#compMod.on').waitFor({ state: 'visible' });
+
+  await page.locator('#cta').evaluate(textarea => {
+    const clipboard = new DataTransfer();
+    clipboard.items.add(new File(['png'], 'image.png', { type: 'image/png' }));
+    textarea.dispatchEvent(new ClipboardEvent('paste', { clipboardData: clipboard, bubbles: true, cancelable: true }));
+  });
+  await page.locator('#b-alt-0').waitFor({ state: 'visible' });
+
+  await page.locator('#cta').evaluate(textarea => {
+    const files = new DataTransfer();
+    files.items.add(new File(['png'], 'dropped.png', { type: 'image/png' }));
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      textarea.dispatchEvent(new DragEvent(type, { dataTransfer: files, bubbles: true, cancelable: true }));
+    }
+  });
+  await page.locator('#b-alt-1').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#cta').inputValue(), '');
+});
+
 test('polish journey restores drafts, previews density and opens column actions', async t => {
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
