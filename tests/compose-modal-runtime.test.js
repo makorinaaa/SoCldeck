@@ -1013,3 +1013,152 @@ test('X account chips show the learned @handle and keep the entered name as a to
   view.render({ ...snapshot, xAccounts: [snapshot.xAccounts[0], { ...snapshot.xAccounts[1], handle: 'real_sub' }] });
   assert.match(elements['x-acc-select'].innerHTML, /@real_sub/);
 });
+
+test('does not show a deleted X account draft to a new account that reuses its partition', () => {
+  const values = new Map();
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  let accounts = [{ username: '@alice', partition: 'persist:x-0' }];
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: accounts, b: null }),
+    mediaDrafts: { x: createMutableImageDraft() },
+    view: { connect: value => { handlers = value; } },
+  });
+  const runtime = make();
+  runtime.open('x');
+  handlers.textChanged('x', 'Alice の下書き');
+  handlers.filesAdded('x', [{ name: 'alice.png' }]);
+  runtime.close('x');
+
+  const removed = accounts[0];
+  accounts = [];
+  runtime.forgetXAccount(removed);
+  accounts = [{ username: '@bob', partition: 'persist:x-0' }];
+
+  const snapshot = runtime.open('x');
+  assert.equal(snapshot.text, '');
+  assert.equal(snapshot.media.images.length, 0);
+  assert.equal(make().open('x').text, '');
+});
+
+test('forgets every stored draft when all accounts log out', () => {
+  const values = new Map([
+    ['socialdeck_draft_v1_x_persist:x-0', JSON.stringify({ text: 'X の下書き' })],
+    ['socialdeck_draft_v1_b_did:plc:me', JSON.stringify({ text: 'Bluesky の下書き' })],
+    ['socialdeck_v4', '{}'],
+  ]);
+  const storage = {
+    get length() { return values.size; },
+    key: index => [...values.keys()][index] ?? null,
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  };
+  const runtime = loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [{ username: '@alice', partition: 'persist:x-0' }], b: { did: 'did:plc:me' } }),
+    view: { connect() {} },
+  });
+  assert.equal(runtime.open('x').text, 'X の下書き');
+  runtime.close('x');
+
+  runtime.forgetAllDrafts();
+
+  assert.deepEqual([...values.keys()], ['socialdeck_v4']);
+  assert.equal(runtime.open('x').text, '');
+});
+
+test('keeps an unknown single X post locked for confirmation across restart', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  let singleStatus = 'idle';
+  const restored = [];
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [{ username: '@alice', partition: 'persist:x-0' }], b: null }),
+    coordinator: {
+      getStatus: () => ({ single: { status: singleStatus }, crossPost: { targets: [] } }),
+      restoreSingle: networkId => restored.push(networkId),
+      resetCrossPost() {},
+    },
+    view: { connect: value => { handlers = value; } },
+  });
+  const first = make();
+  first.open('x');
+  handlers.textChanged('x', '結果不明の投稿');
+  first.setBusy('x', true, '送信中…');
+  singleStatus = 'unknown';
+  first.setBusy('x', false, '確認後に再試行', { locked: true });
+
+  singleStatus = 'idle';
+  const snapshot = make().open('x');
+
+  assert.equal(snapshot.text, '結果不明の投稿');
+  assert.equal(snapshot.locked, true);
+  assert.equal(snapshot.actionLabel, '確認後に再試行');
+  assert.deepEqual(restored, ['x']);
+});
+
+test('reuses the delivery key while a post is locked for retry, also after restart', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  let singleStatus = 'idle';
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [], b: { did: 'did:plc:me' } }),
+    coordinator: {
+      getStatus: () => ({ single: { status: singleStatus }, crossPost: { targets: [] } }),
+      restoreSingle() {},
+      resetCrossPost() {},
+      reset() {},
+    },
+    view: { connect: value => { handlers = value; } },
+  });
+  const first = make();
+  first.open('b');
+  handlers.textChanged('b', 'hello');
+  first.setBusy('b', true, '送信中…', { deliveryKey: 'first-key' });
+  singleStatus = 'unknown';
+  first.setBusy('b', false, '再試行', { locked: true });
+  first.setBusy('b', true, '送信中…', { deliveryKey: 'second-key' });
+  assert.equal(first.getSnapshot('b').deliveryKey, 'first-key');
+  first.setBusy('b', false, '再試行', { locked: true });
+
+  const second = make();
+  assert.equal(second.open('b').deliveryKey, 'first-key');
+  second.close('b', { discard: true });
+  second.open('b');
+  second.setBusy('b', true, '送信中…', { deliveryKey: 'third-key' });
+  assert.equal(second.getSnapshot('b').deliveryKey, 'third-key');
+});
+
+test('judges post length with each network rule, and both rules when cross-posting', async () => {
+  const { measurePost } = await import('../src/renderer/post-length.mjs');
+  let handlers;
+  let preferences = {};
+  const runtime = loadRuntime().createComposeModalRuntime({
+    measurePost,
+    getAccounts: () => ({ x: [{ partition: 'persist:x-0' }], b: { did: 'did:plc:me' } }),
+    getPreferences: () => preferences,
+    coordinator: { resetCrossPost() {}, getStatus: () => ({ isSending: false }) },
+    view: { connect: value => { handlers = value; } },
+  });
+
+  runtime.open('x');
+  handlers.textChanged('x', 'あ'.repeat(141));
+  assert.equal(runtime.getSnapshot('x').characterCount, 282);
+  assert.equal(runtime.getSnapshot('x').canSubmit, false);
+  runtime.close('x');
+
+  runtime.open('b');
+  handlers.textChanged('b', '😀'.repeat(151));
+  assert.equal(runtime.getSnapshot('b').characterCount, 151);
+  assert.equal(runtime.getSnapshot('b').canSubmit, true);
+  handlers.crossPostChanged('b', true);
+  assert.equal(runtime.getSnapshot('b').characterCount, 302);
+  assert.equal(runtime.getSnapshot('b').characterLimit, 280);
+  assert.equal(runtime.getSnapshot('b').canSubmit, false);
+});

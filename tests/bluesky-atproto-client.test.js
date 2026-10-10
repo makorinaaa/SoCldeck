@@ -180,3 +180,34 @@ test('uploads a video with scoped service auth and waits for its blob', async ()
   assert.equal(calls[1][1].body, bytes);
   assert.equal(calls[2][0], 'https://video.bsky.app/xrpc/app.bsky.video.getJobStatus?jobId=job-1');
 });
+
+test('creates a post under a caller-chosen record key and reads it back by that key', async () => {
+  const calls = [];
+  const client = createAtprotoClient({
+    fetchImpl: async (url, options) => {
+      calls.push([url, options]);
+      return response({ body: { uri: 'at://did:plc:alice/app.bsky.feed.post/3lbcdefghijk2', cid: 'cid' } });
+    },
+  });
+  const record = { $type: 'app.bsky.feed.post', text: 'hello', createdAt: '2026-07-17T00:00:00.000Z' };
+
+  await client.createRecord('access-token', 'did:plc:alice', record, '3lbcdefghijk2');
+  await client.getPostRecord('access-token', 'did:plc:alice', '3lbcdefghijk2');
+
+  assert.equal(JSON.parse(calls[0][1].body).rkey, '3lbcdefghijk2');
+  assert.equal(
+    calls[1][0],
+    'https://bsky.social/xrpc/com.atproto.repo.getRecord?repo=did%3Aplc%3Aalice&collection=app.bsky.feed.post&rkey=3lbcdefghijk2',
+  );
+});
+
+test('reports a lost connection as a network error rather than a raw exception', async () => {
+  const client = createAtprotoClient({
+    fetchImpl: async () => { throw new TypeError('fetch failed'); },
+  });
+
+  await assert.rejects(
+    client.createRecord('access-token', 'did:plc:alice', { $type: 'app.bsky.feed.post', text: 'hello' }),
+    error => error.name === 'AtprotoError' && error.code === 'NetworkError' && error.status === 0,
+  );
+});

@@ -8,6 +8,7 @@ import { createSubmissionScript } from './renderer/x-composer-submit.mjs';
 import { createXAccounts, isSameXAccount, xPartitionOf } from './renderer/x-accounts.mjs';
 import { createXNotificationLoader } from './renderer/x-notification-loader.mjs';
 import { createColumnMounts } from './renderer/column-mounts.mjs';
+import { measurePost } from './renderer/post-length.mjs';
 import {
   SocialDeckAccountSessionRuntime,
   SocialDeckAnimeScheduleRuntime,
@@ -167,7 +168,7 @@ const bskyComposeExecutor = SocialDeckBskyComposeDelivery.createBlueskyComposeDe
   },
   buildFacets,
   resolveFacets: facets => resolveMentionDids(facets),
-  createRecord: ({ record }) => bskyGateway.createPostRecord({ record }),
+  createRecord: ({ record, rkey }) => bskyGateway.createPostRecord({ record, rkey }),
 });
 const networkAdapters = SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
   icons: SVG,
@@ -437,10 +438,13 @@ const widgetMode = SocialDeckWidgetModeRuntime.createWidgetModeRuntime({
 });
 const composeQuote = SocialDeckComposeQuote.createComposeQuote({
   documentRef: document,
+  measurePost,
   getAccount: () => state.b,
   buildFacets: text => buildFacets(text),
   resolveMentionDids: facets => resolveMentionDids(facets),
-  createPostRecord: record => authenticatedBskyAdapter.createPostRecord({ record }),
+  createPostRecord: (record, { rkey } = {}) => authenticatedBskyAdapter.createPostRecord({ record, rkey }),
+  createPostKey: () => SocialDeckBskyComposeDelivery.createPostKey(),
+  isUnknownOutcome: error => SocialDeckBskyComposeDelivery.isUnknownPostOutcome(error),
   avatarFallbackBackground: AVBG[0],
   ui: { escape: esc },
   intents: {
@@ -535,6 +539,7 @@ const composeModalView = SocialDeckComposeModalView.createComposeModalDomView({
 });
 composeModalRuntime = SocialDeckComposeModalRuntime.createComposeModalRuntime({
   storage: localStorage,
+  measurePost,
   getAccounts: () => ({ x: state.xs || [], b: state.b }),
   getPreferences: () => state.composePreferences || {},
   mediaDrafts: { x: xComposeMediaDraft, b: bskyComposeMediaDraft },
@@ -570,6 +575,7 @@ const composeSubmission = SocialDeckComposeSubmission.createComposeSubmission({
   getReplyTarget: () => composeModalRuntime.getSnapshot('b').reply,
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
   formatSeconds: fmtSec,
+  createPostKey: () => SocialDeckBskyComposeDelivery.createPostKey(),
   ui: {
     toast,
     confirm: message => confirm(message),
@@ -1009,6 +1015,8 @@ accountSessionRuntime = SocialDeckAccountSessionRuntime.createAccountSessionRunt
     },
     accountsChanged: ({ network, kind, account }) => {
       desktopNotificationRuntime.rebaseline().catch(() => {});
+      if (network === 'all') composeModalRuntime.forgetAllDrafts();
+      else if (network === 'x' && kind === 'logout') composeModalRuntime.forgetXAccount(account);
       if (network === 'all') {
         accountSessionRuntime.openSettings();
         toast('すべてのアカウントからログアウトしました');

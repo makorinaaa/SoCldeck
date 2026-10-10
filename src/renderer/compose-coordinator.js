@@ -65,6 +65,7 @@
 
     return {
       restoreCrossPost: results => crossPost.restore(results),
+      restoreSingle: networkId => getAttempt(networkId).restore('unknown'),
       getStatus,
       reset,
       resetCrossPost,

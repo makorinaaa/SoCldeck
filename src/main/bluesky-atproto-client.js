@@ -58,7 +58,12 @@ function createAtprotoClient({
           code: 'RequestTimeout',
         });
       }
-      throw error;
+      if (error instanceof AtprotoError) throw error;
+      // 接続が切れた場合など。サーバーが処理したかどうかは分からない
+      throw new AtprotoError(`${endpoint} request failed`, {
+        status: 0,
+        code: 'NetworkError',
+      });
     } finally {
       clearTimeoutImpl(timer);
     }
@@ -191,10 +196,16 @@ function createAtprotoClient({
       },
     }, jwt),
     unrepost: (jwt, did, repostUri) => deleteRecord(jwt, did, 'app.bsky.feed.repost', repostUri),
-    createRecord: (jwt, did, record) => post('com.atproto.repo.createRecord', {
+    createRecord: (jwt, did, record, rkey = null) => post('com.atproto.repo.createRecord', {
       repo: did,
       collection: 'app.bsky.feed.post',
+      ...(rkey ? { rkey } : {}),
       record,
+    }, jwt),
+    getPostRecord: (jwt, did, rkey) => get('com.atproto.repo.getRecord', {
+      repo: did,
+      collection: 'app.bsky.feed.post',
+      rkey,
     }, jwt),
     async uploadBlob(jwt, mimeType, bytes) {
       return request(`${service}/com.atproto.repo.uploadBlob`, {

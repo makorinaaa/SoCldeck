@@ -1,4 +1,6 @@
 (function (global) {
+  const DRAFT_KEY_PREFIX = 'socialdeck_draft_v1_';
+
   function createComposeModalRuntime({
     getAccounts = () => ({ x: [], b: null }),
     getPreferences = () => ({}),
@@ -7,6 +9,12 @@
     view = {},
     intents = {},
     storage = null,
+    // post-length.mjs の measurePost（このファイルは ES モジュールを読み込めないので渡してもらう）
+    measurePost = (value, networkIds) => {
+      const count = String(value || '').trim().length;
+      const limit = networkIds.includes('x') ? 280 : 300;
+      return { count, limit, valid: count <= limit };
+    },
   } = {}) {
     let disposed = false;
     let selectedXAccountIndex = 0;
@@ -26,6 +34,8 @@
     const loadedKeys = { x: null, b: null };
     const sessionDrafts = new Map();
     const deliveryAccounts = { x: null, b: null };
+    // 再送でも同じ投稿を指すための鍵（Bluesky の rkey）。ロック中は最初の送信のものを使い続ける
+    const deliveryKeys = { x: null, b: null };
 
     function targetAccounts(networkId) {
       const current = accounts();
@@ -38,7 +48,7 @@
       const owner = networkId === 'x'
         ? account.x[selectedXAccountIndex]?.partition || account.x[selectedXAccountIndex]?.username
         : account.b?.did;
-      return owner ? `socialdeck_draft_v1_${networkId}_${owner}` : null;
+      return owner ? `${DRAFT_KEY_PREFIX}${networkId}_${owner}` : null;
     }
 
     function saveDraft(networkId) {
@@ -46,11 +56,18 @@
       if (!key) return;
       try {
         const media = mediaDrafts[networkId]?.getSnapshot?.();
-        let results = locked[networkId] || busy[networkId] ? coordinator.getStatus?.(networkId)?.crossPost?.targets || [] : [];
-        if (busy[networkId] && crossPost[networkId] && !results.length) results = ['x', 'b'].map(id => ({ id, status: 'unknown' }));
+        const status = coordinator.getStatus?.(networkId);
+        const crossPosting = isCrossPosting(networkId);
+        let results = locked[networkId] || busy[networkId] ? status?.crossPost?.targets || [] : [];
+        if (busy[networkId] && crossPosting && !results.length) results = ['x', 'b'].map(id => ({ id, status: 'unknown' }));
+        // 送信中に終了した単独投稿も、結果不明として残す
+        const unknownSingle = !crossPosting && !results.length
+          && (busy[networkId] || (locked[networkId] && status?.single?.status === 'unknown'));
         const draft = { text: text[networkId], reply: networkId === 'b' ? reply : xReply,
           crossPost: crossPost[networkId], crossPostXAccountIndex,
           deliveryAccounts: deliveryAccounts[networkId],
+          deliveryKey: deliveryKeys[networkId],
+          unknownSingle,
           results: results.map(target => ({ id: target.id, status: busy[networkId] && target.status !== 'succeeded' ? 'unknown' : target.status, error: target.error ? { message: target.error.message } : null })),
           hasMedia: Boolean(media?.images?.length || media?.video || reattachMedia[networkId]) };
         sessionDrafts.set(key, { ...draft, media });
@@ -87,19 +104,70 @@
             media?.setTrimSeconds?.('end', video.trim?.endSeconds || video.durationSeconds);
           }
         }
-        if (Array.isArray(draft.results) && draft.results.length) {
-          coordinator.restoreCrossPost?.(draft.results);
-          crossPost[networkId] = Boolean(draft.crossPost);
+        const unknownSingle = draft.unknownSingle === true;
+        if ((Array.isArray(draft.results) && draft.results.length) || unknownSingle) {
+          if (unknownSingle) coordinator.restoreSingle?.(networkId);
+          else coordinator.restoreCrossPost?.(draft.results);
+          crossPost[networkId] = !unknownSingle && Boolean(draft.crossPost);
           crossPostXAccountIndex = Number.isInteger(draft.crossPostXAccountIndex) ? draft.crossPostXAccountIndex : 0;
           locked[networkId] = true;
           deliveryAccounts[networkId] = draft.deliveryAccounts || null;
+          deliveryKeys[networkId] = typeof draft.deliveryKey === 'string' ? draft.deliveryKey : null;
           if (networkId === 'b' && deliveryAccounts[networkId]?.x) {
             const index = accounts().x.findIndex(account => (account.partition || account.username) === deliveryAccounts[networkId].x);
             if (index >= 0) crossPostXAccountIndex = index;
           }
-          actionLabels[networkId] = '未完了の投稿先を再試行';
+          actionLabels[networkId] = !unknownSingle ? '未完了の投稿先を再試行'
+            : networkId === 'x' ? '確認後に再試行' : '再試行';
         }
       } catch { /* Invalid or unavailable storage must not prevent composing. */ }
+    }
+
+    function resetDraft(networkId) {
+      if (!busy[networkId]) coordinator.reset?.(networkId);
+      mediaDrafts[networkId]?.clear?.();
+      text[networkId] = '';
+      if (networkId === 'b') reply = null;
+      else xReply = null;
+      locked[networkId] = false;
+      reattachMedia[networkId] = false;
+      deliveryAccounts[networkId] = null;
+      deliveryKeys[networkId] = null;
+      actionLabels[networkId] = networkId === 'x' ? 'ポスト' : '投稿';
+      initialized[networkId] = false;
+      loadedKeys[networkId] = null;
+      if (openNetworkId === networkId) {
+        openNetworkId = null;
+        view.setOpen?.(networkId, false);
+        intents.closed?.(networkId);
+      }
+    }
+
+    function removeStoredDraft(key) {
+      sessionDrafts.delete(key);
+      try { storage?.removeItem?.(key); } catch { /* Unavailable storage has nothing left to leak. */ }
+    }
+
+    // 削除したアカウントの partition は次に追加するアカウントへ再利用されるため、下書きを残さない
+    function forgetXAccount(account) {
+      const keys = [account?.partition, account?.username].filter(Boolean)
+        .map(owner => `${DRAFT_KEY_PREFIX}x_${owner}`);
+      keys.forEach(removeStoredDraft);
+      if (keys.includes(loadedKeys.x)) resetDraft('x');
+    }
+
+    function forgetAllDrafts() {
+      sessionDrafts.clear();
+      try {
+        const keys = [];
+        for (let index = 0; index < (storage?.length || 0); index++) {
+          const key = storage.key(index);
+          if (key?.startsWith(DRAFT_KEY_PREFIX)) keys.push(key);
+        }
+        keys.forEach(key => storage.removeItem(key));
+      } catch { /* Unavailable storage has nothing left to leak. */ }
+      resetDraft('x');
+      resetDraft('b');
     }
 
     function accounts() {
@@ -110,20 +178,31 @@
       };
     }
 
+    function isCrossPostAvailable(networkId) {
+      const currentAccounts = accounts();
+      const crossPostVideoCompatible = mediaDrafts[networkId]?.validateVideo?.({
+        allowedMimeTypes: ['video/mp4'],
+      })?.valid !== false;
+      return networkId === 'x'
+        ? Boolean(currentAccounts.b && crossPostVideoCompatible && !xReply)
+        : Boolean(currentAccounts.x.length > 0 && !reply);
+    }
+
+    function isCrossPosting(networkId) {
+      return isCrossPostAvailable(networkId) && Boolean(crossPost[networkId]);
+    }
+
     function getSnapshot(networkId = openNetworkId) {
       const currentAccounts = accounts();
       const accountMismatch = locked[networkId] && deliveryAccounts[networkId]
         && JSON.stringify(deliveryAccounts[networkId]) !== JSON.stringify(targetAccounts(networkId));
       const media = mediaDrafts[networkId]?.getSnapshot?.() || { images: [], video: null };
-      const crossPostVideoCompatible = mediaDrafts[networkId]?.validateVideo?.({
-        allowedMimeTypes: ['video/mp4'],
-      })?.valid !== false;
-      const crossPostAvailable = networkId === 'x'
-        ? Boolean(currentAccounts.b && crossPostVideoCompatible && !xReply)
-        : Boolean(currentAccounts.x.length > 0 && !reply);
-      const crossPosting = crossPostAvailable && Boolean(crossPost[networkId]);
-      const characterLimit = networkId === 'b' && !crossPosting ? 300 : 280;
-      const characterCount = (text[networkId] || '').length;
+      const crossPostAvailable = isCrossPostAvailable(networkId);
+      const crossPosting = isCrossPosting(networkId);
+      const otherNetworkId = networkId === 'x' ? 'b' : 'x';
+      const length = measurePost(text[networkId] || '', [networkId, ...(crossPosting ? [otherNetworkId] : [])]);
+      const characterLimit = length.limit;
+      const characterCount = length.count;
       const hasAttachment = media.images.length > 0 || Boolean(media.video);
       return {
         networkId,
@@ -146,12 +225,13 @@
         draftError: draftError[networkId],
         reattachMedia: reattachMedia[networkId],
         accountMismatch,
+        deliveryKey: deliveryKeys[networkId],
         deliveryResults: coordinator.getStatus?.(networkId)?.crossPost?.targets || [],
         actionLabel: actionLabels[networkId],
         characterCount,
         characterLimit,
         canSubmit: !busy[networkId] && !reattachMedia[networkId] && !accountMismatch
-          && characterCount <= characterLimit
+          && length.valid
           && (characterCount > 0 || hasAttachment),
         previewOpen: previewOpen[networkId],
         targets: networkId === 'x'
@@ -239,6 +319,7 @@
       busy[networkId] = false;
       locked[networkId] = false;
       deliveryAccounts[networkId] = null;
+      deliveryKeys[networkId] = null;
       actionLabels[networkId] = networkId === 'x' ? 'ポスト' : '投稿';
       text[networkId] = '';
       reattachMedia[networkId] = false;
@@ -256,7 +337,10 @@
     }
 
     function setBusy(networkId, isBusy, label = null, options = {}) {
-      if (isBusy && !busy[networkId] && !locked[networkId]) deliveryAccounts[networkId] = targetAccounts(networkId);
+      if (isBusy && !busy[networkId] && !locked[networkId]) {
+        deliveryAccounts[networkId] = targetAccounts(networkId);
+        deliveryKeys[networkId] = options.deliveryKey || null;
+      }
       busy[networkId] = Boolean(isBusy);
       if (typeof options.locked === 'boolean') locked[networkId] = options.locked;
       actionLabels[networkId] = label || (networkId === 'x' ? 'ポスト' : '投稿');
@@ -386,6 +470,8 @@
     const runtime = {
       close,
       dispose,
+      forgetAllDrafts,
+      forgetXAccount,
       getSnapshot,
       open,
       setBusy,
