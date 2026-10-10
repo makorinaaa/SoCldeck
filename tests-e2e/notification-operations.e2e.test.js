@@ -1116,7 +1116,7 @@ test('X replies show a toast and remain unread until the conversation opens', { 
   await page.locator('#bsky-notif-badge').waitFor({ state: 'hidden', timeout: 5000 }).catch(async error => { throw new Error(error.message + JSON.stringify(await page.evaluate(async () => ({ toast: document.getElementById('toast').textContent, warnings: window.__e2eWarnings, unread: (await import('./renderer.js')).replyNotificationRuntime.unreadItems() })))); });
 });
 
-test('notification center shows the conversation in the correct account and retains the reply draft', { timeout: 20000 }, async t => {
+test('notification center shows the conversation in the correct account and closing the reply starts it over', { timeout: 20000 }, async t => {
   const { page } = await launchApp(t, {
     ...X_FIXTURES, useNotificationReaders: false,
     xNotifications: [{ accountIndex: 1, text: 'Alice\n@alice\n·\n3分\n返信先:\n@second\nさん\nHello!', actorName: 'Alice',
@@ -1143,7 +1143,16 @@ test('notification center shows the conversation in the correct account and reta
   await button.click();
   await detail.waitFor();
   await detail.locator('.x-focal [data-x-action="reply"]').click();
-  assert.equal(await page.locator('#x-cta').inputValue(), '入力中の返信');
+  await page.locator('#x-reply-preview').waitFor();
+  assert.equal(await page.locator('#x-cta').inputValue(), '');
+  // Closing the reply also leaves no reply behind for a normal post
+  await page.locator('#xPostMod [data-compose-action="close"]').click();
+  await page.locator('#xPostMod').waitFor({ state: 'hidden' });
+  await page.keyboard.press('Escape');
+  await page.locator('#notifCenterMod').waitFor({ state: 'hidden' });
+  await page.locator('#sb-post-x').click();
+  await page.locator('#xPostMod.on').waitFor();
+  assert.equal(await page.locator('#x-reply-preview').isVisible(), false);
 });
 
 test('X reply read buttons clear individual and all unread replies without navigation', { timeout: 20000 }, async t => {

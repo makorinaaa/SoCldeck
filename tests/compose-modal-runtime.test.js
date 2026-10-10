@@ -17,7 +17,7 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-test('autosaves text and reply across close and restart, and explicitly discards', () => {
+test('autosaves text across close and restart, and explicitly discards', () => {
   const values = new Map();
   const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
   let handlers;
@@ -26,17 +26,71 @@ test('autosaves text and reply across close and restart, and explicitly discards
     view: { connect: value => { handlers = value; } },
   });
   const first = make();
-  const reply = { uri: 'at://parent', cid: 'cid', handle: 'alice.test' };
-  first.open('b', { reply });
+  first.open('b');
   handlers.textChanged('b', '再起動しても残る文章');
   first.close('b');
   assert.equal(first.open('b').text, '再起動しても残る文章');
   const second = make();
-  const restored = second.open('b');
-  assert.equal(restored.text, '再起動しても残る文章');
-  assert.deepEqual(plain(restored.reply), reply);
+  assert.equal(second.open('b').text, '再起動しても残る文章');
   second.close('b', { discard: true });
   assert.equal(make().open('b').text, '');
+});
+
+test('closing a reply resets it, but a reply left open is restored after restart', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key), setItem: (key, value) => values.set(key, value) };
+  let handlers;
+  const draft = createMutableImageDraft();
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [{ partition: 'persist:x-0' }], b: { did: 'did:plc:me' } }),
+    mediaDrafts: { b: draft },
+    view: { connect: value => { handlers = value; } },
+  });
+  const reply = { uri: 'at://parent', cid: 'cid', handle: 'alice.test' };
+  const first = make();
+  first.open('b', { reply });
+  handlers.textChanged('b', '返信の途中');
+
+  // The app ended while the reply was still open
+  const restored = make().open('b');
+  assert.equal(restored.text, '返信の途中');
+  assert.deepEqual(plain(restored.reply), reply);
+
+  const runtime = make();
+  runtime.open('b');
+  handlers.filesAdded('b', [{ name: 'a.png', type: 'image/png' }]);
+  runtime.close('b');
+  const reopened = runtime.open('b');
+  assert.equal(reopened.reply, null);
+  assert.equal(reopened.text, '');
+  assert.equal(reopened.media.images.length, 0);
+  assert.equal(make().open('b').reply, null);
+
+  const x = make();
+  x.open('x', { reply: { id: '1', url: 'https://x.com/a/status/1', handle: 'a' } });
+  handlers.textChanged('x', 'X の返信');
+  x.close('x');
+  assert.equal(x.open('x').reply, null);
+  assert.equal(x.getSnapshot('x').text, '');
+});
+
+test('a reply waiting for a retry keeps its draft when closed', () => {
+  let handlers;
+  const runtime = loadRuntime().createComposeModalRuntime({
+    getAccounts: () => ({ x: [], b: { did: 'did:plc:me' } }),
+    coordinator: { getStatus: () => ({ single: { status: 'unknown' }, crossPost: { targets: [] } }), resetCrossPost() {} },
+    view: { connect: value => { handlers = value; } },
+  });
+  runtime.open('b', { reply: { uri: 'at://parent', cid: 'cid', handle: 'alice.test' } });
+  handlers.textChanged('b', '結果不明の返信');
+  runtime.setBusy('b', true, '送信中…', { deliveryKey: 'key-1' });
+  runtime.setBusy('b', false, '再試行', { locked: true });
+
+  runtime.close('b');
+  const reopened = runtime.open('b');
+  assert.equal(reopened.text, '結果不明の返信');
+  assert.equal(reopened.reply.uri, 'at://parent');
+  assert.equal(reopened.deliveryKey, 'key-1');
 });
 
 test('switches X drafts without overwriting either account text or attachments', () => {
@@ -978,7 +1032,7 @@ test('X replies and quotes from a native Column use that Column account', () => 
   assert.equal(replying.crossPostAvailable, false, 'replies are not cross-posted');
   handlers.textChanged('x', 'thanks');
   runtime.close('x');
-  assert.deepEqual(plain(runtime.open('x').reply), reply, 'the reply target survives closing');
+  assert.equal(runtime.open('x').reply, null, 'closing a reply starts it over');
 
   runtime.close('x', { discard: true });
   const quoting = runtime.open('x', { accountIndex: 0, appendText: 'https://x.com/bob/status/7' });
