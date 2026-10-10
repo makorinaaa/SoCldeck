@@ -248,6 +248,13 @@ function xFixture(url) {
   return `<!doctype html><html><body data-e2e-path="${pathname}">Post ${pathname}</body></html>`;
 }
 
+// 投稿画面は開いて少し後に本文欄へフォーカスを移す。その前に ALT 欄などへ入力すると、
+// 文字が本文欄に入ってしまうことがあるので、フォーカスが移るのを待ってから操作する
+async function openCompose(page, networkId) {
+  await page.locator(networkId === 'x' ? '#sb-post-x' : '#sb-post-b').click();
+  await page.locator(networkId === 'x' ? '#x-cta:focus' : '#cta:focus').waitFor();
+}
+
 async function launchApp(t, fixtures) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'socialdeck-e2e-'));
   const electronApp = await electron.launch({
@@ -862,7 +869,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
 
-  await page.locator('#sb-post-x').click();
+  await openCompose(page, 'x');
   await page.locator('#x-img-file').setInputFiles({
     name: 'x-image.png',
     mimeType: 'image/png',
@@ -877,7 +884,7 @@ test('Compose Experience retains media and executes Bluesky delivery through its
   assert.equal(await page.locator('#x-alt-0').inputValue(), 'X image description');
   await page.locator('#xPostMod [data-compose-action="close"]').click();
 
-  await page.locator('#sb-post-b').click();
+  await openCompose(page, 'b');
   await page.locator('#b-img-file').setInputFiles({
     name: 'b-image.png',
     mimeType: 'image/png',
@@ -919,7 +926,7 @@ test('Compose attaches a pasted screenshot and files dropped on the text area', 
 test('Compose reorders attached images with their ALT text and opens them enlarged', async t => {
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });
-  await page.locator('#sb-post-b').click();
+  await openCompose(page, 'b');
   await page.locator('#b-img-file').setInputFiles(['a', 'b', 'c'].map(name => ({
     name: `${name}.png`, mimeType: 'image/png', buffer: Buffer.from(name),
   })));
