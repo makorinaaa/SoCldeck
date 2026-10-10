@@ -95,3 +95,16 @@ test('renders nested thread replies with increasing depth', () => {
   assert.match(html, /data-uri="at:\/\/reply\/1"/);
   assert.match(html, /data-uri="at:\/\/reply\/2"/);
 });
+
+test('records the thread root on each post so a reply joins the right thread', () => {
+  const view = loadPostView().createBlueskyPostView({ ui: {} });
+
+  const root = view.renderPost({ post: POST });
+  const reply = view.renderPost({ post: { ...POST, uri: 'at://post/2', cid: 'cid-2', record: {
+    ...POST.record,
+    reply: { root: { uri: 'at://post/root', cid: 'root-cid' }, parent: { uri: 'at://post/1', cid: 'cid-1' } },
+  } } });
+
+  assert.match(root, /data-root-uri="at:\/\/post\/1" data-root-cid="cid-1"/);
+  assert.match(reply, /data-root-uri="at:\/\/post\/root" data-root-cid="root-cid"/);
+});

@@ -297,6 +297,10 @@ async function launchApp(t, fixtures) {
           return;
         }
         if (network === 'api') {
+          if (url.pathname.endsWith('createRecord')) {
+            const sent = Buffer.from(request.uploadData?.[0]?.bytes || '').toString();
+            global.__e2eCreatedRecords = [...(global.__e2eCreatedRecords || []), sent ? JSON.parse(sent) : null];
+          }
           const body = url.pathname.endsWith('uploadBlob')
             ? '{"blob":{"ref":"e2e-blob"}}'
             : url.pathname.endsWith('createRecord')
@@ -438,6 +442,38 @@ async function openXLikeNotification(page) {
   }
   await item.click();
 }
+
+test('Bluesky reply shows the original post as a card and joins its thread root', { timeout: 20000 }, async t => {
+  const replyPost = { post: {
+    uri: 'at://did:plc:alice/app.bsky.feed.post/2', cid: 'cid2',
+    author: { did: 'did:plc:alice', handle: 'alice.test', displayName: 'Alice' },
+    record: {
+      text: 'スレッドの途中の投稿', createdAt: '2026-07-15T00:00:00Z',
+      reply: {
+        root: { uri: 'at://did:plc:bob/app.bsky.feed.post/1', cid: 'root-cid' },
+        parent: { uri: 'at://did:plc:bob/app.bsky.feed.post/1', cid: 'root-cid' },
+      },
+    },
+  } };
+  const { electronApp, page } = await launchApp(t, { ...BLUESKY_FIXTURES, blueskyFeed: [replyPost] });
+  await page.locator('button[data-action="open-add-column"]:visible').first().click();
+  await page.locator('#addMod [data-action="add-column"][data-definition-id="b-timeline-new"]').click();
+  await page.locator('.post[data-uri="at://did:plc:alice/app.bsky.feed.post/2"] [data-bsky-action="reply"]').first().click();
+
+  await page.locator('#compMod.on').waitFor({ state: 'visible' });
+  const card = page.locator('#b-reply-preview .compose-reply-card');
+  await card.waitFor({ state: 'visible' });
+  assert.match(await card.textContent(), /Alice[\s\S]*@alice\.test[\s\S]*スレッドの途中の投稿/);
+
+  await page.locator('#cta').fill('返信です');
+  await page.locator('#sndb').click();
+  await page.locator('#compMod').waitFor({ state: 'hidden' });
+  const records = await electronApp.evaluate(() => global.__e2eCreatedRecords || []);
+  assert.deepEqual(records.at(-1).record.reply, {
+    root: { uri: 'at://did:plc:bob/app.bsky.feed.post/1', cid: 'root-cid' },
+    parent: { uri: 'at://did:plc:alice/app.bsky.feed.post/2', cid: 'cid2' },
+  });
+});
 
 test('single-key shortcuts move through Bluesky posts, act on them, and open help', { timeout: 20000 }, async t => {
   const post = n => ({ post: {

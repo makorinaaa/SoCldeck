@@ -1531,3 +1531,23 @@ test('owns delegated profile previews and follow delivery', async () => {
   assert.equal(followButton.textContent, 'フォロー中');
   assert.deepEqual(plain(outcomes), [{ kind: 'follow', status: 'succeeded', active: true, handle: 'alice.test' }]);
 });
+
+test('passes the thread root of the post being replied to', async () => {
+  const replies = [];
+  const host = createFeedHost();
+  const post = { dataset: { uri: 'at://post/2', cid: 'cid-2', authorHandle: 'alice.test', rootUri: 'at://post/root', rootCid: 'root-cid' } };
+  const { button: replyButton } = createActionButton('reply', post);
+  const runtime = loadRuntime().createBlueskyColumnsRuntime({
+    adapter: { getTimeline: async () => ({ feed: [] }) },
+    muteRules: { blocksPost: () => false },
+    ui: {},
+    intents: { reply: intent => replies.push(intent) },
+  });
+  runtime.mount({ id: 'b-home', type: 'timeline', host });
+
+  await host.dispatch('click', { target: replyButton, preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(plain(replies), [{
+    uri: 'at://post/2', cid: 'cid-2', handle: 'alice.test', rootUri: 'at://post/root', rootCid: 'root-cid',
+  }]);
+});

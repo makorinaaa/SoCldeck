@@ -1330,3 +1330,55 @@ test('moves an image dragged onto another image, without treating it as a file d
   assert.equal(types.includes('Files'), false);
   assert.deepEqual(moves, [['x', 0, 2]]);
 });
+
+function createReplyViewHarness() {
+  const ids = ['xPostMod', 'compMod', 'x-reply-preview', 'b-reply-preview', 'x-img-preview', 'b-img-preview'];
+  const elements = Object.fromEntries(ids.map(id => [id, createElement()]));
+  let writes = 0;
+  let html = '';
+  Object.defineProperty(elements['b-reply-preview'], 'innerHTML', {
+    get: () => html,
+    set: value => { html = value; writes += 1; },
+  });
+  const view = loadView().createComposeModalDomView({ documentRef: { getElementById: id => elements[id] || null } });
+  const snapshot = reply => ({
+    networkId: 'b', open: true, xAccounts: [], blueskyAccount: null,
+    selectedXAccountIndex: 0, selectedAccount: null, text: '', crossPost: false,
+    crossPostAvailable: false, media: { images: [], video: null },
+    reply, busy: false, locked: false, actionLabel: '投稿',
+    characterCount: 0, characterLimit: 300, canSubmit: true, previewOpen: false, targets: ['Bluesky'],
+  });
+  return { elements, view, snapshot, writes: () => writes };
+}
+
+test('shows the post being replied to as a card with its text and images', () => {
+  const { elements, view, snapshot, writes } = createReplyViewHarness();
+  const reply = {
+    uri: 'at://post/1', cid: 'cid-1', handle: 'alice.test',
+    preview: { name: 'Alice <b>', handle: 'alice.test', text: '元の<script>投稿', images: ['https://cdn.bsky.app/1.jpg'], hasVideo: true },
+  };
+
+  view.render(snapshot(reply));
+  const html = elements['b-reply-preview'].innerHTML;
+  assert.match(html, /class="compose-reply-card"/);
+  assert.match(html, /Alice &lt;b&gt;/);
+  assert.match(html, /@alice\.test/);
+  assert.match(html, /元の&lt;script&gt;投稿/);
+  assert.match(html, /<img [^>]*src="https:\/\/cdn\.bsky\.app\/1\.jpg"/);
+  assert.match(html, /動画/);
+  assert.equal(elements['b-reply-preview'].style.display, 'block');
+
+  view.render(snapshot(reply));
+  assert.equal(writes(), 1);
+});
+
+test('falls back to the handle for replies saved before the card existed', () => {
+  const { elements, view, snapshot } = createReplyViewHarness();
+
+  view.render(snapshot({ uri: 'at://post/1', cid: 'cid-1', handle: 'alice.test' }));
+  assert.match(elements['b-reply-preview'].innerHTML, /@alice\.test<\/span> への返信/);
+
+  view.render(snapshot(null));
+  assert.equal(elements['b-reply-preview'].style.display, 'none');
+  assert.equal(elements['b-reply-preview'].innerHTML, '');
+});

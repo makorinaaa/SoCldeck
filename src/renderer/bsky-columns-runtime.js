@@ -265,6 +265,8 @@
               uri: post.dataset.uri,
               cid: post.dataset.cid,
               handle: post.dataset.authorHandle || '',
+              rootUri: post.dataset.rootUri || undefined,
+              rootCid: post.dataset.rootCid || undefined,
             });
           } else if (actionName === 'repost') {
             reactions.openRepostMenu(action, post, ownerId);
