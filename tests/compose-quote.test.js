@@ -44,20 +44,25 @@ function createHarness({
   account = { bg: '#123', initials: 'ME' },
   createPostRecord = async record => ({ record }),
   measurePost,
+  createPostKey,
+  isUnknownOutcome,
 } = {}) {
   const documentRef = createDocument();
-  const calls = { records: [], toasts: [], refreshes: 0, resolvedFacets: [] };
+  const calls = { records: [], keys: [], toasts: [], refreshes: 0, resolvedFacets: [] };
   const quote = loadModule().createComposeQuote({
     documentRef,
     ...(measurePost ? { measurePost } : {}),
+    ...(createPostKey ? { createPostKey } : {}),
+    ...(isUnknownOutcome ? { isUnknownOutcome } : {}),
     getAccount: () => account,
     buildFacets: text => (text ? [{ text }] : []),
     resolveMentionDids: async facets => {
       calls.resolvedFacets.push(facets);
       return facets;
     },
-    createPostRecord: async record => {
+    createPostRecord: async (record, options = {}) => {
       calls.records.push(record);
+      calls.keys.push(options.rkey ?? null);
       return createPostRecord(record);
     },
     intents: {
@@ -171,4 +176,96 @@ test('counts quote text by Bluesky graphemes', async () => {
   textarea.value = '😀'.repeat(301);
   quote.updateCharacterCount();
   assert.equal(button.disabled, true);
+});
+
+function loadDelivery() {
+  const context = { window: {} };
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'bsky-compose-delivery.js'), 'utf8');
+  vm.runInNewContext(source, context);
+  return context.window.SocialDeckBskyComposeDelivery;
+}
+
+function timeout() {
+  return Object.assign(new Error('createRecord request timed out'), { status: 0, code: 'RequestTimeout' });
+}
+
+function openWithText(quote, documentRef, uri, value) {
+  quote.open(uri, 'cid-1', 'alice.test');
+  const textarea = { id: 'quote-ta', value, readOnly: false };
+  const button = { id: 'quote-sndb', disabled: false, textContent: '引用して投稿' };
+  documentRef.register(textarea);
+  documentRef.register(button);
+  return { textarea, button };
+}
+
+test('retries a quote under the record key chosen when the quote was opened', async () => {
+  const keys = ['key-1', 'key-2'];
+  let failures = 1;
+  const { quote, documentRef, calls } = createHarness({
+    createPostKey: () => keys.shift(),
+    createPostRecord: async record => {
+      if (failures-- > 0) throw new Error('boom');
+      return { record };
+    },
+  });
+  openWithText(quote, documentRef, 'at://post/1', '引用');
+
+  await quote.submit();
+  await quote.submit();
+
+  assert.deepEqual(calls.keys, ['key-1', 'key-1']);
+  assert.equal(documentRef.getElementById('quote-modal-ov'), null);
+});
+
+test('locks the quote text after an unknown outcome so a retry cannot post different text', async () => {
+  const { isUnknownPostOutcome } = loadDelivery();
+  let failures = 1;
+  const { quote, documentRef, calls } = createHarness({
+    createPostKey: () => 'key-1',
+    isUnknownOutcome: isUnknownPostOutcome,
+    createPostRecord: async record => {
+      if (failures-- > 0) throw timeout();
+      return { record };
+    },
+  });
+  const { textarea, button } = openWithText(quote, documentRef, 'at://post/1', '引用');
+
+  await quote.submit();
+
+  assert.equal(textarea.readOnly, true);
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, '再試行');
+  assert.match(calls.toasts.at(-1), /重複/);
+  assert.ok(documentRef.getElementById('quote-modal-ov'));
+
+  textarea.value = '書き換えた引用';
+  await quote.submit();
+  assert.deepEqual(calls.records.map(record => record.text), ['引用', '引用']);
+  assert.deepEqual(calls.keys, ['key-1', 'key-1']);
+});
+
+test('reopening a quote whose outcome is unknown keeps its text and record key', async () => {
+  const { isUnknownPostOutcome } = loadDelivery();
+  const keys = ['key-1', 'key-2'];
+  const { quote, documentRef, calls } = createHarness({
+    createPostKey: () => keys.shift(),
+    isUnknownOutcome: isUnknownPostOutcome,
+    createPostRecord: async () => { throw timeout(); },
+  });
+  openWithText(quote, documentRef, 'at://post/1', '最初の引用');
+  await quote.submit();
+  quote.close();
+
+  const textarea = { id: 'quote-ta', value: '', readOnly: false, focus() {} };
+  documentRef.register(textarea);
+  quote.open('at://post/1', 'cid-1', 'alice.test');
+  assert.equal(textarea.value, '最初の引用');
+  assert.equal(textarea.readOnly, true);
+  await quote.submit();
+  assert.deepEqual(calls.keys, ['key-1', 'key-1']);
+
+  quote.open('at://post/2', 'cid-2', 'bob.test');
+  documentRef.register({ id: 'quote-ta', value: '別の引用', readOnly: false });
+  await quote.submit();
+  assert.deepEqual(calls.keys, ['key-1', 'key-1', 'key-2']);
 });
