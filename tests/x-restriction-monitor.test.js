@@ -50,11 +50,25 @@ test('reports X rate limiting from GraphQL responses and ignores other pages', (
   const { monitor, view, sent } = harness();
 
   monitor.observeResponse({ webContentsId: 7, statusCode: 200, url: 'https://x.com/i/api/graphql/a/HomeTimeline' });
-  monitor.observeResponse({ webContentsId: 7, statusCode: 429, url: 'https://x.com/i/api/graphql/a/HomeTimeline' });
+  // X's page fetches many helper operations; a limit on one of those leaves SocialDeck's work alone
+  monitor.observeResponse({ webContentsId: 7, statusCode: 429, url: 'https://x.com/i/api/graphql/a/DataSaverMode' });
+  monitor.observeResponse({ webContentsId: 7, statusCode: 429, url: 'https://x.com/i/api/graphql/a/HomeTimeline?variables=SECRET' });
   monitor.observeResponse({ webContentsId: 99, statusCode: 429, url: 'https://x.com/i/api/graphql/a/HomeTimeline' });
   const other = Object.assign(new EventEmitter(), { session: 'session-other', hostWebContents: view.hostWebContents, isDestroyed: () => false });
   monitor.watch(other);
   other.emit('did-navigate', {}, 'https://x.com/account/access');
 
-  assert.deepEqual(sent, [['x-account-restricted', { partition: 'persist:x-0', reason: 'rate-limit' }]]);
+  assert.deepEqual(sent, [['x-account-restricted', { partition: 'persist:x-0', reason: 'rate-limit', operation: 'HomeTimeline' }]]);
+});
+
+test('rate limits on what SocialDeck reads or presses stop the account', () => {
+  const { isSocialDeckOperation } = require('../src/main/x-restriction-monitor');
+
+  for (const name of ['HomeTimeline', 'HomeLatestTimeline', 'ListLatestTweetsTimeline', 'TweetDetail',
+    'TweetResultByRestId', 'FavoriteTweet', 'UnfavoriteTweet', 'CreateRetweet', 'DeleteRetweet', 'CreateTweet', 'DeleteTweet']) {
+    assert.equal(isSocialDeckOperation(`https://x.com/i/api/graphql/id/${name}`), true, name);
+  }
+  for (const name of ['DataSaverMode', 'Viewer', 'ExploreSidebar', 'UserByScreenName']) {
+    assert.equal(isSocialDeckOperation(`https://x.com/i/api/graphql/id/${name}`), false, name);
+  }
 });

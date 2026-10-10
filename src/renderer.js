@@ -14,7 +14,7 @@ import {
   createXAutomationSetting,
   needsXAutomationDecision,
 } from './renderer/x-automation-consent.mjs';
-import { createXAccountPause, describeXPauseReason } from './renderer/x-account-pause.mjs';
+import { createXAccountPause } from './renderer/x-account-pause.mjs';
 import {
   blueskyPostFacts,
   createColumnFilterStore,
@@ -124,7 +124,7 @@ const xAutomationConsent = createXAutomationConsent({
   listPaused: () => xAccountPause.list().map(entry => ({
     ...entry,
     label: xAccounts.byPartition(entry.partition)?.username || entry.partition,
-    description: describeXPauseReason(entry.reason),
+    description: describeXPause(entry.partition),
   })),
 });
 const X_AUTOMATION_OFF_HTML = `<div class="feed-empty">X の自動化機能を使わない設定のため、ネイティブ版カラムは表示しません。<br>
@@ -134,26 +134,56 @@ function isXColumn(id) {
   return columnShellRuntime.getRoot(id)?.dataset.network === 'x';
 }
 
-// X が制限・本人確認を求めたアカウントは、利用者が X で確認して「再開」を押すまで X の自動操作を止める
+// X が制限・本人確認を求めたアカウントの X の自動操作を止める。
+// 回数制限（429）は15分の一時停止で、表示はそのままにして SocialDeck の操作（自動更新・ボタン操作・
+// 投稿・通知の取得）だけを止め、自動で再開する。ロック・本人確認・投稿の上限は、利用者が X で確認して
+// 「再開」を押すまで停止し、画面外の X ページも閉じる
 const xAccountPause = createXAccountPause({ storage: localStorage });
+const xResumeTimers = new Map();
 
 function isXColumnPaused(id) {
   return isXColumn(id) && xAccountPause.isPaused(columnShellRuntime.getRoot(id)?.dataset.partition);
 }
 
+function xAccountName(partition) {
+  return xAccounts.byPartition(partition)?.username || 'X アカウント';
+}
+
+function xResumeTime(partition) {
+  const until = xAccountPause.untilOf(partition);
+  return until === null ? '' : new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function describeXPause(partition) {
+  const description = xAccountPause.describe(partition);
+  return xAccountPause.isStopped(partition) ? description : `${description}（${xResumeTime(partition)} に自動で再開）`;
+}
+
 function xPausedHtml(partition) {
-  return `<div class="feed-empty">${esc(describeXPauseReason(xAccountPause.reasonOf(partition)))}。<br>
+  return `<div class="feed-empty">${esc(xAccountPause.describe(partition))}。<br>
     このアカウントの X の操作（自動更新・読み取り・ボタン操作・投稿）を止めています。X のページで状況を確認してから再開してください。<br>
     <button type="button" class="chip-btn" data-action="resume-x-account" data-partition="${esc(partition)}">確認したので再開する</button></div>`;
 }
 
-function stopXAccount(partition, reason) {
-  if (!xAccountPause.pause(partition, reason)) return;
-  document.querySelectorAll('.col[data-network="x"]').forEach(column => {
-    if (column.dataset.partition !== partition) return;
-    const id = column.id.replace(/^col-/, '');
+function xColumnIdsOf(partition) {
+  return [...document.querySelectorAll('.col[data-network="x"]')]
+    .filter(column => column.dataset.partition === partition)
+    .map(column => column.id.replace(/^col-/, ''));
+}
+
+function stopXAccount(partition, reason, { operation = null } = {}) {
+  if (!xAccountPause.pause(partition, reason, { operation })) return;
+  xColumnIdsOf(partition).forEach(id => {
     refreshScheduler.remove(id);
-    if (column.dataset.kind !== 'x-native') return;
+    columnShellRuntime.setRefreshState(id, { status: 'paused' });
+  });
+  if (!xAccountPause.isStopped(partition)) {
+    scheduleXResume(partition);
+    toast(`${xAccountName(partition)}: ${xAccountPause.describe(partition)}。${xResumeTime(partition)} まで自動更新と X の操作を止めます`);
+    return;
+  }
+  xColumnIdsOf(partition).forEach(id => {
+    if (columnShellRuntime.getRoot(id)?.dataset.kind !== 'x-native') return;
     xNativeTimelineRuntime?.dispose(id);
     const host = document.getElementById(`feed-${id}`);
     if (host) host.innerHTML = xPausedHtml(partition);
@@ -164,12 +194,35 @@ function stopXAccount(partition, reason) {
   });
   xNotificationLoader.forget(partition);
   xNotificationCapture?.forget(partition);
-  const account = xAccounts.byPartition(partition);
-  toast(`${account?.username || 'X アカウント'}: ${describeXPauseReason(reason)}。X の操作を止めました。X で確認してから再開してください`);
+  toast(`${xAccountName(partition)}: ${xAccountPause.describe(partition)}。X の操作を止めました。X で確認してから再開してください`);
+}
+
+function scheduleXResume(partition) {
+  const until = xAccountPause.untilOf(partition);
+  clearTimeout(xResumeTimers.get(partition));
+  if (until === null || xAccountPause.isStopped(partition)) return;
+  xResumeTimers.set(partition, setTimeout(() => resumeXAccount(partition), Math.max(0, until - Date.now()) + 1000));
+}
+
+// 一時停止の後に自動更新を予約し直す
+function resumeXAccount(partition) {
+  clearTimeout(xResumeTimers.get(partition));
+  xResumeTimers.delete(partition);
+  if (xAccountPause.isPaused(partition)) {
+    scheduleXResume(partition);
+    return;
+  }
+  xColumnIdsOf(partition).forEach(id => {
+    columnShellRuntime.setRefreshState(id, { status: 'idle' });
+    columnLifecycle.setRefreshInterval(id, columnLifecycle.getRefreshInterval(id, DEFAULT_INTERVAL_MS));
+  });
+  toast(`${xAccountName(partition)}: X の自動更新と操作を再開しました`);
 }
 
 function xPausedError(partition) {
-  return new Error(`${describeXPauseReason(xAccountPause.reasonOf(partition))}。このアカウントの X の操作は止めています（設定 → X の自動化機能 から再開できます）`);
+  return new Error(xAccountPause.isStopped(partition)
+    ? `${xAccountPause.describe(partition)}。このアカウントの X の操作は止めています（設定 → X の自動化機能 から再開できます）`
+    : `${xAccountPause.describe(partition)}。${xResumeTime(partition)} まで X の操作を止めています`);
 }
 let xWebViewRuntime;
 let bskyColumnsRuntime;
@@ -905,6 +958,7 @@ const xNativeTimelineRuntime = xTimelineTap
         const accountIndex = xAccounts.indexOfPartition(partition);
         const account = state.xs?.[accountIndex];
         if (!account) return Promise.reject(new Error('X アカウントが見つかりません'));
+        if (xAccountPause.isPaused(partition)) return Promise.reject(xPausedError(partition));
         return xNotificationLoader.load(account, accountIndex, options);
       },
       getNotifications: partition => xNotificationCapture?.items(partition) || null,
@@ -945,7 +999,7 @@ const columnMounts = createColumnMounts({
   animeSchedule: animeScheduleRuntime,
   xNative: xNativeTimelineRuntime,
   ...(IS_ELECTRON && !X_AUTOMATION_ENABLED ? { xNativeUnavailableHtml: X_AUTOMATION_OFF_HTML } : {}),
-  xNativeBlockedHtml: partition => (xAccountPause.isPaused(partition) ? xPausedHtml(partition) : null),
+  xNativeBlockedHtml: partition => (xAccountPause.isStopped(partition) ? xPausedHtml(partition) : null),
   setRefreshInterval: (id, interval) => columnLifecycle.setRefreshInterval(id, interval),
   getFontSize: id => columnRuntime.getFontSize(id),
   getPreloadPath: () => wvPreloadPath,
@@ -1749,8 +1803,12 @@ function createUiActionHandlers() {
     'open-x-post': () => openXPost(),
     'open-x-automation-consent': () => xAutomationConsent.open(),
     'resume-x-account': ({ dataset }) => {
+      const stopped = xAccountPause.isStopped(dataset.partition);
       xAccountPause.resume(dataset.partition);
-      location.reload();
+      xAutomationConsent.close();
+      // 停止中は画面外の X ページを閉じているので読み込み直す。一時停止なら予約をし直すだけ
+      if (stopped) location.reload();
+      else resumeXAccount(dataset.partition);
     },
     'decide-x-automation': ({ dataset }) => {
       xAutomationSetting.set(dataset.decision);
@@ -1888,7 +1946,9 @@ xLoginStatesReady.then(() => desktopNotificationRuntime.start()).catch(() => {})
 fileDragShield.attach();
 columnReorderRuntime.attach();
 
-window.electronAPI?.onXAccountRestricted?.(({ partition, reason }) => stopXAccount(partition, reason));
+window.electronAPI?.onXAccountRestricted?.(({ partition, reason, operation }) => stopXAccount(partition, reason, { operation }));
+// 前回の起動中に始まった一時停止は、残り時間の後に再開する
+xAccountPause.list().forEach(entry => scheduleXResume(entry.partition));
 
 // X アカウントがあって、自動化機能を使うかまだ決めていなければ、起動時に1回確認する
 if (needsXAutomationDecision(xAutomationSetting.get(), state.xs)) xAutomationConsent.open();
