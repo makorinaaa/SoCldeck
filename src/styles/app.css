@@ -679,6 +679,10 @@ button:disabled{cursor:not-allowed}
 .x-status-readers webview{width:1024px;height:768px}
 .x-reply-to{margin-top:4px;font-size:11px;color:var(--text3)}
 .x-native-acts .pa:disabled{opacity:.6;cursor:progress}
+.x-native-acts .pa.x-blocked{opacity:.35;cursor:not-allowed}
+.x-native-acts .pa.x-blocked:hover{background:transparent;color:var(--text3)}
+.x-lock{display:inline-flex;align-self:center;color:var(--text2)}
+.x-lock svg{width:11px;height:11px}
 #x-post-detail .chead{gap:4px}
 #x-post-detail .chead h2{flex:1}
 .x-native-acts .x-more{margin-left:auto}

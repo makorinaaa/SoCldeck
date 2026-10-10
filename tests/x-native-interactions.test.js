@@ -46,7 +46,7 @@ function event(target) {
   return { target, preventDefault() {}, stopPropagation() {} };
 }
 
-function createHarness({ toggleResult = 'done' } = {}) {
+function createHarness({ toggleResult = 'done', getAccountId } = {}) {
   const window = load();
   const appended = [];
   const webviews = [];
@@ -101,6 +101,7 @@ function createHarness({ toggleResult = 'done' } = {}) {
     statusRuntime,
     renderPost: view.renderPost,
     renderThread: view.renderThread,
+    getAccountId,
     intents: {
       reply: target => intents.replies.push(target),
       quote: target => intents.quotes.push(target),
@@ -477,6 +478,47 @@ test('a post deleted from one account disappears from every account Column', asy
   await flush();
   assert.doesNotMatch(main.innerHTML, new RegExp(`data-x-id="${target}"`));
   assert.doesNotMatch(sub.innerHTML, new RegExp(`data-x-id="${target}"`), 'the other account no longer shows it');
+});
+
+test('a protected account post shows a lock and cannot be reposted or quoted', async () => {
+  const view = load().SocialDeckXPostView.createXPostView({ icons: { lock: '<svg class="lock"></svg>' } });
+  const locked = { id: '6', url: 'https://x.com/locked/status/6', author: { handle: 'locked', protected: true }, segments: [], media: [], viewer: {} };
+  const html = view.renderPost(locked);
+  assert.match(html, /class="x-lock"[^>]*><svg class="lock">/);
+  assert.match(html, /data-x-action="repost" title="非公開アカウントのポストはリポストできません" disabled/);
+  assert.doesNotMatch(view.renderPost({ ...locked, author: { handle: 'open' } }), /x-lock|x-blocked/);
+  assert.match(view.renderPost({ id: '7', author: { handle: 'a' }, segments: [], media: [], quoted: locked }), /class="x-lock"/);
+  // A repost made before the account went protected can still be undone.
+  assert.doesNotMatch(view.renderPost({ ...locked, viewer: { reposted: true } }), /x-blocked/);
+
+  const harness = createHarness();
+  const detail = harness.runtime.openPost(locked, 'persist:x-2');
+  const before = harness.appended.length;
+  await detail.overlay.dispatch('click', event(postElement('6', [{ matches: ['[data-x-action]'], dataset: { xAction: 'repost' } }])));
+  assert.equal(harness.appended.length, before, 'no repost menu opens');
+
+  const reposted = { ...locked, id: '8', url: 'https://x.com/locked/status/8', viewer: { reposted: true } };
+  const undo = harness.runtime.openPost(reposted, 'persist:x-2');
+  await undo.overlay.dispatch('click', event(postElement('8', [{ matches: ['[data-x-action]'], dataset: { xAction: 'repost' } }])));
+  const menu = harness.appended.at(-1);
+  assert.match(menu.innerHTML, /リポストを取り消す/);
+  assert.doesNotMatch(menu.innerHTML, /引用/);
+});
+
+test('the account can repost and quote its own protected post', async () => {
+  const view = load().SocialDeckXPostView.createXPostView({});
+  const mine = { id: '9', url: 'https://x.com/me/status/9', author: { handle: 'me', id: '11', protected: true }, segments: [], media: [], viewer: {} };
+  assert.doesNotMatch(view.renderPost(mine, { own: true }), /x-blocked/);
+
+  const harness = createHarness({ getAccountId: async () => '11' });
+  // Mounting a Column looks up the account's own user id.
+  harness.runtime.mount({ id: 'a', partition: 'persist:x-2', host: harness.host });
+  await flush();
+  const detail = harness.runtime.openPost(mine, 'persist:x-2');
+  await detail.overlay.dispatch('click', event(postElement('9', [{ matches: ['[data-x-action]'], dataset: { xAction: 'repost' } }])));
+  const menu = harness.appended.at(-1);
+  assert.match(menu.innerHTML, /リポスト/);
+  assert.match(menu.innerHTML, /引用/);
 });
 
 test('posts show no view count and the own-post menu sits at the end of the actions', () => {

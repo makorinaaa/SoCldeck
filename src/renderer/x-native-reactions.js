@@ -175,10 +175,14 @@
       });
     }
 
-    function openRepostMenu(button, post, partition) {
+    function openRepostMenu(button, post, partition, { own = false } = {}) {
+      const reposted = Boolean(post.viewer?.reposted);
+      // Someone else's protected post can be neither reposted nor quoted, only un-reposted.
+      const blocked = Boolean(post.author?.protected) && !own;
+      if (blocked && !reposted) return;
       showMenu(button, `
-        <button type="button" data-x-menu-action="repost">${icons.repost || ''} ${post.viewer?.reposted ? 'リポストを取り消す' : 'リポスト'}</button>
-        <button type="button" data-x-menu-action="quote">引用</button>`, action => {
+        <button type="button" data-x-menu-action="repost">${icons.repost || ''} ${reposted ? 'リポストを取り消す' : 'リポスト'}</button>
+        ${blocked ? '' : '<button type="button" data-x-menu-action="quote">引用</button>'}`, action => {
         if (action === 'repost') toggle('repost', post, partition);
         else intents.quote?.({ id: post.id, url: post.url, handle: post.author?.handle || '', partition });
       });

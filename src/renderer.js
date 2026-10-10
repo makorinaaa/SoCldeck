@@ -912,7 +912,7 @@ xWebViewRuntime = SocialDeckXWebViewRuntime.createXWebViewRuntime({
   openImage: openImg,
 });
 const xPostView = SocialDeckXPostView.createXPostView({
-  icons: { reply: SVG.reply, repost: SVG.rt, heart: SVG.heart, more: SVG.more || '' },
+  icons: { reply: SVG.reply, repost: SVG.rt, heart: SVG.heart, more: SVG.more || '', lock: SVG.lock },
   relTime,
   getPendingReaction: (kind, id, partition) => xNativeTimelineRuntime?.getPendingReaction(kind, id, partition) || null,
 });

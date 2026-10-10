@@ -4,6 +4,7 @@ const fixture = require('./fixtures/x-home-timeline.json');
 const {
   buildSegments,
   normalizeTimelineResponse,
+  normalizeUser,
   timelineOperation,
 } = require('../src/main/x-timeline-normalizer');
 
@@ -33,6 +34,7 @@ test('normalizes tweets, reposts and conversation modules while dropping ads', (
     name: 'Alice',
     avatar: 'https://pbs.twimg.com/profile_images/1/alice_bigger.jpg',
     verified: true,
+    protected: false,
   });
   assert.equal(first.url, 'https://x.com/alice/status/1800000000000000003');
   assert.equal(first.createdAt, '2026-10-05T03:00:00.000Z');
@@ -131,6 +133,14 @@ test('normalizes TweetDetail into ancestors, the focal post and reply chains', (
   // Without a focal id in the request URL the whole thread is returned for the renderer to pick from.
   assert.equal(normalizeCapturedResponse(detail, 'TweetDetail', 'https://x.com/i/api/graphql/q/TweetDetail').focalId, '');
   assert.equal(normalizeCapturedResponse(detail, 'TweetDetail', 'https://x.com/i/api/graphql/q/TweetDetail?variables=%7B%22focalTweetId%22%3A%229%22%7D'), null);
+});
+
+test('marks protected accounts from either the privacy or the legacy field', () => {
+  const user = extra => ({ result: { rest_id: '1', core: { screen_name: 'locked' }, ...extra } });
+  assert.equal(normalizeUser(user({ privacy: { protected: true } })).protected, true);
+  assert.equal(normalizeUser(user({ legacy: { protected: true } })).protected, true);
+  assert.equal(normalizeUser(user({ privacy: { protected: false }, legacy: { protected: true } })).protected, false);
+  assert.equal(normalizeUser(user({})).protected, false);
 });
 
 test('keeps the replied-to user id for timeline filtering', () => {
