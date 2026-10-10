@@ -56,6 +56,17 @@
       return snapshot;
     }
 
+    // 再起動前に結果不明だった投稿を戻す。再送前の確認を出すため
+    function restore(status) {
+      if (activeSubmission || status !== 'unknown') return snapshot;
+      snapshot = {
+        status: 'unknown',
+        retainedRequest: null,
+        error: null,
+      };
+      return snapshot;
+    }
+
     function reset() {
       if (activeSubmission) return snapshot;
       snapshot = {
@@ -66,7 +77,7 @@
       return snapshot;
     }
 
-    return { submit, getSnapshot, reset };
+    return { submit, getSnapshot, reset, restore };
   }
 
   global.SocialDeckComposeAttempt = {

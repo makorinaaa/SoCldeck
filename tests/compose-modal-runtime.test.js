@@ -1070,3 +1070,67 @@ test('forgets every stored draft when all accounts log out', () => {
   assert.deepEqual([...values.keys()], ['socialdeck_v4']);
   assert.equal(runtime.open('x').text, '');
 });
+
+test('keeps an unknown single X post locked for confirmation across restart', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  let singleStatus = 'idle';
+  const restored = [];
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [{ username: '@alice', partition: 'persist:x-0' }], b: null }),
+    coordinator: {
+      getStatus: () => ({ single: { status: singleStatus }, crossPost: { targets: [] } }),
+      restoreSingle: networkId => restored.push(networkId),
+      resetCrossPost() {},
+    },
+    view: { connect: value => { handlers = value; } },
+  });
+  const first = make();
+  first.open('x');
+  handlers.textChanged('x', '結果不明の投稿');
+  first.setBusy('x', true, '送信中…');
+  singleStatus = 'unknown';
+  first.setBusy('x', false, '確認後に再試行', { locked: true });
+
+  singleStatus = 'idle';
+  const snapshot = make().open('x');
+
+  assert.equal(snapshot.text, '結果不明の投稿');
+  assert.equal(snapshot.locked, true);
+  assert.equal(snapshot.actionLabel, '確認後に再試行');
+  assert.deepEqual(restored, ['x']);
+});
+
+test('reuses the delivery key while a post is locked for retry, also after restart', () => {
+  const values = new Map();
+  const storage = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  let singleStatus = 'idle';
+  let handlers;
+  const make = () => loadRuntime().createComposeModalRuntime({ storage,
+    getAccounts: () => ({ x: [], b: { did: 'did:plc:me' } }),
+    coordinator: {
+      getStatus: () => ({ single: { status: singleStatus }, crossPost: { targets: [] } }),
+      restoreSingle() {},
+      resetCrossPost() {},
+      reset() {},
+    },
+    view: { connect: value => { handlers = value; } },
+  });
+  const first = make();
+  first.open('b');
+  handlers.textChanged('b', 'hello');
+  first.setBusy('b', true, '送信中…', { deliveryKey: 'first-key' });
+  singleStatus = 'unknown';
+  first.setBusy('b', false, '再試行', { locked: true });
+  first.setBusy('b', true, '送信中…', { deliveryKey: 'second-key' });
+  assert.equal(first.getSnapshot('b').deliveryKey, 'first-key');
+  first.setBusy('b', false, '再試行', { locked: true });
+
+  const second = make();
+  assert.equal(second.open('b').deliveryKey, 'first-key');
+  second.close('b', { discard: true });
+  second.open('b');
+  second.setBusy('b', true, '送信中…', { deliveryKey: 'third-key' });
+  assert.equal(second.getSnapshot('b').deliveryKey, 'third-key');
+});

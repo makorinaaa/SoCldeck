@@ -11,6 +11,7 @@
     getReplyTarget = () => null,
     maxVideoSeconds = { x: 140, b: 180 },
     formatSeconds = value => String(value),
+    createPostKey = () => null,
     ui = {},
   } = {}) {
     if (!modalRuntime || !coordinator || typeof createRequest !== 'function'
@@ -63,17 +64,21 @@
       };
     }
 
-    async function submitShared(ownerNetworkId, plan) {
-      const hasUnknown = coordinator.getStatus(ownerNetworkId).hasUnknownCross;
-      let retryUnknown = false;
-      if (hasUnknown) {
-        retryUnknown = confirmDialog(
-          '投稿先で未投稿であることを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
-        );
-        if (!retryUnknown) return;
-      }
+    function withPostKey(delivery, networkId) {
+      const rkey = modalRuntime.getSnapshot(networkId)?.deliveryKey;
+      return rkey ? { ...delivery, rkey } : delivery;
+    }
 
-      modalRuntime.setBusy(ownerNetworkId, true, 'X + Blueskyへ送信中...');
+    async function submitShared(ownerNetworkId, plan) {
+      // Bluesky は同じ rkey で再送するので重複しない。確認が要るのは X の結果が不明なときだけ
+      const xUnknown = (coordinator.getStatus(ownerNetworkId).crossPost?.targets || [])
+        .some(target => target.id === 'x' && target.status === 'unknown');
+      if (xUnknown && !confirmDialog(
+        'X上で投稿されていないことを確認しましたか？\n再試行すると重複投稿になる可能性があります。'
+      )) return;
+
+      modalRuntime.setBusy(ownerNetworkId, true, 'X + Blueskyへ送信中...', { deliveryKey: createPostKey() });
+      const blueskyDelivery = withPostKey(plan.bluesky.delivery, ownerNetworkId);
       const result = await coordinator.submitCrossPost([
         {
           id: 'x',
@@ -84,10 +89,10 @@
         {
           id: 'b',
           request: plan.bluesky.request,
-          deliver: () => adapters.executeComposeDelivery(plan.bluesky.delivery),
+          deliver: () => adapters.executeComposeDelivery(blueskyDelivery),
           completionPlan: plan.bluesky.completionPlan,
         },
-      ], { retryUnknown, onProgress: () => modalRuntime.setBusy(ownerNetworkId, true, 'X + Blueskyへ送信中...') });
+      ], { retryUnknown: true, onProgress: () => modalRuntime.setBusy(ownerNetworkId, true, 'X + Blueskyへ送信中...') });
       modalRuntime.setBusy(ownerNetworkId, false, null, { locked: result.status !== 'succeeded' });
 
       if (result.status === 'succeeded') {
@@ -200,13 +205,13 @@
       }
 
       if (result.status === 'unknown') {
-        modalRuntime.setBusy('x', false, '確認後に再試行');
+        modalRuntime.setBusy('x', false, '確認後に再試行', { locked: true });
         toast('投稿結果を確認できませんでした。X上で投稿状況を確認してください');
         return;
       }
 
       clearTrimStatus();
-      modalRuntime.setBusy('x', false, '再試行');
+      modalRuntime.setBusy('x', false, '再試行', { locked: false });
       toast('X post error: ' + result.error.message);
     }
 
@@ -255,11 +260,12 @@
       const delivery = adapters.prepareComposeDelivery(request);
       const completionPlan = adapters.prepareComposeCompletion(request);
 
-      modalRuntime.setBusy('b', true, '送信中…');
+      modalRuntime.setBusy('b', true, '送信中…', { deliveryKey: createPostKey() });
+      const keyedDelivery = withPostKey(delivery, 'b');
       const result = await coordinator.submitSingle({
         networkId: 'b',
         request,
-        deliver: () => adapters.executeComposeDelivery(delivery),
+        deliver: () => adapters.executeComposeDelivery(keyedDelivery),
         completionPlan,
       });
 
@@ -269,7 +275,13 @@
         return;
       }
 
-      modalRuntime.setBusy('b', false, '再試行');
+      if (result.status === 'unknown') {
+        modalRuntime.setBusy('b', false, '再試行', { locked: true });
+        toast('Blueskyの投稿結果を確認できませんでした。再試行しても重複投稿にはなりません');
+        return;
+      }
+
+      modalRuntime.setBusy('b', false, '再試行', { locked: false });
       toast(`投稿エラー: ${result.error.message}`);
     }
 

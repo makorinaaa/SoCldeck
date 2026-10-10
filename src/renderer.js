@@ -167,7 +167,7 @@ const bskyComposeExecutor = SocialDeckBskyComposeDelivery.createBlueskyComposeDe
   },
   buildFacets,
   resolveFacets: facets => resolveMentionDids(facets),
-  createRecord: ({ record }) => bskyGateway.createPostRecord({ record }),
+  createRecord: ({ record, rkey }) => bskyGateway.createPostRecord({ record, rkey }),
 });
 const networkAdapters = SocialDeckNetworkAdapters.createNetworkAdapterRegistry({
   icons: SVG,
@@ -561,6 +561,7 @@ const composeSubmission = SocialDeckComposeSubmission.createComposeSubmission({
   getReplyTarget: () => composeModalRuntime.getSnapshot('b').reply,
   maxVideoSeconds: { x: composeMedia.MAX_VIDEO_SECONDS, b: 180 },
   formatSeconds: fmtSec,
+  createPostKey: () => SocialDeckBskyComposeDelivery.createPostKey(),
   ui: {
     toast,
     confirm: message => confirm(message),
