@@ -307,7 +307,10 @@
       if (coordinator.getStatus?.(networkId)?.isSending) {
         return { status: 'blocked', snapshot: getSnapshot(networkId) };
       }
-      if (!discard) {
+      // 返信は閉じたら初期化する。次に開いたとき、返信のつもりの文が通常の投稿にならないように。
+      // 結果不明・一部失敗の再試行待ち（ロック中）は、重複を防ぐ情報を残すため初期化しない
+      const replying = Boolean(networkId === 'b' ? reply : xReply);
+      if (!discard && !(replying && !locked[networkId])) {
         saveDraft(networkId);
         if (openNetworkId === networkId) openNetworkId = null;
         view.setOpen?.(networkId, false);
