@@ -840,6 +840,40 @@ test('Compose attaches a pasted screenshot and files dropped on the text area', 
   assert.equal(await page.locator('#cta').inputValue(), '');
 });
 
+test('Compose reorders attached images with their ALT text and opens them enlarged', async t => {
+  const { page } = await launchApp(t, COMPOSE_FIXTURES);
+  await page.locator('#app').waitFor({ state: 'visible' });
+  await page.locator('#sb-post-b').click();
+  await page.locator('#b-img-file').setInputFiles(['a', 'b', 'c'].map(name => ({
+    name: `${name}.png`, mimeType: 'image/png', buffer: Buffer.from(name),
+  })));
+  await page.locator('#b-alt-0').fill('first');
+  const alts = () => page.locator('#b-img-preview .compose-alt-input').evaluateAll(inputs => inputs.map(input => input.value));
+
+  await page.locator('#b-img-preview [data-compose-action="move-image"][data-compose-image-index="0"][data-compose-move="1"]').click();
+  assert.deepEqual(await alts(), ['', 'first', '']);
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '2枚目を後ろへ');
+
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    const fire = (target, type) => target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, bubbles: true, cancelable: true }));
+    const rows = document.querySelectorAll('#b-img-preview .compose-img-row');
+    fire(rows[1].querySelector('.compose-img-open'), 'dragstart');
+    fire(rows[2], 'dragover');
+    fire(rows[2], 'drop');
+    fire(rows[1].querySelector('.compose-img-open'), 'dragend');
+  });
+  assert.deepEqual(await alts(), ['', '', 'first']);
+  assert.equal(await page.locator('#b-img-preview .compose-img-row').count(), 3);
+
+  await page.locator('#b-img-preview [data-compose-action="open-image"][data-compose-image-index="2"]').click();
+  await page.locator('#lightbox.on').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#lightbox-counter').textContent(), '3 / 3');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#lightbox').evaluate(element => element.classList.contains('on')), false);
+  assert.equal(await page.locator('#compMod').evaluate(element => element.classList.contains('on')), true);
+});
+
 test('polish journey restores drafts, previews density and opens column actions', async t => {
   const { page } = await launchApp(t, COMPOSE_FIXTURES);
   await page.locator('#app').waitFor({ state: 'visible' });

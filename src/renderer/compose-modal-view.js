@@ -98,6 +98,8 @@
     // 毎キー入力のrenderで変化しない部分は署名比較で再構築を省く
     const renderedSignatures = { xAccountSelect: null, crossPostAccounts: null };
     const trimPreviewActive = { x: false, b: false };
+    let pendingMoveFocus = null;
+    let draggingImage = null;
     const thumbnailGeneration = { x: 0, b: 0 };
 
     function formatTrimTime(value) {
@@ -141,6 +143,40 @@
     function objectUrl(file) {
       if (!fileUrls.has(file)) fileUrls.set(file, urlApi.createObjectURL(file));
       return fileUrls.get(file);
+    }
+
+    // サムネイルはクリックで拡大、ドラッグかボタンで並べ替える。ALT 入力欄の文字選択を
+    // 邪魔しないよう、ドラッグできるのはサムネイルだけにする
+    function renderImageRows(networkId, images, altPlaceholder) {
+      const last = images.length - 1;
+      return images.map((image, imageIndex) => {
+        const number = imageIndex + 1;
+        const target = `data-compose-network="${networkId}" data-compose-image-index="${imageIndex}"`;
+        return `
+          <div class="compose-img-row" data-compose-image-row="${networkId}" data-compose-image-index="${imageIndex}">
+            <button type="button" class="compose-img-open" draggable="true" data-compose-action="open-image" ${target}
+              aria-label="${number}枚目を拡大（ドラッグで並べ替え）"><img class="compose-img-thumb" src="${escape(objectUrl(image.file))}" alt="" draggable="false"></button>
+            <input id="${networkId}-alt-${imageIndex}" class="compose-alt-input" type="text" placeholder="${altPlaceholder}" maxlength="1000"
+              value="${escape(image.altText || '')}" data-compose-alt-network="${networkId}" data-compose-image-index="${imageIndex}">
+            <div class="compose-img-order">
+              <button type="button" class="compose-img-move" data-compose-action="move-image" ${target} data-compose-move="-1"
+                aria-label="${number}枚目を前へ"${imageIndex === 0 ? ' disabled' : ''}>↑</button>
+              <button type="button" class="compose-img-move" data-compose-action="move-image" ${target} data-compose-move="1"
+                aria-label="${number}枚目を後ろへ"${imageIndex === last ? ' disabled' : ''}>↓</button>
+            </div>
+            <button class="compose-img-remove" data-compose-action="remove-image" ${target}>x</button>
+          </div>`;
+      }).join('');
+    }
+
+    // ボタンで動かした画像のボタンに、描き直した後もフォーカスを戻す
+    function restoreMoveFocus(networkId, preview) {
+      if (pendingMoveFocus?.networkId !== networkId) return;
+      const { index, move } = pendingMoveFocus;
+      pendingMoveFocus = null;
+      const selector = `[data-compose-action="move-image"][data-compose-image-index="${index}"]`;
+      const button = preview?.querySelector?.(`${selector}[data-compose-move="${move}"]`);
+      (button && !button.disabled ? button : preview?.querySelector?.(`${selector}:not([disabled])`))?.focus?.();
     }
 
     function releaseUnusedUrls() {
@@ -389,13 +425,8 @@
               <span class="compose-file-name">${escape(video.file?.name || '動画')}</span>
               <button class="compose-file-remove" data-compose-action="remove-video">削除</button>
             </div>`
-          : images.map((image, imageIndex) => `
-            <div class="compose-img-row">
-              <img class="compose-img-thumb" src="${escape(objectUrl(image.file))}">
-              <input id="x-alt-${imageIndex}" class="compose-alt-input" type="text" placeholder="画像の説明（Bluesky同時投稿に使用）" maxlength="1000"
-                value="${escape(image.altText || '')}" data-compose-alt-network="x" data-compose-image-index="${imageIndex}">
-              <button class="compose-img-remove" data-compose-action="remove-image" data-compose-network="x" data-compose-image-index="${imageIndex}">x</button>
-            </div>`).join('');
+          : renderImageRows('x', images, '画像の説明（Bluesky同時投稿に使用）');
+        restoreMoveFocus('x', preview);
       }
       syncAltInputs(preview, images);
       renderedMedia.x = { images: imageFiles, video: video?.file || null };
@@ -470,13 +501,8 @@
               <span class="compose-file-name">${escape(video.file?.name || '動画')}</span>
               <button class="compose-file-remove" data-compose-action="remove-video">削除</button>
             </div>`
-          : images.map((image, imageIndex) => `
-          <div class="compose-img-row">
-            <img class="compose-img-thumb" src="${escape(objectUrl(image.file))}">
-            <input id="b-alt-${imageIndex}" class="compose-alt-input" type="text" placeholder="Alt テキスト（画像の説明）" maxlength="1000"
-              value="${escape(image.altText || '')}" data-compose-alt-network="b" data-compose-image-index="${imageIndex}">
-            <button class="compose-img-remove" data-compose-action="remove-image" data-compose-network="b" data-compose-image-index="${imageIndex}">x</button>
-          </div>`).join('');
+          : renderImageRows('b', images, 'Alt テキスト（画像の説明）');
+        restoreMoveFocus('b', elements['b-img-preview']);
       }
       syncAltInputs(elements['b-img-preview'], images);
       renderedMedia.b = { images: imageFiles, video: video?.file || null };
@@ -548,6 +574,23 @@
       if (action === 'remove-image') {
         handlers.removeImage?.(
           actionElement.dataset.composeNetwork || networkId,
+          Number(actionElement.dataset.composeImageIndex),
+        );
+      }
+      if (action === 'move-image') {
+        const imageNetworkId = actionElement.dataset.composeNetwork || networkId;
+        const from = Number(actionElement.dataset.composeImageIndex);
+        const move = Number(actionElement.dataset.composeMove);
+        const to = from + move;
+        if (to >= 0 && to < renderedMedia[imageNetworkId].images.length) {
+          pendingMoveFocus = { networkId: imageNetworkId, index: to, move };
+          handlers.moveImage?.(imageNetworkId, from, to);
+        }
+      }
+      if (action === 'open-image') {
+        const imageNetworkId = actionElement.dataset.composeNetwork || networkId;
+        ui.openImages?.(
+          renderedMedia[imageNetworkId].images.map(file => objectUrl(file)),
           Number(actionElement.dataset.composeImageIndex),
         );
       }
@@ -628,10 +671,32 @@
       return [...(event.dataTransfer?.types || [])].includes('Files');
     }
 
+    function imageRowOf(event, networkId) {
+      const row = event.target?.closest?.('[data-compose-image-row]');
+      return row?.dataset?.composeImageRow === networkId ? row : null;
+    }
+
     function createFileHandlers(networkId, modal) {
       const dropArea = () => elements[`${networkId}-img-drop`];
       return {
+        // 添付画像のドラッグは並べ替え。ファイルのドロップとは別に扱う
+        dragstart(event) {
+          const row = imageRowOf(event, networkId);
+          if (!row) return;
+          draggingImage = { networkId, index: Number(row.dataset.composeImageIndex) };
+          event.dataTransfer?.setData?.('text/x-socialdeck-image', String(draggingImage.index));
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+        },
+        dragend() {
+          draggingImage = null;
+        },
         dragover(event) {
+          if (draggingImage) {
+            if (draggingImage.networkId !== networkId || !imageRowOf(event, networkId)) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+            return;
+          }
           if (!hasFiles(event)) return;
           event.preventDefault();
           if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
@@ -642,6 +707,16 @@
           dropArea()?.classList.remove('drag-on');
         },
         drop(event) {
+          if (draggingImage) {
+            const row = imageRowOf(event, networkId);
+            const from = draggingImage.index;
+            draggingImage = null;
+            if (!row) return;
+            event.preventDefault();
+            const to = Number(row.dataset.composeImageIndex);
+            if (from !== to) handlers.moveImage?.(networkId, from, to);
+            return;
+          }
           if (!hasFiles(event)) return;
           event.preventDefault();
           dropArea()?.classList.remove('drag-on');
