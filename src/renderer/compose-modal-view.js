@@ -437,7 +437,6 @@
       }
       if (elements['cta'] && elements.cta.value !== snapshot.text) elements.cta.value = snapshot.text;
       if (elements.cta) {
-        elements.cta.maxLength = snapshot.characterLimit;
         elements.cta.readOnly = snapshot.locked || snapshot.busy;
       }
       if (elements.cct) {

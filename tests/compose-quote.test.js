@@ -43,11 +43,13 @@ function createDocument() {
 function createHarness({
   account = { bg: '#123', initials: 'ME' },
   createPostRecord = async record => ({ record }),
+  measurePost,
 } = {}) {
   const documentRef = createDocument();
   const calls = { records: [], toasts: [], refreshes: 0, resolvedFacets: [] };
   const quote = loadModule().createComposeQuote({
     documentRef,
+    ...(measurePost ? { measurePost } : {}),
     getAccount: () => account,
     buildFacets: text => (text ? [{ text }] : []),
     resolveMentionDids: async facets => {
@@ -150,4 +152,23 @@ test('close clears the quote target so submit becomes a no-op', async () => {
 
   await quote.submit();
   assert.equal(calls.records.length, 0);
+});
+
+test('counts quote text by Bluesky graphemes', async () => {
+  const { measurePost } = await import('../src/renderer/post-length.mjs');
+  const { quote, documentRef } = createHarness({ measurePost });
+  const textarea = { id: 'quote-ta', value: '😀'.repeat(151) };
+  const counter = { id: 'quote-cct', textContent: '', className: '' };
+  const button = { id: 'quote-sndb', disabled: false };
+  documentRef.register(textarea);
+  documentRef.register(counter);
+  documentRef.register(button);
+
+  quote.updateCharacterCount();
+  assert.equal(counter.textContent, '151 / 300');
+  assert.equal(button.disabled, false);
+
+  textarea.value = '😀'.repeat(301);
+  quote.updateCharacterCount();
+  assert.equal(button.disabled, true);
 });

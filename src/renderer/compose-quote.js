@@ -6,6 +6,11 @@
     resolveMentionDids = async facets => facets,
     createPostRecord,
     characterLimit = 300,
+    // post-length.mjs の measurePost（このファイルは ES モジュールを読み込めないので渡してもらう）
+    measurePost = value => {
+      const count = String(value || '').trim().length;
+      return { count, limit: characterLimit, valid: count <= characterLimit };
+    },
     avatarFallbackBackground = '',
     ui = {},
     intents = {},
@@ -54,7 +59,7 @@
           </div>
           <div class="comp-wrap">
             <div class="comp-av" style="background:${avatarBackground}">${avatarInner}</div>
-            <textarea class="comp-ta" id="quote-ta" placeholder="コメントを追加…" maxlength="${characterLimit}" data-input-action="update-quote-count"></textarea>
+            <textarea class="comp-ta" id="quote-ta" placeholder="コメントを追加…" data-input-action="update-quote-count"></textarea>
           </div>
           <div class="comp-foot">
             <span class="cc" id="quote-cct">0 / ${characterLimit}</span>
@@ -66,16 +71,16 @@
     }
 
     function updateCharacterCount() {
-      const length = documentRef.getElementById('quote-ta')?.value.length || 0;
+      const { count, limit, valid } = measurePost(documentRef.getElementById('quote-ta')?.value || '', ['b']);
       const counter = documentRef.getElementById('quote-cct');
       if (counter) {
-        counter.textContent = `${length} / ${characterLimit}`;
+        counter.textContent = `${count} / ${limit}`;
         counter.className = 'cc'
-          + (length > characterLimit - 40 ? ' w' : '')
-          + (length > characterLimit ? ' over' : '');
+          + (count > limit - 40 ? ' w' : '')
+          + (!valid ? ' over' : '');
       }
       const button = documentRef.getElementById('quote-sndb');
-      if (button) button.disabled = length > characterLimit;
+      if (button) button.disabled = !valid;
     }
 
     async function submit() {
